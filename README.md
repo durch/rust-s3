@@ -1,5 +1,5 @@
 # rust-s3
-Rust library for working with Amazon S3
+Tiny Rust library for working with Amazon S3
 
 *Increasingly more loosly based on [crates.io](https://github.com/rust-lang/crates.io/tree/master/src/s3) implementation.*
 
