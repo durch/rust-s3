@@ -1,0 +1,18 @@
+[package]
+
+name = "s3"
+version = "0.2.0"
+authors = ["Drazen Urch"]
+
+[lib]
+name = "s3"
+path = "src/lib.rs"
+
+[dependencies]
+openssl = "*"
+time = "*"
+curl = "*"
+rustc-serialize = "*"
+confy = '*'
+url = "*"
+log = '*'

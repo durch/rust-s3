@@ -1,0 +1,8 @@
+amz_expire = "604800"
+amz_algo = "AWS4-HMAC-SHA256"
+amz_region = "eu-west-1"
+amz_service = "s3"
+amz_payload = "UNSIGNED-PAYLOAD"
+amz_request_version = "aws4_request"
+long_date = "%Y%m%dT%H%M%SZ"
+short_date = "%Y%m%d"
