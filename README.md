@@ -21,9 +21,18 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ## Usage 
 
+*In your Cargo.toml*
+
 ```
-extern crate s3
-use s3::{Bucket, put_s3, get_s3, list_s3};
+[dependencies]
+rust-s3 = '0.2.0'
+```
+
+#### Example
+
+```
+extern crate rust-s3;
+use rust-s3::{Bucket, put_s3, get_s3, list_s3};
 
 const S3_BUCKET: &'static str = "bucket_name";
 const AWS_ACCESS: &'static str = "access_key";
