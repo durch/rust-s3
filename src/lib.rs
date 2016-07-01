@@ -276,9 +276,7 @@ fn get_signature_key(key: &str, date_stamp: &str, region_name: &str, service_nam
 
 pub fn put_s3(bucket: &Bucket,
               s3_path: &str,
-              output: &[u8],
-              aws_access: &'static str,
-              aws_secret: &'static str) -> String {
+              output: &[u8]) -> String {
 
   let (url, _) = bucket.execute(Command::Put { content: output }, &s3_path);
   let t = time::now();
@@ -311,7 +309,7 @@ pub fn put_s3(bucket: &Bucket,
                                  AMZ_REQ_VER);
   let canonical_querystring = format!("{}={}&{}={}%2F{}&{}={}&{}={}&{}={}",
                                 &"X-Amz-Algorithm", AMZ_ALGO,
-                                &"X-Amz-Credential", aws_access, credential_scope.replace("/", "%2F"),
+                                &"X-Amz-Credential", bucket.access_key, credential_scope.replace("/", "%2F"),
                                 &"X-Amz-Date", &amzdate,
                                 &"X-Amz-Expires", AMZ_EXPIRE,
                                 &"X-Amz-SignedHeaders", signed_headers);
@@ -327,7 +325,7 @@ pub fn put_s3(bucket: &Bucket,
                            amzdate,
                            credential_scope,
                            hash::hash(hash::Type::SHA256, canonical_request.as_bytes()).to_hex());
-  let signing_key = get_signature_key(aws_secret, &datestamp, AMZ_REGION, AMZ_SERVICE);
+  let signing_key = get_signature_key(&bucket.secret_key, &datestamp, AMZ_REGION, AMZ_SERVICE);
   let signature = sign(&signing_key, &string_to_sign.as_bytes()).to_hex();
   let canonical_querystring = format!("{}&{}={}",
                                       canonical_querystring,
