@@ -1,8 +1,13 @@
 [package]
-
 name = "rust-s3"
 version = "0.2.0"
 authors = ["Drazen Urch"]
+description = "Tiny Rust library for working with Amazon S3."
+repository = "https://github.com/durch/rust-s3"
+readme = "https://github.com/durch/rust-s3/blob/master/README.md"
+keywords = ["Amazon", "AWS", "S3"]
+license = "MIT"
+license-file = "https://github.com/durch/rust-s3/blob/master/LICENSE.md"
 
 [lib]
 name = "s3"
