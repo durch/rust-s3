@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/durch/rust-s3.svg?branch=master)](https://travis-ci.org/durch/rust-s3)
+
 # rust-s3
 Tiny Rust library for working with Amazon S3
 
