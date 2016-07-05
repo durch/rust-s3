@@ -8,6 +8,8 @@ addons:
     - libdw-dev
     - binutils-dev
 rust:
+- stable
+- beta
 - nightly
 before_script:
 - |
