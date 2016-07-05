@@ -1,4 +1,3 @@
-#![feature(plugin)]
 extern crate time;
 extern crate curl;
 extern crate rustc_serialize;
