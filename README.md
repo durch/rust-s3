@@ -20,8 +20,7 @@ This means you can upload to s3, and give the link to select people without havi
 
 ## Configuration
 
-Compile time configuration is done using [Config.toml](https://github.com/durch/rust-s3/blob/master/Config.toml),
-curtosy of [confy](https://github.com/Luthaf/confy). You don't really have to touch anything there, maybe `amz-expire`,
+Configuration is currently in source... You don't really have to touch anything there, maybe `amz-expire`,
 it is configured for one week which is the maximum Amazon allows ATM.
 
 ## Usage
