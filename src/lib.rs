@@ -1,5 +1,4 @@
 #![feature(plugin)]
-#![plugin(confy(file="Config.toml"))]
 extern crate time;
 extern crate curl;
 extern crate rustc_serialize;
@@ -18,14 +17,14 @@ use openssl::crypto::{hmac, hash};
 use rustc_serialize::base64::{ToBase64, STANDARD};
 use rustc_serialize::hex::ToHex;
 
-pub const LONG_DATE: &'static str = config!("long_date");
-const SHORT_DATE: &'static str = config!("short_date");
-const AMZ_EXPIRE: &'static str = config!("amz_expire");
-const AMZ_ALGO: &'static str = config!("amz_algo");
-const AMZ_REGION: &'static str = config!("amz_region");
-const AMZ_SERVICE: &'static str = config!("amz_service");
-const AMZ_PAYLOAD: &'static str = config!("amz_payload");
-const AMZ_REQ_VER: &'static str = config!("amz_request_version");
+pub const LONG_DATE: &'static str = "%Y%m%dT%H%M%SZ";
+const SHORT_DATE: &'static str = "%Y%m%d";
+const AMZ_EXPIRE: &'static str = "604800";
+const AMZ_ALGO: &'static str = "AWS4-HMAC-SHA256";
+const AMZ_REGION: &'static str = "eu-west-1";
+const AMZ_SERVICE: &'static str = "s3";
+const AMZ_PAYLOAD: &'static str = "UNSIGNED-PAYLOAD";
+const AMZ_REQ_VER: &'static str = "aws4_request";
 
 
 pub struct Bucket {
@@ -38,7 +37,7 @@ pub struct Bucket {
 
 macro_rules! build_headers {
     ($list:ident, $($x:expr),+) => (
-        $($list.append($x).unwrap())+
+      $($list.append($x).unwrap())+
     )
 }
 
@@ -65,8 +64,6 @@ macro_rules! headers {
     }).unwrap();
   )
 }
-
-
 
 enum Command<'a> {
   Put {
@@ -106,7 +103,7 @@ impl Bucket {
     let host = self.host();
     debug!("host: {}", host);
 
-    let date = time::now().rfc822z().to_string();
+    let date = time::now_utc().rfc822z().to_string();
     debug!("date: {}", date);
 
     let cmd_string = match cmd {
@@ -114,8 +111,9 @@ impl Bucket {
       _ => "GET"
     };
 
-    let auth = self.auth(cmd_string, &date, path, "", content_type);
-    debug!("auth: {}", auth);
+    debug!("command: {}", cmd_string);
+    let a = self.auth(&cmd_string, &date, path, "", &content_type);
+    debug!("auth: {}", a);
 
     // TODO implement delimiter into request for List
     let url = match cmd {
@@ -137,9 +135,21 @@ impl Bucket {
     build_headers!(list,
             &format!("Host: {}", &host),
             &format!("Date: {}", &date),
-            &format!("Authorization: {}", &auth),
+            &format!("Authorization: {}", &a),
             &format!("Content-Type: {}", &content_type),
             &format!("Content-Length: {}", l));
+
+    for l in list.iter(){
+      debug!("{:?}", String::from_utf8_lossy(l));
+    }
+
+    match cmd {
+      Command::Put { content } => {
+        handle.put(true).unwrap();
+        let _ = handle.post_field_size(l as u64);
+      }
+      _ => {}
+    }
 
     handle.http_headers(list).unwrap();
 
@@ -165,7 +175,7 @@ impl Bucket {
       transfer.perform().unwrap();
     }
     debug!("recieved headers: {:?}", headers);
-
+    debug!("response: {}", handle.response_code().unwrap());
     None
   }
 
