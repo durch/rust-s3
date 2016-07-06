@@ -16,18 +16,6 @@ use openssl::crypto::{hmac, hash};
 use rustc_serialize::base64::{ToBase64, STANDARD};
 use rustc_serialize::hex::ToHex;
 
-pub struct Link {
-  long_date: String,
-  short_date: String,
-  amz_expire: String,
-  amz_algo: String,
-  amz_region: String,
-  amz_service: String,
-  amz_payload: String,
-  amz_req_ver: String,
-  protocol: String
-}
-
 macro_rules! get_set {
   ($x:ident, $name:ident) => {
     /// Set `$x` field for 'Link'
@@ -55,7 +43,21 @@ macro_rules! link_get_set {
   }
 }
 
+/// Struct holding relevant request information so that `Bucket` is a bit cleaner.
+pub struct Link {
+  long_date: String,
+  short_date: String,
+  amz_expire: String,
+  amz_algo: String,
+  amz_region: String,
+  amz_service: String,
+  amz_payload: String,
+  amz_req_ver: String,
+  protocol: String
+}
+
 impl Link {
+  /// Instantiate `Link` with default values, no need to actually change anything here, perhaps only `amz_expire` field.
   pub fn default() -> Link {
     Link {
       long_date: "%Y%m%dT%H%M%SZ".to_string(),
@@ -165,6 +167,7 @@ pub struct Bucket {
 
 
 impl Bucket {
+  /// Instantiate a new `Bucket`, in case `Link` is not provided a `Link::default()` is generated.
   pub fn new(name: String,
              region: Option<String>,
              access_key: String,
