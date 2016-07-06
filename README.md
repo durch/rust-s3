@@ -29,7 +29,7 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```
 [dependencies]
-rust-s3 = '0.2.0'
+rust-s3 = '0.2.2'
 ```
 
 #### Example
@@ -38,7 +38,6 @@ rust-s3 = '0.2.0'
 extern crate rust-s3;
 use rust-s3::{Bucket, put_s3, get_s3, list_s3};
 
-const S3_BUCKET: &'static str = "bucket_name";
 const AWS_ACCESS: &'static str = "access_key";
 const AWS_SECRET: &'static str = "secret_key";
 
@@ -48,7 +47,7 @@ fn main () {
                               None,
                               AWS_ACCESS.to_string(),
                               AWS_SECRET.to_string(),
-                              &"https");
+                              None);
 
   // Put
   let put_me = "I want to go to S3".to_string();
