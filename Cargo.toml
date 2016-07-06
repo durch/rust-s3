@@ -7,6 +7,7 @@ repository = "https://github.com/durch/rust-s3"
 readme = "README.md"
 keywords = ["Amazon", "AWS", "S3"]
 license = "MIT"
+documentation = "https://durch.github.io/rust-s3/"
 
 [lib]
 name = "s3"
