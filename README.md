@@ -20,8 +20,7 @@ This means you can upload to s3, and give the link to select people without havi
 
 ## Configuration
 
-Compile time configuration is done using [Config.toml](https://github.com/durch/rust-s3/blob/master/Config.toml),
-curtosy of [confy](https://github.com/Luthaf/confy). You don't really have to touch anything there, maybe `amz-expire`,
+Getter and setter functions exist for all `Link` params... You don't really have to touch anything there, maybe `amz-expire`,
 it is configured for one week which is the maximum Amazon allows ATM.
 
 ## Usage
@@ -30,16 +29,15 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```
 [dependencies]
-rust-s3 = '0.2.0'
+rust-s3 = '0.2.2'
 ```
 
 #### Example
 
 ```
-extern crate rust-s3;
-use rust-s3::{Bucket, put_s3, get_s3, list_s3};
+extern crate s3;
+use s3::{Bucket, put_s3, get_s3, list_s3};
 
-const S3_BUCKET: &'static str = "bucket_name";
 const AWS_ACCESS: &'static str = "access_key";
 const AWS_SECRET: &'static str = "secret_key";
 
@@ -49,7 +47,7 @@ fn main () {
                               None,
                               AWS_ACCESS.to_string(),
                               AWS_SECRET.to_string(),
-                              &"https");
+                              None);
 
   // Put
   let put_me = "I want to go to S3".to_string();
