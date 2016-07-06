@@ -3,27 +3,27 @@
 [![](http://meritbadge.herokuapp.com/rust-s3)](https://crates.io/crates/rust-s3)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/durch/rust-s3/blob/master/LICENSE.md)
 
-# rust-s3
+## rust-s3 - [Documentation](https://durch.github.io/rust-s3/)
 Tiny Rust library for working with Amazon S3
 
 *Increasingly more loosly based on [crates.io](https://github.com/rust-lang/crates.io/tree/master/src/s3) implementation.*
 
-## Intro
+### Intro
 Very modest interface towards Amazon S3.
 Supports `put`, `get` and `list`, with `delete` on the roadmap and will be done eventually,
 probably around the time I discover I need it in some other project :).
 
-## What is cool
+### What is cool
 
 The main (and probably only) cool feature is that `put` commands return a presigned link to the file you uploaded.
 This means you can upload to s3, and give the link to select people without having to worry about publicly accessible files on S3.
 
-## Configuration
+### Configuration
 
 Getter and setter functions exist for all `Link` params... You don't really have to touch anything there, maybe `amz-expire`,
 it is configured for one week which is the maximum Amazon allows ATM.
 
-## Usage
+### Usage
 
 *In your Cargo.toml*
 
