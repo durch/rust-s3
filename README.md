@@ -20,7 +20,7 @@ This means you can upload to s3, and give the link to select people without havi
 
 ## Configuration
 
-Configuration is currently in source... You don't really have to touch anything there, maybe `amz-expire`,
+Getter and setter functions exist for all `Link` params... You don't really have to touch anything there, maybe `amz-expire`,
 it is configured for one week which is the maximum Amazon allows ATM.
 
 ## Usage
@@ -35,8 +35,8 @@ rust-s3 = '0.2.2'
 #### Example
 
 ```
-extern crate rust-s3;
-use rust-s3::{Bucket, put_s3, get_s3, list_s3};
+extern crate s3;
+use s3::{Bucket, put_s3, get_s3, list_s3};
 
 const AWS_ACCESS: &'static str = "access_key";
 const AWS_SECRET: &'static str = "secret_key";
