@@ -16,33 +16,102 @@ use openssl::crypto::{hmac, hash};
 use rustc_serialize::base64::{ToBase64, STANDARD};
 use rustc_serialize::hex::ToHex;
 
-pub const LONG_DATE: &'static str = "%Y%m%dT%H%M%SZ";
-const SHORT_DATE: &'static str = "%Y%m%d";
-const AMZ_EXPIRE: &'static str = "604800";
-const AMZ_ALGO: &'static str = "AWS4-HMAC-SHA256";
-const AMZ_REGION: &'static str = "eu-west-1";
-const AMZ_SERVICE: &'static str = "s3";
-const AMZ_PAYLOAD: &'static str = "UNSIGNED-PAYLOAD";
-const AMZ_REQ_VER: &'static str = "aws4_request";
+pub struct Link {
+  long_date: String,
+  short_date: String,
+  amz_expire: String,
+  amz_algo: String,
+  amz_region: String,
+  amz_service: String,
+  amz_payload: String,
+  amz_req_ver: String,
+  protocol: String
+}
 
+macro_rules! get_set {
+  ($x:ident, $name:ident) => {
+    /// Set `$x` field for 'Link'
+    pub fn $name(&mut self, value: &str) {
+      self.$x = value.to_string()
+    }
+    /// Get `$x` field for 'Link'
+    pub fn $x(&self) -> &str {
+      &self.$x
+    }
+  }
+}
 
-pub struct Bucket {
-    name: String,
-    region: Option<String>,
-    access_key: String,
-    secret_key: String,
-    proto: String,
+macro_rules! link_get_set {
+  ($x:ident, $name:ident) => {
+    /// Set `$x` field for 'Link' for 'Bucket'
+    pub fn $name(&mut self, value: &str) {
+      self.mut_link().$x = value.to_string()
+    }
+
+    /// Get `$x` field for 'Link' for 'Bucket'
+    pub fn $x(&self) -> &str {
+      &self.link().$x
+    }
+  }
+}
+
+impl Link {
+  pub fn default() -> Link {
+    Link {
+      long_date: "%Y%m%dT%H%M%SZ".to_string(),
+      short_date: "%Y%m%d".to_string(),
+      amz_expire: "604800".to_string(),
+      amz_algo: "AWS4-HMAC-SHA256".to_string(),
+      amz_region: "eu-west-1".to_string(),
+      amz_service: "s3".to_string(),
+      amz_payload: "UNSIGNED-PAYLOAD".to_string(),
+      amz_req_ver: "aws4_request".to_string(),
+      protocol: "https".to_string()
+    }
+  }
+
+  pub fn new(long_date: &str,
+             short_date: &str,
+             amz_expire: &str,
+             amz_algo: &str,
+             amz_region: &str,
+             amz_service: &str,
+             amz_payload: &str,
+             amz_req_ver: &str,
+             protocol: &str) -> Link {
+    Link {
+      long_date: long_date.to_string(),
+      short_date: short_date.to_string(),
+      amz_expire: amz_expire.to_string(),
+      amz_algo: amz_algo.to_string(),
+      amz_region: amz_region.to_string(),
+      amz_service: amz_service.to_string(),
+      amz_payload: amz_payload.to_string(),
+      amz_req_ver: amz_req_ver.to_string(),
+      protocol: protocol.to_string()
+    }
+  }
+
+  get_set!(long_date, set_long_date);
+  get_set!(short_date, set_short_date);
+  get_set!(amz_expire, set_amz_expire);
+  get_set!(amz_algo, set_amz_algo);
+  get_set!(amz_region, set_amz_region);
+  get_set!(amz_service, set_amz_service);
+  get_set!(amz_payload, set_amz_payload);
+  get_set!(amz_req_ver, set_amz_req_ver);
+  get_set!(protocol, set_protocol);
 }
 
 macro_rules! build_headers {
-    ($list:ident, $($x:expr),+) => (
-      $($list.append($x).unwrap())+
-    )
+  ($list:ident, $($x:expr),+) => (
+    $($list.append($x).unwrap())+
+  )
 }
 
 macro_rules! unwrap_get {
   ($get:ident) => (
-      match $get {
+    match $get {
       Some(x) => {
         if x.len() > 0 {
           x
@@ -75,24 +144,69 @@ enum Command<'a> {
   }
 }
 
+/// Bucket object for holding info about an S3 bucket
+///
+/// # Example
+/// ```
+/// let bucket = Bucket::new(
+///               S3_BUCKET.to_string(),
+///               None,
+///               AWS_ACCESS.to_string(),
+///               AWS_SECRET.to_string(),
+///               None);
+/// ```
+pub struct Bucket {
+    name: String,
+    region: Option<String>,
+    access_key: String,
+    secret_key: String,
+    link: Link
+}
+
+
 impl Bucket {
   pub fn new(name: String,
              region: Option<String>,
              access_key: String,
              secret_key: String,
-             proto: &str) -> Bucket {
+             link: Option<Link>) -> Bucket {
       Bucket {
           name: name,
           region: region,
           access_key: access_key,
           secret_key: secret_key,
-          proto: proto.to_string(),
+          link: match link {
+                  Some(x) => x,
+                  None => Link::default()
+                }
       }
   }
 
+  pub fn link(&self) -> &Link {
+    &self.link
+  }
+
+  pub fn mut_link(&mut self) -> &mut Link {
+    &mut self.link
+  }
+
+  pub fn set_link(&mut self, link: Link) {
+    self.link = link
+  }
+
+  link_get_set!(long_date, set_long_date);
+  link_get_set!(short_date, set_short_date);
+  link_get_set!(amz_expire, set_amz_expire);
+  link_get_set!(amz_algo, set_amz_algo);
+  link_get_set!(amz_region, set_amz_region);
+  link_get_set!(amz_service, set_amz_service);
+  link_get_set!(amz_payload, set_amz_payload);
+  link_get_set!(amz_req_ver, set_amz_req_ver);
+  link_get_set!(protocol, set_protocol);
+
   fn execute(&self,
-                 cmd: Command,
-                 path: &str ) -> (String, Option<Vec<u8>>) {
+               cmd: Command,
+               path: &str ) -> (String, Option<Vec<u8>>) {
 
     let content_type = "text/plain";
 
@@ -116,8 +230,8 @@ impl Bucket {
 
     // TODO implement delimiter into request for List
     let url = match cmd {
-      Command::List { prefix, delimiter } => format!("{}://{}/?prefix={}", self.proto, host, prefix),
-      _ => format!("{}://{}/{}", self.proto, host, path)
+      Command::List { prefix, delimiter } => format!("{}://{}/?prefix={}", &self.link.protocol, host, prefix),
+      _ => format!("{}://{}/{}", &self.link.protocol, host, path)
     };
     debug!("url: {}", url);
 
@@ -255,6 +369,22 @@ impl Bucket {
   }
 }
 
+/// Gets file from an S3 path
+///
+/// # Example:
+///
+/// ```
+/// let path = &"test_file";
+/// let mut buffer = match File::create(path) {
+///           Ok(x) => x,
+///           Err(e) => panic!("{:?}, {}", e, path)
+///         };
+/// let bytes = get_s3(&bucket, Some(&path));
+/// match buffer.write(&bytes) {
+///   Ok(_) => {} // info!("Written {} bytes from {}", x, path),
+///   Err(e) => panic!("{:?}", e)
+/// }
+/// ```
 pub fn get_s3(bucket: &Bucket, s3_path: Option<&str>) -> Vec<u8> {
       let path = match s3_path {
         Some(x) => x,
@@ -264,9 +394,25 @@ pub fn get_s3(bucket: &Bucket, s3_path: Option<&str>) -> Vec<u8> {
       unwrap_get!(result)
     }
 
-// TODO prefix + delimiter support, default delimiter is / ATM
+/// List contents of an S3 bucket, `prefix` and `delimiter` are placeholders for now
+///
+/// # Example
+///
+/// ```
+/// let bytes = list_s3(&bucket,
+///                       &"/",
+///                       &"/",
+///                       &"/");
+/// let string = String::from_utf8_lossy(&bytes);
+/// println!("{}", string);
+/// ```
 pub fn list_s3(bucket: &Bucket, path: &str, prefix: &str, delimiter: &str) -> Vec<u8> {
-      let (_, result) = bucket.execute(Command::List { prefix: prefix, delimiter: delimiter }, path);
+      // TODO prefix + delimiter support, default delimiter is / ATM
+      let (_, result) = bucket.execute(Command::List {
+                                          prefix: prefix,
+                                          delimiter: delimiter
+                                        },
+                                        path);
       unwrap_get!(result)
     }
 
@@ -276,13 +422,24 @@ fn sign(key: &[u8], msg: &[u8]) -> Vec<u8> {
     hmac.finish()
   }
 
-fn get_signature_key(key: &str, date_stamp: &str, region_name: &str, service_name: &str) -> Vec<u8> {
+fn get_signature_key(key: &str, date_stamp: &str, region_name: &str, service_name: &str, version: &str) -> Vec<u8> {
   let kdate = sign(format!("AWS4{}", key).as_bytes(), date_stamp.as_bytes());
   let kregion = sign(kdate.as_slice(), region_name.as_bytes());
   let kservice = sign(kregion.as_slice(), service_name.as_bytes());
-  sign(&kservice, AMZ_REQ_VER.as_bytes())
+  sign(&kservice, version.as_bytes())
 }
 
+/// Put into an S3 bucket, get a preauthorized link back.
+///
+/// # Example
+///
+/// ```
+/// let put_me = "I want to go to S3".to_string();
+/// let url = put_s3(&bucket,
+///                 &"/",
+///                 &put_me.as_bytes());
+/// println!("{}", url);
+/// ```
 pub fn put_s3(bucket: &Bucket,
               s3_path: &str,
               output: &[u8]) -> String {
@@ -290,11 +447,11 @@ pub fn put_s3(bucket: &Bucket,
   let (url, _) = bucket.execute(Command::Put { content: output }, &s3_path);
   let t = time::now();
   let method = &"GET";
-  let amzdate = match t.strftime(LONG_DATE) {
+  let amzdate = match t.strftime(&bucket.link.long_date) {
     Ok(x) => x.to_string(),
     Err(e) => panic!("{:?}", e)
   };
-  let datestamp = match t.strftime(SHORT_DATE) {
+  let datestamp = match t.strftime(&bucket.link.short_date) {
     Ok(x) => x.to_string(),
     Err(e) => panic!("{:?}", e)
   };
@@ -310,17 +467,17 @@ pub fn put_s3(bucket: &Bucket,
   let endpoint = format!("https://{}", host);
   let canonical_headers = format!("host:{}\n", host);
   let signed_headers = &"host";
-  let payload_hash = AMZ_PAYLOAD;
+  let payload_hash = &bucket.link.amz_payload;
   let credential_scope = format!("{}/{}/{}/{}",
                                  datestamp,
-                                 AMZ_REGION,
-                                 AMZ_SERVICE,
-                                 AMZ_REQ_VER);
+                                 &bucket.link.amz_region,
+                                 &bucket.link.amz_service,
+                                 &bucket.link.amz_req_ver);
   let canonical_querystring = format!("{}={}&{}={}%2F{}&{}={}&{}={}&{}={}",
-                                &"X-Amz-Algorithm", AMZ_ALGO,
+                                &"X-Amz-Algorithm", &bucket.link.amz_algo,
                                 &"X-Amz-Credential", bucket.access_key, credential_scope.replace("/", "%2F"),
                                 &"X-Amz-Date", &amzdate,
-                                &"X-Amz-Expires", AMZ_EXPIRE,
+                                &"X-Amz-Expires", bucket.link.amz_expire,
                                 &"X-Amz-SignedHeaders", signed_headers);
   let canonical_request = format!("{}\n{}\n{}\n{}\n{}\n{}",
                                   method,
@@ -330,11 +487,15 @@ pub fn put_s3(bucket: &Bucket,
                                   signed_headers,
                                   payload_hash);
   let string_to_sign = format!("{}\n{}\n{}\n{}",
-                           AMZ_ALGO,
+                           bucket.link.amz_algo,
                            amzdate,
                            credential_scope,
                            hash::hash(hash::Type::SHA256, canonical_request.as_bytes()).to_hex());
-  let signing_key = get_signature_key(&bucket.secret_key, &datestamp, AMZ_REGION, AMZ_SERVICE);
+  let signing_key = get_signature_key(&bucket.secret_key,
+                                      &datestamp,
+                                      &bucket.link.amz_region,
+                                      &bucket.link.amz_service,
+                                      &bucket.link.amz_req_ver);
   let signature = sign(&signing_key, &string_to_sign.as_bytes()).to_hex();
   let canonical_querystring = format!("{}&{}={}",
                                       canonical_querystring,
