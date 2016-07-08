@@ -147,11 +147,17 @@ enum Command<'a> {
 ///
 /// # Example
 /// ```
+/// use s3::Bucket;
+///
+/// let s3_bucket = &"rust-s3-test";
+/// let aws_access = &"access_key";
+/// let aws_secret = &"secret_key";
+///
 /// let bucket = Bucket::new(
-///               S3_BUCKET.to_string(),
+///               s3_bucket.to_string(),
 ///               None,
-///               AWS_ACCESS.to_string(),
-///               AWS_SECRET.to_string(),
+///               aws_access.to_string(),
+///               aws_secret.to_string(),
 ///               None);
 /// ```
 pub struct Bucket {
@@ -332,21 +338,6 @@ impl Bucket {
     Some(dst)
   }
 
-    // TODO implement DELETE Command
-
-    // pub fn delete<'a, 'b>(&self, handle: &'a mut http::Handle, path: &str)
-    //                       -> http::Request<'a, 'b> {
-    //     let path = if path.starts_with("/") {&path[1..]} else {path};
-    //     let host = self.host();
-    //     let date = time::now().rfc822z().to_string();
-    //     let auth = self.auth("DELETE", &date, path, "", "");
-    //     let url = format!("{}://{}/{}", self.proto, host, path);
-    //     handle.delete(&url[..])
-    //           .header("Host", &host)
-    //           .header("Date", &date)
-    //           .header("Authorization", &auth)
-    // }
-
   pub fn host(&self) -> String {
       format!("{}.s3{}.amazonaws.com", self.name,
               match self.region {
@@ -378,7 +369,21 @@ impl Bucket {
 /// # Example:
 ///
 /// ```
-/// let path = &"test_file";
+/// use s3::{Bucket, get_s3};
+/// use std::io::prelude::*;
+/// use std::fs::File;
+///
+/// let s3_bucket = &"rust-s3-test";
+/// let aws_access = &"access_key";
+/// let aws_secret = &"secret_key";
+///
+/// let bucket = Bucket::new(
+///               s3_bucket.to_string(),
+///               None,
+///               aws_access.to_string(),
+///               aws_secret.to_string(),
+///               None);
+/// let path = &"test.file";
 /// let mut buffer = match File::create(path) {
 ///           Ok(x) => x,
 ///           Err(e) => panic!("{:?}, {}", e, path)
@@ -398,11 +403,56 @@ pub fn get_s3(bucket: &Bucket, s3_path: Option<&str>) -> Vec<u8> {
       unwrap_get!(result)
     }
 
+/// Delete file from an S3 path
+///
+/// # Example:
+///
+/// ```
+/// use s3::{Bucket, delete_s3};
+/// use std::io::prelude::*;
+/// use std::fs::File;
+///
+/// let s3_bucket = &"rust-s3-test";
+/// let aws_access = &"access_key";
+/// let aws_secret = &"secret_key";
+///
+/// let bucket = Bucket::new(
+///               s3_bucket.to_string(),
+///               None,
+///               aws_access.to_string(),
+///               aws_secret.to_string(),
+///               None);
+/// let path = &"test.file";
+/// let mut buffer = match File::create(path) {
+///           Ok(x) => x,
+///           Err(e) => panic!("{:?}, {}", e, path)
+///         };
+/// delete_s3(&bucket, &path);
+///
+/// ```
+pub fn delete_s3(bucket: &Bucket, s3_path: &str) {
+      let (_, _) = bucket.execute(Command::Delete, s3_path);
+    }
+
 /// List contents of an S3 bucket, `prefix` and `delimiter` are placeholders for now
 ///
 /// # Example
 ///
 /// ```
+/// use s3::{Bucket, list_s3};
+/// use std::io::prelude::*;
+/// use std::fs::File;
+///
+/// let s3_bucket = &"rust-s3-test";
+/// let aws_access = &"access_key";
+/// let aws_secret = &"secret_key";
+///
+/// let bucket = Bucket::new(
+///               s3_bucket.to_string(),
+///               None,
+///               aws_access.to_string(),
+///               aws_secret.to_string(),
+///               None);
 /// let bytes = list_s3(&bucket,
 ///                       &"/",
 ///                       &"/",
@@ -438,9 +488,21 @@ fn get_signature_key(key: &str, date_stamp: &str, region_name: &str, service_nam
 /// # Example
 ///
 /// ```
+/// use s3::{Bucket, put_s3};
+///
+/// let s3_bucket = &"rust-s3-test";
+/// let aws_access = &"access_key";
+/// let aws_secret = &"secret_key";
+///
+/// let bucket = Bucket::new(
+///               s3_bucket.to_string(),
+///               None,
+///               aws_access.to_string(),
+///               aws_secret.to_string(),
+///               None);
 /// let put_me = "I want to go to S3".to_string();
 /// let url = put_s3(&bucket,
-///                 &"/",
+///                 &"/test.file",
 ///                 &put_me.as_bytes());
 /// println!("{}", url);
 /// ```
