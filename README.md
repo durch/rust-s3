@@ -29,7 +29,7 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```
 [dependencies]
-rust-s3 = '0.2.2'
+rust-s3 = '0.2.3'
 ```
 
 #### Example
