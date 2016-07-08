@@ -139,7 +139,8 @@ enum Command<'a> {
   List {
     prefix: &'a str,
     delimiter: &'a str
-  }
+  },
+  Delete
 }
 
 /// Bucket object for holding info about an S3 bucket
@@ -260,6 +261,9 @@ impl Bucket {
         handle.put(true).unwrap();
         let _ = handle.post_field_size(l as u64);
       }
+      Command::Delete => {
+        handle.custom_request(&"DELETE").unwrap()
+      }
       _ => {}
     }
 
@@ -268,7 +272,8 @@ impl Bucket {
     let result = match cmd {
                   Command::Put { content } => self.put(&mut handle, content),
                   Command::Get => self.get(&mut handle),
-                  Command::List { delimiter, prefix }=> self.list(&mut handle)
+                  Command::List { delimiter, prefix }=> self.list(&mut handle),
+                  Command::Delete => self.get(&mut handle)
                 };
     (url, result)
   }
