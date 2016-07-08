@@ -18,11 +18,9 @@ use rustc_serialize::hex::ToHex;
 
 macro_rules! get_set {
   ($x:ident, $name:ident) => {
-    /// Set `$x` field for 'Link'
     pub fn $name(&mut self, value: &str) {
       self.$x = value.to_string()
     }
-    /// Get `$x` field for 'Link'
     pub fn $x(&self) -> &str {
       &self.$x
     }
@@ -31,12 +29,10 @@ macro_rules! get_set {
 
 macro_rules! link_get_set {
   ($x:ident, $name:ident) => {
-    /// Set `$x` field for 'Link' for 'Bucket'
     pub fn $name(&mut self, value: &str) {
       self.mut_link().$x = value.to_string()
     }
 
-    /// Get `$x` field for 'Link' for 'Bucket'
     pub fn $x(&self) -> &str {
       &self.link().$x
     }
