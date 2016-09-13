@@ -103,7 +103,7 @@ impl Link {
 
 macro_rules! build_headers {
   ($list:ident, $($x:expr),+) => (
-    $($list.append($x).unwrap())+
+    $($list.append($x).unwrap();)+
   )
 }
 
