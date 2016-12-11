@@ -2,10 +2,9 @@
 [![](https://travis-ci.org/durch/rust-s3.svg?branch=master)](https://travis-ci.org/durch/rust-s3)
 [![](http://meritbadge.herokuapp.com/rust-s3)](https://crates.io/crates/rust-s3)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/durch/rust-s3/blob/master/LICENSE.md)
-
+[![Join the chat at https://gitter.im/rust-s3/Lobby](https://badges.gitter.im/rust-s3/Lobby.svg)](https://gitter.im/rust-s3/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 ## rust-s3 - [Documentation](https://durch.github.io/rust-s3/)
 
-[![Join the chat at https://gitter.im/rust-s3/Lobby](https://badges.gitter.im/rust-s3/Lobby.svg)](https://gitter.im/rust-s3/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 Tiny Rust library for working with Amazon S3
 
 *Increasingly more loosly based on [crates.io](https://github.com/rust-lang/crates.io/tree/master/src/s3) implementation.*
