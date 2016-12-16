@@ -11,6 +11,7 @@ use std::str;
 use std::io::prelude::*;
 
 use curl::easy::{Easy, List};
+use curl::Error as curlError;
 
 use openssl::crypto::{hmac, hash};
 use rustc_serialize::base64::{ToBase64, STANDARD};
@@ -107,21 +108,6 @@ macro_rules! build_headers {
   )
 }
 
-macro_rules! unwrap_get {
-  ($get:ident) => (
-    match $get {
-      Some(x) => {
-        if x.len() > 0 {
-          x
-        } else {
-          panic!("These are not the droids you are looking for.")
-        }
-      },
-      None => unreachable!()
-    }
-  )
-}
-
 macro_rules! headers {
   ($transfer:ident, $headers:ident) => (
     $transfer.header_function(|header| {
@@ -212,7 +198,7 @@ impl Bucket {
 
   fn execute(&self,
                cmd: Command,
-               path: &str ) -> (String, Option<Vec<u8>>) {
+               path: &str ) -> (String, Result<Vec<u8>, curlError>) {
 
     let content_type = "text/plain";
 
@@ -264,11 +250,11 @@ impl Bucket {
 
     match cmd {
       Command::Put { content } => {
-        handle.put(true).unwrap();
+        handle.put(true).expect("Unable to create PUT request");
         let _ = handle.post_field_size(l as u64);
       }
       Command::Delete => {
-        handle.custom_request(&"DELETE").unwrap()
+        handle.custom_request(&"DELETE").expect("Unable to create DELETE request");
       }
       _ => {}
     }
@@ -284,58 +270,58 @@ impl Bucket {
     (url, result)
   }
 
-  pub fn put(&self, handle: &mut Easy, mut content: &[u8]) -> Option<Vec<u8>> {
+  pub fn put(&self, handle: &mut Easy, mut content: &[u8]) -> Result<Vec<u8>, curlError> {
     let mut headers = Vec::new();
     {
       let mut transfer = handle.transfer();
 
-      transfer.read_function(|buf| {
+      try!(transfer.read_function(|buf| {
           Ok(content.read(buf).unwrap())
-      }).unwrap();
+      }));
 
       headers!(transfer, headers);
 
-      transfer.perform().unwrap();
+      try!(transfer.perform());
     }
     debug!("recieved headers: {:?}", headers);
-    debug!("response: {}", handle.response_code().unwrap());
-    None
+    debug!("response: {:?}", handle.response_code());
+    Ok(vec![])
   }
 
-  pub fn get(&self, handle: &mut Easy) -> Option<Vec<u8>> {
+  pub fn get(&self, handle: &mut Easy) -> Result<Vec<u8>, curlError> {
     let mut headers = Vec::new();
     let mut dst = Vec::new();
 
     {
       let mut transfer = handle.transfer();
-      transfer.write_function(|data| {
+      try!(transfer.write_function(|data| {
           dst.extend_from_slice(data);
           Ok(data.len())
-      }).unwrap();
+      }));
 
       headers!(transfer, headers);
 
-      transfer.perform().unwrap();
+      try!(transfer.perform());
     }
     debug!("recieved headers: {:?}", headers);
-    Some(dst)
+    Ok(dst)
   }
 
-  pub fn list(&self, handle: &mut Easy) -> Option<Vec<u8>> {
+  pub fn list(&self, handle: &mut Easy) -> Result<Vec<u8>,curlError> {
     let mut dst = Vec::new();
     let mut headers = Vec::new();
     {
       let mut transfer = handle.transfer();
-      transfer.write_function(|data| {
+      try!(transfer.write_function(|data| {
           dst.extend_from_slice(data);
           Ok(data.len())
-      }).unwrap();
+      }));
 
       headers!(transfer, headers);
 
-      transfer.perform().unwrap();
+      try!(transfer.perform());
     }
-    Some(dst)
+    Ok(dst)
   }
 
   pub fn host(&self) -> String {
@@ -388,19 +374,22 @@ impl Bucket {
 ///           Ok(x) => x,
 ///           Err(e) => panic!("{:?}, {}", e, path)
 ///         };
-/// let bytes = get_s3(&bucket, Some(&path));
+/// let bytes = match get_s3(&bucket, Some(&path)){
+///  Ok(b) => b,
+///  Err(e) => {println!("Error: {:?}", e); return;}
+/// };
 /// match buffer.write(&bytes) {
 ///   Ok(_) => {} // info!("Written {} bytes from {}", x, path),
 ///   Err(e) => panic!("{:?}", e)
 /// }
 /// ```
-pub fn get_s3(bucket: &Bucket, s3_path: Option<&str>) -> Vec<u8> {
+pub fn get_s3(bucket: &Bucket, s3_path: Option<&str>) -> Result<Vec<u8>,curlError> {
       let path = match s3_path {
         Some(x) => x,
         None => "/"
       };
       let (_, result) = bucket.execute(Command::Get, path);
-      unwrap_get!(result)
+      result
     }
 
 /// Delete file from an S3 path
@@ -453,21 +442,24 @@ pub fn delete_s3(bucket: &Bucket, s3_path: &str) {
 ///               aws_access.to_string(),
 ///               aws_secret.to_string(),
 ///               None);
-/// let bytes = list_s3(&bucket,
+/// let bytes = match list_s3(&bucket,
 ///                       &"/",
 ///                       &"/",
-///                       &"/");
+///                       &"/"){
+///  Ok(b) => b,
+///  Err(e) => {println!("Error: {:?}", e); return;}
+/// };
 /// let string = String::from_utf8_lossy(&bytes);
 /// println!("{}", string);
 /// ```
-pub fn list_s3(bucket: &Bucket, path: &str, prefix: &str, delimiter: &str) -> Vec<u8> {
+pub fn list_s3(bucket: &Bucket, path: &str, prefix: &str, delimiter: &str) -> Result<Vec<u8>,curlError> {
       // TODO prefix + delimiter support, default delimiter is / ATM
       let (_, result) = bucket.execute(Command::List {
                                           prefix: prefix,
                                           delimiter: delimiter
                                         },
                                         path);
-      unwrap_get!(result)
+        result
     }
 
 fn sign(key: &[u8], msg: &[u8]) -> Vec<u8> {
@@ -571,4 +563,3 @@ pub fn put_s3(bucket: &Bucket,
                 canonical_uri,
                 canonical_querystring)
 }
-
