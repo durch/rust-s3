@@ -374,7 +374,10 @@ impl Bucket {
 ///           Ok(x) => x,
 ///           Err(e) => panic!("{:?}, {}", e, path)
 ///         };
-/// let bytes = get_s3(&bucket, Some(&path));
+/// let bytes = match get_s3(&bucket, Some(&path)){
+///  Ok(b) => b,
+///  Err(e) => {println!("Error: {:?}", e); return;}
+/// };
 /// match buffer.write(&bytes) {
 ///   Ok(_) => {} // info!("Written {} bytes from {}", x, path),
 ///   Err(e) => panic!("{:?}", e)
@@ -439,10 +442,13 @@ pub fn delete_s3(bucket: &Bucket, s3_path: &str) {
 ///               aws_access.to_string(),
 ///               aws_secret.to_string(),
 ///               None);
-/// let bytes = list_s3(&bucket,
+/// let bytes = match list_s3(&bucket,
 ///                       &"/",
 ///                       &"/",
-///                       &"/");
+///                       &"/"){
+///  Ok(b) => b,
+///  Err(e) => {println!("Error: {:?}", e); return;}
+/// };
 /// let string = String::from_utf8_lossy(&bytes);
 /// println!("{}", string);
 /// ```
