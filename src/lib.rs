@@ -1,577 +1,666 @@
-extern crate time;
+//! Simple access to Amazon Web Service's (AWS) Simple Storage Service (S3)
+#![warn(missing_docs)]
+
+extern crate chrono;
+extern crate crypto;
 extern crate curl;
-extern crate rustc_serialize;
-extern crate openssl;
+extern crate hex;
 extern crate url;
+
 #[macro_use]
 extern crate log;
 
+pub mod signing;
+
+use std::collections::HashMap;
+use std::fmt;
+use std::io::{self, Read, Cursor};
+use std::mem;
+use std::str::{self, FromStr};
+
+use chrono::{DateTime, UTC};
+use crypto::digest::Digest;
+use crypto::hmac::Hmac;
+use crypto::mac::Mac;
+use crypto::sha2::Sha256;
+use curl::easy::{Easy, List, ReadError};
+use hex::ToHex;
 use url::Url;
-use std::str;
-use std::io::prelude::*;
 
-use curl::easy::{Easy, List};
-use curl::Error as curlError;
+const LONG_DATE: &'static str = "%Y%m%dT%H%M%SZ";
+const EMPTY_PAYLOAD_SHA: &'static str = "e3b0c44298fc1c149afbf4c8996fb924\
+                                         27ae41e4649b934ca495991b7852b855";
 
-use openssl::crypto::{hmac, hash};
-use rustc_serialize::base64::{ToBase64, STANDARD};
-use rustc_serialize::hex::ToHex;
-
-macro_rules! get_set {
-  ($x:ident, $name:ident) => {
-    pub fn $name(&mut self, value: &str) {
-      self.$x = value.to_string()
-    }
-    pub fn $x(&self) -> &str {
-      &self.$x
-    }
-  }
-}
-
-macro_rules! link_get_set {
-  ($x:ident, $name:ident) => {
-    pub fn $name(&mut self, value: &str) {
-      self.mut_link().$x = value.to_string()
-    }
-
-    pub fn $x(&self) -> &str {
-      &self.link().$x
-    }
-  }
-}
-
-/// Struct holding relevant request information so that `Bucket` is a bit cleaner.
-pub struct Link {
-    long_date: String,
-    short_date: String,
-    amz_expire: String,
-    amz_algo: String,
-    amz_region: String,
-    amz_service: String,
-    amz_payload: String,
-    amz_req_ver: String,
-    protocol: String,
-}
-
-impl Link {
-    /// Instantiate `Link` with default values, no need to actually change anything here,
-    /// perhaps only `amz_expire` field.
-    pub fn default() -> Link {
-        Link {
-            long_date: "%Y%m%dT%H%M%SZ".to_string(),
-            short_date: "%Y%m%d".to_string(),
-            amz_expire: "604800".to_string(),
-            amz_algo: "AWS4-HMAC-SHA256".to_string(),
-            amz_region: "eu-west-1".to_string(),
-            amz_service: "s3".to_string(),
-            amz_payload: "UNSIGNED-PAYLOAD".to_string(),
-            amz_req_ver: "aws4_request".to_string(),
-            protocol: "https".to_string(),
-        }
-    }
-
-    pub fn new(long_date: &str,
-               short_date: &str,
-               amz_expire: &str,
-               amz_algo: &str,
-               amz_region: &str,
-               amz_service: &str,
-               amz_payload: &str,
-               amz_req_ver: &str,
-               protocol: &str)
-               -> Link {
-        Link {
-            long_date: long_date.to_string(),
-            short_date: short_date.to_string(),
-            amz_expire: amz_expire.to_string(),
-            amz_algo: amz_algo.to_string(),
-            amz_region: amz_region.to_string(),
-            amz_service: amz_service.to_string(),
-            amz_payload: amz_payload.to_string(),
-            amz_req_ver: amz_req_ver.to_string(),
-            protocol: protocol.to_string(),
-        }
-    }
-
-    get_set!(long_date, set_long_date);
-    get_set!(short_date, set_short_date);
-    get_set!(amz_expire, set_amz_expire);
-    get_set!(amz_algo, set_amz_algo);
-    get_set!(amz_region, set_amz_region);
-    get_set!(amz_service, set_amz_service);
-    get_set!(amz_payload, set_amz_payload);
-    get_set!(amz_req_ver, set_amz_req_ver);
-    get_set!(protocol, set_protocol);
-}
-
-macro_rules! build_headers {
-  ($list:ident, $($x:expr),+) => (
-    $($list.append($x).unwrap();)+
-  )
-}
-
-macro_rules! headers {
-  ($transfer:ident, $headers:ident) => (
-    $transfer.header_function(|header| {
-      $headers.push(str::from_utf8(header).unwrap().to_string());
-      true
-    }).unwrap();
-  )
-}
-
-enum Command<'a> {
-    Put { content: &'a [u8] },
-    Get,
-    List { prefix: &'a str, delimiter: &'a str },
-    Delete,
-}
-
-/// Bucket object for holding info about an S3 bucket
+/// Object holding info about an S3 bucket which provides easy access to S3
+/// operations.
 ///
 /// # Example
 /// ```
-/// use s3::Bucket;
+/// use s3::{Bucket, Credentials};
 ///
-/// let s3_bucket = &"rust-s3-test";
-/// let aws_access = &"access_key";
-/// let aws_secret = &"secret_key";
+/// let bucket_name = "rust-s3-test";
+/// let region = "us-east-1".parse().unwrap();
+/// let credentials = Credentials::new("access_key", "secret_key", None);
 ///
-/// let bucket = Bucket::new(
-///               s3_bucket.to_string(),
-///               None,
-///               aws_access.to_string(),
-///               aws_secret.to_string(),
-///               None);
+/// let bucket = Bucket::new(bucket_name, region, credentials);
 /// ```
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Bucket {
     name: String,
-    region: Option<String>,
-    access_key: String,
-    secret_key: String,
-    link: Link,
+    region: Region,
+    credentials: Credentials,
+    extra_headers: Headers,
+    extra_query: Query,
 }
 
+/// AWS access credentials: access key, secret key, and optional token.
+///
+/// # Example
+/// ```
+/// use s3::Credentials;
+///
+/// // Load from environment AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and
+/// // AWS_SESSION_TOKEN variables
+/// // TODO let credentials = Credentials::from_env().unwrap();
+///
+/// // Load credentials from the standard AWS credentials file with the given
+/// // profile name.
+/// // TODO let credentials = Credentials::from_profile("default").unwrap();
+///
+/// // Initialize directly with key ID, secret key, and optional token
+/// let credentials = Credentials::new("access_key", "secret_key", Some("token"));
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Credentials {
+    /// AWS public access key.
+    pub access_key: String,
+    /// AWS secret key.
+    pub secret_key: String,
+    /// Temporary token issued by AWS service.
+    pub token: Option<String>,
+    _private: (),
+}
+
+/// AWS S3 [region identifier](https://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region)
+///
+/// # Example
+/// ```
+/// use std::str::FromStr;
+/// use s3::Region;
+///
+/// // Parse from a string
+/// let region: Region = "us-east-1".parse().unwrap();
+///
+/// // Choose region directly
+/// let region = Region::EuWest2;
+/// ```
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Region {
+    /// us-east-1
+    UsEast1,
+    /// us-east-2
+    UsEast2,
+    /// us-west-1
+    UsWest1,
+    /// us-west-2
+    UsWest2,
+    /// ca-central-1
+    CaCentral1,
+    /// ap-south-1
+    ApSouth1,
+    /// ap-northeast-1
+    ApNortheast1,
+    /// ap-northeast-2
+    ApNortheast2,
+    /// ap-southeast-1
+    ApSoutheast1,
+    /// ap-southeast-2
+    ApSoutheast2,
+    /// eu-central-1
+    EuCentral1,
+    /// eu-west-1
+    EuWest1,
+    /// eu-west-2
+    EuWest2,
+    /// sa-east-1
+    SaEast1,
+}
+
+/// Error raised when a string cannot be parsed to a valid
+/// [`Region`](enum.Region.html).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct S3RegionParseError(String);
+
+/// Errors raised by the libray when performing generic operations.
+#[derive(Debug)]
+pub enum S3Error {
+    /// Error occurred during transfer/communication with the S3 HTTP/HTTPS
+    /// endpoint.
+    CurlError(curl::Error),
+    /// General Input/Output error.
+    IoError(io::Error),
+}
+
+/// Generic return type of S3 functions.
+pub type S3Result<T> = Result<T, S3Error>;
+
+/// Collection of HTTP headers sent to S3 service, in key/value format.
+pub type Headers = HashMap<String, String>;
+
+/// Collection of HTTP query parameters sent to S3 service, in key/value
+/// format.
+pub type Query = HashMap<String, String>;
+
+enum Command<'a> {
+    Put {
+        content: &'a [u8],
+        content_type: &'a str,
+    },
+    Get,
+    Delete,
+    List {
+        prefix: &'a str,
+        delimiter: Option<&'a str>,
+    },
+}
+
+// Temporary structure for making a request
+struct Request<'a> {
+    bucket: &'a Bucket,
+    path: &'a str,
+    command: Command<'a>,
+    datetime: DateTime<UTC>,
+}
 
 impl Bucket {
-    /// Instantiate a new `Bucket`, in case `Link` is not provided a `Link::default()` is generated.
-    pub fn new(name: String,
-               region: Option<String>,
-               access_key: String,
-               secret_key: String,
-               link: Option<Link>)
-               -> Bucket {
+    /// Instantiate a new `Bucket`.
+    ///
+    /// # Example
+    /// ```
+    /// use s3::{Bucket, Credentials};
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::new("access_key", "secret_key", None);
+    ///
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
+    /// ```
+    pub fn new(name: &str, region: Region, credentials: Credentials) -> Bucket {
         Bucket {
-            name: name,
+            name: name.into(),
             region: region,
-            access_key: access_key,
-            secret_key: secret_key,
-            link: match link {
-                Some(x) => x,
-                None => Link::default(),
-            },
+            credentials: credentials,
+            extra_headers: HashMap::new(),
+            extra_query: HashMap::new(),
         }
     }
 
-    pub fn link(&self) -> &Link {
-        &self.link
+    /// Gets file from an S3 path.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::{Bucket, Credentials};
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::new("access_key", "secret_key", None);
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
+    ///
+    /// let (data, code) = bucket.get("/test.file").unwrap();
+    /// println!("Code: {}\nData: {:?}", code, data);
+    /// ```
+    pub fn get(&self, path: &str) -> S3Result<(Vec<u8>, u32)> {
+        let command = Command::Get;
+        let request = Request::new(self, path, command);
+        request.execute()
     }
 
-    pub fn mut_link(&mut self) -> &mut Link {
-        &mut self.link
+    /// Delete file from an S3 path.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::{Bucket, Credentials};
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::new("access_key", "secret_key", None);
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
+    ///
+    /// let (_, code) = bucket.delete("/test.file").unwrap();
+    /// assert_eq!(204, code);
+    /// ```
+    pub fn delete(&self, path: &str) -> S3Result<(Vec<u8>, u32)> {
+        let command = Command::Delete;
+        let request = Request::new(self, path, command);
+        request.execute()
     }
 
-    pub fn set_link(&mut self, link: Link) {
-        self.link = link
+    /// Put into an S3 bucket.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use s3::{Bucket, Credentials};
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let aws_access = &"access_key";
+    /// let aws_secret = &"secret_key";
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::new("access_key", "secret_key", None);
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
+    ///
+    /// let content = "I want to go to S3".as_bytes();
+    /// let (_, code) = bucket.put("/test.file", content, "text/plain").unwrap();
+    /// assert_eq!(201, code);
+    /// ```
+    pub fn put(&self, path: &str, data: &[u8], content_type: &str) -> S3Result<(Vec<u8>, u32)> {
+        let command = Command::Put {
+            content: data,
+            content_type: content_type,
+        };
+        let request = Request::new(self, path, command);
+        request.execute()
     }
 
-    link_get_set!(long_date, set_long_date);
-    link_get_set!(short_date, set_short_date);
-    link_get_set!(amz_expire, set_amz_expire);
-    link_get_set!(amz_algo, set_amz_algo);
-    link_get_set!(amz_region, set_amz_region);
-    link_get_set!(amz_service, set_amz_service);
-    link_get_set!(amz_payload, set_amz_payload);
-    link_get_set!(amz_req_ver, set_amz_req_ver);
-    link_get_set!(protocol, set_protocol);
-
-    fn execute(&self, cmd: Command, path: &str) -> (String, Result<Vec<u8>, curlError>) {
-
-        let content_type = "text/plain";
-
-        let path = if path.starts_with("/") {
-            &path[1..]
-        } else {
-            path
+    /// List the contents of an S3 bucket.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use std::str;
+    /// use s3::{Bucket, Credentials};
+    /// let bucket_name = &"rust-s3-test";
+    /// let aws_access = &"access_key";
+    /// let aws_secret = &"secret_key";
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::new("access_key", "secret_key", None);
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
+    ///
+    /// let (list, code) = bucket.list("/", Some("/")).unwrap();
+    /// assert_eq!(200, code);
+    /// let string = str::from_utf8(&list).unwrap();
+    /// println!("{}", string);
+    /// ```
+    pub fn list(&self, prefix: &str, delimiter: Option<&str>) -> S3Result<(Vec<u8>, u32)> {
+        let command = Command::List {
+            prefix: prefix,
+            delimiter: delimiter,
         };
-        debug!("s3_path: {}", path);
+        let request = Request::new(self, "/", command);
+        request.execute()
+    }
 
-        let host = self.host();
-        debug!("host: {}", host);
+    /// Get a reference to the name of the S3 bucket.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 
-        let date = time::now_utc().rfc822z().to_string();
-        debug!("date: {}", date);
+    /// Get a reference to the hostname of the S3 API endpoint.
+    pub fn host(&self) -> &str {
+        self.region.endpoint()
+    }
 
-        let cmd_string = match cmd {
-            Command::Put { content } => "PUT",
-            _ => "GET",
-        };
+    /// Get the region this object will connect to.
+    pub fn region(&self) -> Region {
+        self.region
+    }
 
-        debug!("command: {}", cmd_string);
-        let a = self.auth(&cmd_string, &date, path, "", &content_type);
-        debug!("auth: {}", a);
+    /// Get a reference to the AWS access key.
+    pub fn access_key(&self) -> &str {
+        &self.credentials.access_key
+    }
 
-        // TODO implement delimiter into request for List
-        let url = match cmd {
-            Command::List { prefix, delimiter } => {
-                format!("{}://{}/?prefix={}", &self.link.protocol, host, prefix)
-            }
-            _ => format!("{}://{}/{}", &self.link.protocol, host, path),
-        };
-        debug!("url: {}", url);
+    /// Get a reference to the AWS secret key.
+    pub fn secret_key(&self) -> &str {
+        &self.credentials.secret_key
+    }
 
-        let mut handle = Easy::new();
-        let _ = handle.url(&url[..]);
+    /// Get a reference to the AWS token.
+    pub fn token(&self) -> Option<&str> {
+        self.credentials.token.as_ref().map(|s| s.as_str())
+    }
 
-        let mut list = List::new();
+    /// Get a reference to the full [`Credentials`](struct.Credentials.html)
+    /// object used by this `Bucket`.
+    pub fn credentials(&self) -> &Credentials {
+        &self.credentials
+    }
 
-        let l = match cmd {
-            Command::Put { content } => content.len(),
+    /// Change the credentials used by the Bucket, returning the existing
+    /// credentials.
+    pub fn set_credentials(&mut self, credentials: Credentials) -> Credentials {
+        mem::replace(&mut self.credentials, credentials)
+    }
+
+    /// Add an extra header to send with requests to S3.
+    ///
+    /// Add an extra header to send with requests. Note that the library
+    /// already sets a number of headers - headers set with this method will be
+    /// overridden by the library headers:
+    ///   * Host
+    ///   * Content-Type
+    ///   * Date
+    ///   * Content-Length
+    ///   * Authorization
+    ///   * X-Amz-Content-Sha256
+    ///   * X-Amz-Date
+    pub fn add_header(&mut self, key: &str, value: &str) {
+        self.extra_headers.insert(key.into(), value.into());
+    }
+
+    /// Get a reference to the extra headers to be passed to the S3 API.
+    pub fn extra_headers(&self) -> &Headers {
+        &self.extra_headers
+    }
+
+    /// Get a mutable reference to the extra headers to be passed to the S3
+    /// API.
+    pub fn extra_headers_mut(&mut self) -> &mut Headers {
+        &mut self.extra_headers
+    }
+
+    /// Add an extra query pair to the URL used for S3 API access.
+    pub fn add_query(&mut self, key: &str, value: &str) {
+        self.extra_query.insert(key.into(), value.into());
+    }
+
+    /// Get a reference to the extra query pairs to be passed to the S3 API.
+    pub fn extra_query(&self) -> &Query {
+        &self.extra_query
+    }
+
+    /// Get a mutable reference to the extra query pairs to be passed to the S3
+    /// API.
+    pub fn extra_query_mut(&mut self) -> &mut Query {
+        &mut self.extra_query
+    }
+}
+
+impl Credentials {
+    /// Initialize Credentials directly with key ID, secret key, and optional
+    /// token.
+    pub fn new(access_key: &str, secret_key: &str, token: Option<&str>) -> Credentials {
+        Credentials {
+            access_key: access_key.into(),
+            secret_key: secret_key.into(),
+            token: token.map(|s| s.into()),
+            _private: (),
+        }
+    }
+}
+
+impl fmt::Display for Region {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Region::*;
+        match *self {
+            UsEast1 => write!(f, "us-east-1"),
+            UsEast2 => write!(f, "us-east-2"),
+            UsWest1 => write!(f, "us-west-1"),
+            UsWest2 => write!(f, "us-west-2"),
+            CaCentral1 => write!(f, "ca-central-1"),
+            ApSouth1 => write!(f, "ap-south-1"),
+            ApNortheast1 => write!(f, "ap-northeast-1"),
+            ApNortheast2 => write!(f, "ap-northeast-2"),
+            ApSoutheast1 => write!(f, "ap-southeast-1"),
+            ApSoutheast2 => write!(f, "ap-southeast-2"),
+            EuCentral1 => write!(f, "eu-central-1"),
+            EuWest1 => write!(f, "eu-west-1"),
+            EuWest2 => write!(f, "eu-west-2"),
+            SaEast1 => write!(f, "sa-east-1"),
+        }
+    }
+}
+
+impl FromStr for Region {
+    type Err = S3RegionParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use self::Region::*;
+        match s {
+            "us-east-1" => Ok(UsEast1),
+            "us-east-2" => Ok(UsEast2),
+            "us-west-1" => Ok(UsWest1),
+            "us-west-2" => Ok(UsWest2),
+            "ca-central-1" => Ok(CaCentral1),
+            "ap-south-1" => Ok(ApSouth1),
+            "ap-northeast-1" => Ok(ApNortheast1),
+            "ap-northeast-2" => Ok(ApNortheast2),
+            "ap-southeast-1" => Ok(ApSoutheast1),
+            "ap-southeast-2" => Ok(ApSoutheast2),
+            "eu-central-1" => Ok(EuCentral1),
+            "eu-west-1" => Ok(EuWest1),
+            "eu-west-2" => Ok(EuWest2),
+            "sa-east-1" => Ok(SaEast1),
+            _ => Err(S3RegionParseError(s.to_string())),
+        }
+    }
+}
+
+impl Region {
+    fn endpoint(&self) -> &str {
+        use self::Region::*;
+        match *self {
+            // Surprisingly, us-east-1 does not have a
+            // s3-us-east-1.amazonaws.com DNS record
+            UsEast1 => "s3.amazonaws.com",
+            UsEast2 => "s3-us-east-2.amazonaws.com",
+            UsWest1 => "s3-us-west-1.amazonaws.com",
+            UsWest2 => "s3-us-west-2.amazonaws.com",
+            CaCentral1 => "s3-ca-central-1.amazonaws.com",
+            ApSouth1 => "s3-ap-south-1.amazonaws.com",
+            ApNortheast1 => "s3-ap-northeast-1.amazonaws.com",
+            ApNortheast2 => "s3-ap-northeast-2.amazonaws.com",
+            ApSoutheast1 => "s3-ap-southeast-1.amazonaws.com",
+            ApSoutheast2 => "s3-ap-southeast-2.amazonaws.com",
+            EuCentral1 => "s3-eu-central-1.amazonaws.com",
+            EuWest1 => "s3-eu-west-1.amazonaws.com",
+            EuWest2 => "s3-eu-west-2.amazonaws.com",
+            SaEast1 => "s3-sa-east-1.amazonaws.com",
+        }
+    }
+}
+
+impl<'a> Command<'a> {
+    pub fn http_verb(&self) -> &'static str {
+        match *self {
+            Command::Get => "GET",
+            Command::Put { .. } => "PUT",
+            Command::Delete => "DELETE",
+            Command::List { .. } => "GET",
+        }
+    }
+}
+
+impl<'a> Request<'a> {
+    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> Request<'b> {
+        Request {
+            bucket: bucket,
+            path: path,
+            command: command,
+            datetime: UTC::now(),
+        }
+    }
+
+    fn url(&self) -> Url {
+        let mut url_str = String::from("https://");
+        url_str.push_str(self.bucket.host());
+        url_str.push_str("/");
+        url_str.push_str(self.bucket.name());
+        if !self.path.starts_with('/') {
+            url_str.push_str("/");
+        }
+        url_str.push_str(&signing::uri_encode(self.path, false));
+
+        // Since every part of this URL is either pre-encoded or statically
+        // generated, there's really no way this should fail.
+        let mut url = Url::parse(&url_str).expect("static URL parsing");
+
+        for (key, value) in self.bucket.extra_query.iter() {
+            url.query_pairs_mut().append_pair(key, value);
+        }
+
+        if let Command::List { prefix, delimiter } = self.command {
+            let mut query_pairs = url.query_pairs_mut();
+            delimiter.map(|d| query_pairs.append_pair("delimiter", d));
+            query_pairs.append_pair("prefix", prefix);
+            query_pairs.append_pair("list-type", "2");
+        }
+
+        url
+    }
+
+    fn content_length(&self) -> usize {
+        match self.command {
+            Command::Put { content, .. } => content.len(),
             _ => 0,
-        };
-
-        build_headers!(list,
-                       &format!("Host: {}", &host),
-                       &format!("Date: {}", &date),
-                       &format!("Authorization: {}", &a),
-                       &format!("Content-Type: {}", &content_type),
-                       &format!("Content-Length: {}", l));
-
-        for l in list.iter() {
-            debug!("{:?}", String::from_utf8_lossy(l));
         }
-
-        match cmd {
-            Command::Put { content } => {
-                handle.put(true).expect("Unable to create PUT request");
-                let _ = handle.post_field_size(l as u64);
-            }
-            Command::Delete => {
-                handle.custom_request(&"DELETE").expect("Unable to create DELETE request");
-            }
-            _ => {}
-        }
-
-        handle.http_headers(list).unwrap();
-
-        let result = match cmd {
-            Command::Put { content } => self.put(&mut handle, content),
-            Command::Get => self.get(&mut handle),
-            Command::List { delimiter, prefix } => self.list(&mut handle),
-            Command::Delete => self.get(&mut handle),
-        };
-        (url, result)
     }
 
-    pub fn put(&self, handle: &mut Easy, mut content: &[u8]) -> Result<Vec<u8>, curlError> {
-        let mut headers = Vec::new();
-        {
-            let mut transfer = handle.transfer();
-
-            try!(transfer.read_function(|buf| Ok(content.read(buf).unwrap())));
-
-            headers!(transfer, headers);
-
-            try!(transfer.perform());
+    fn content_type(&self) -> String {
+        match self.command {
+            Command::Put { content_type, .. } => content_type.into(),
+            _ => "text/plain".into(),
         }
-        debug!("recieved headers: {:?}", headers);
-        debug!("response: {:?}", handle.response_code());
-        Ok(vec![])
     }
 
-    pub fn get(&self, handle: &mut Easy) -> Result<Vec<u8>, curlError> {
-        let mut headers = Vec::new();
+    fn sha256(&self) -> String {
+        match self.command {
+            Command::Put { content, .. } => {
+                let mut sha = Sha256::new();
+                sha.input(content);
+                sha.result_str()
+            }
+            _ => EMPTY_PAYLOAD_SHA.into(),
+        }
+    }
+
+    fn long_date(&self) -> String {
+        self.datetime.format(LONG_DATE).to_string()
+    }
+
+    fn canonical_request(&self, headers: &Headers) -> String {
+        signing::canonical_request(self.command.http_verb(),
+                                   &self.url(),
+                                   headers,
+                                   &self.sha256())
+    }
+
+    fn string_to_sign(&self, request: &str) -> String {
+        signing::string_to_sign(&self.datetime, self.bucket.region(), &request)
+    }
+
+    fn signing_key(&self) -> Vec<u8> {
+        signing::signing_key(&self.datetime,
+                             self.bucket.secret_key(),
+                             self.bucket.region(),
+                             "s3")
+    }
+
+    fn authorization(&self, headers: &Headers) -> String {
+        let canonical_request = self.canonical_request(headers);
+        let string_to_sign = self.string_to_sign(&canonical_request);
+        let mut hmac = Hmac::new(Sha256::new(), &self.signing_key());
+        hmac.input(string_to_sign.as_bytes());
+        let signature = hmac.result().code().to_hex();
+        let signed_header = signing::signed_header_string(headers);
+        signing::authorization_header(self.bucket.access_key(),
+                                      &self.datetime,
+                                      self.bucket.region(),
+                                      &signed_header,
+                                      &signature)
+    }
+
+    fn headers(&self) -> S3Result<Headers> {
+        // Generate this once, but it's used in more than one place.
+        let sha256 = self.sha256();
+
+        // Start with extra_headers, that way our headers replace anything with
+        // the same name.
+        let mut headers: Headers = self.bucket.extra_headers.clone();
+        headers.insert("Host".into(), self.bucket.host().into());
+        headers.insert("Date".into(), self.datetime.to_rfc2822());
+        headers.insert("Content-Length".into(), self.content_length().to_string());
+        headers.insert("Content-Type".into(), self.content_type());
+        headers.insert("X-Amz-Content-Sha256".into(), sha256.clone());
+        headers.insert("X-Amz-Date".into(), self.long_date());
+
+        self.bucket.credentials().token.as_ref().map(|token| {
+            headers.insert("X-Amz-Security-Token".into(), token.clone());
+        });
+
+        // This must be last, as it signs the other headers
+        let authorization = self.authorization(&headers);
+        headers.insert("Authorization".into(), authorization);
+
+        Ok(headers)
+    }
+
+    fn load_content(&self, handle: &mut Easy) -> S3Result<Cursor<&[u8]>> {
+        if let Command::Put { content, .. } = self.command {
+            try!(handle.put(true));
+            try!(handle.post_field_size(content.len() as u64));
+            Ok(Cursor::new(content))
+        } else {
+            Ok(Cursor::new(&[] as &[u8]))
+        }
+    }
+
+    fn execute(&self) -> S3Result<(Vec<u8>, u32)> {
+        let mut handle = Easy::new();
+        try!(handle.url(self.url().as_str()));
+
+        // Special handling to load PUT content
+        let mut content_cursor = try!(self.load_content(&mut handle));
+
+        // Set GET, PUT, etc
+        try!(handle.custom_request(self.command.http_verb()));
+
+        // Build and set a Curl List of headers
+        let mut list = List::new();
+        for (key, value) in try!(self.headers()).iter() {
+            let header = format!("{}: {}", key, value);
+            try!(list.append(&header));
+        }
+        try!(handle.http_headers(list));
+
+        // Run the transfer
         let mut dst = Vec::new();
-
         {
             let mut transfer = handle.transfer();
+
+            try!(transfer.read_function(|buf| content_cursor.read(buf).or(Err(ReadError::Abort))));
+
             try!(transfer.write_function(|data| {
                 dst.extend_from_slice(data);
                 Ok(data.len())
             }));
 
-            headers!(transfer, headers);
-
             try!(transfer.perform());
         }
-        debug!("recieved headers: {:?}", headers);
-        Ok(dst)
-    }
-
-    pub fn list(&self, handle: &mut Easy) -> Result<Vec<u8>, curlError> {
-        let mut dst = Vec::new();
-        let mut headers = Vec::new();
-        {
-            let mut transfer = handle.transfer();
-            try!(transfer.write_function(|data| {
-                dst.extend_from_slice(data);
-                Ok(data.len())
-            }));
-
-            headers!(transfer, headers);
-
-            try!(transfer.perform());
-        }
-        Ok(dst)
-    }
-
-    pub fn host(&self) -> String {
-        format!("{}.s3{}.amazonaws.com",
-                self.name,
-                match self.region {
-                    Some(ref r) => format!("-{}", r),
-                    None => String::new(),
-                })
-    }
-
-    fn auth(&self, verb: &str, date: &str, path: &str, md5: &str, content_type: &str) -> String {
-        let string = format!("{verb}\n{md5}\n{ty}\n{date}\n{headers}{resource}",
-                             verb = verb,
-                             md5 = md5,
-                             ty = content_type,
-                             date = date,
-                             headers = "",
-                             resource = format!("/{}/{}", self.name, path));
-        let signature = {
-            let mut hmac = hmac::HMAC::new(hash::Type::SHA1, self.secret_key.as_bytes());
-            let _ = hmac.write_all(string.as_bytes());
-            hmac.finish().to_base64(STANDARD)
-        };
-        format!("AWS {}:{}", self.access_key, signature)
+        Ok((dst, try!(handle.response_code())))
     }
 }
 
-/// Gets file from an S3 path
-///
-/// # Example:
-///
-/// ```
-/// use s3::{Bucket, get_s3};
-/// use std::io::prelude::*;
-/// use std::fs::File;
-///
-/// let s3_bucket = &"rust-s3-test";
-/// let aws_access = &"access_key";
-/// let aws_secret = &"secret_key";
-///
-/// let bucket = Bucket::new(
-///               s3_bucket.to_string(),
-///               None,
-///               aws_access.to_string(),
-///               aws_secret.to_string(),
-///               None);
-/// let path = &"test.file";
-/// let mut buffer = match File::create(path) {
-///           Ok(x) => x,
-///           Err(e) => panic!("{:?}, {}", e, path)
-///         };
-/// let bytes = match get_s3(&bucket, Some(&path)){
-///  Ok(b) => b,
-///  Err(e) => {println!("Error: {:?}", e); return;}
-/// };
-/// match buffer.write(&bytes) {
-///   Ok(_) => {} // info!("Written {} bytes from {}", x, path),
-///   Err(e) => panic!("{:?}", e)
-/// }
-/// ```
-pub fn get_s3(bucket: &Bucket, s3_path: Option<&str>) -> Result<Vec<u8>, curlError> {
-    let path = match s3_path {
-        Some(x) => x,
-        None => "/",
-    };
-    let (_, result) = bucket.execute(Command::Get, path);
-    result
+impl From<curl::Error> for S3Error {
+    fn from(e: curl::Error) -> S3Error {
+        S3Error::CurlError(e)
+    }
 }
 
-/// Delete file from an S3 path
-///
-/// # Example:
-///
-/// ```
-/// use s3::{Bucket, delete_s3};
-/// use std::io::prelude::*;
-/// use std::fs::File;
-///
-/// let s3_bucket = &"rust-s3-test";
-/// let aws_access = &"access_key";
-/// let aws_secret = &"secret_key";
-///
-/// let bucket = Bucket::new(
-///               s3_bucket.to_string(),
-///               None,
-///               aws_access.to_string(),
-///               aws_secret.to_string(),
-///               None);
-/// let path = &"test.file";
-/// let mut buffer = match File::create(path) {
-///           Ok(x) => x,
-///           Err(e) => panic!("{:?}, {}", e, path)
-///         };
-/// delete_s3(&bucket, &path);
-///
-/// ```
-pub fn delete_s3(bucket: &Bucket, s3_path: &str) {
-    let (_, _) = bucket.execute(Command::Delete, s3_path);
+impl From<io::Error> for S3Error {
+    fn from(e: io::Error) -> S3Error {
+        S3Error::IoError(e)
+    }
 }
 
-/// List contents of an S3 bucket, `prefix` and `delimiter` are placeholders for now
-///
-/// # Example
-///
-/// ```
-/// use s3::{Bucket, list_s3};
-/// use std::io::prelude::*;
-/// use std::fs::File;
-///
-/// let s3_bucket = &"rust-s3-test";
-/// let aws_access = &"access_key";
-/// let aws_secret = &"secret_key";
-///
-/// let bucket = Bucket::new(
-///               s3_bucket.to_string(),
-///               None,
-///               aws_access.to_string(),
-///               aws_secret.to_string(),
-///               None);
-/// let bytes = match list_s3(&bucket,
-///                       &"/",
-///                       &"/",
-///                       &"/"){
-///  Ok(b) => b,
-///  Err(e) => {println!("Error: {:?}", e); return;}
-/// };
-/// let string = String::from_utf8_lossy(&bytes);
-/// println!("{}", string);
-/// ```
-pub fn list_s3(bucket: &Bucket,
-               path: &str,
-               prefix: &str,
-               delimiter: &str)
-               -> Result<Vec<u8>, curlError> {
-    // TODO prefix + delimiter support, default delimiter is / ATM
-    let (_, result) = bucket.execute(Command::List {
-                                         prefix: prefix,
-                                         delimiter: delimiter,
-                                     },
-                                     path);
-    result
-}
-
-fn sign(key: &[u8], msg: &[u8]) -> Vec<u8> {
-    let mut hmac = hmac::HMAC::new(hash::Type::SHA256, key);
-    let _ = hmac.write_all(msg);
-    hmac.finish()
-}
-
-fn get_signature_key(key: &str,
-                     date_stamp: &str,
-                     region_name: &str,
-                     service_name: &str,
-                     version: &str)
-                     -> Vec<u8> {
-    let kdate = sign(format!("AWS4{}", key).as_bytes(), date_stamp.as_bytes());
-    let kregion = sign(kdate.as_slice(), region_name.as_bytes());
-    let kservice = sign(kregion.as_slice(), service_name.as_bytes());
-    sign(&kservice, version.as_bytes())
-}
-
-/// Put into an S3 bucket, get a preauthorized link back.
-///
-/// # Example
-///
-/// ```
-/// use s3::{Bucket, put_s3};
-///
-/// let s3_bucket = &"rust-s3-test";
-/// let aws_access = &"access_key";
-/// let aws_secret = &"secret_key";
-///
-/// let bucket = Bucket::new(
-///               s3_bucket.to_string(),
-///               None,
-///               aws_access.to_string(),
-///               aws_secret.to_string(),
-///               None);
-/// let put_me = "I want to go to S3".to_string();
-/// let url = put_s3(&bucket,
-///                 &"/test.file",
-///                 &put_me.as_bytes());
-/// println!("{}", url);
-/// ```
-pub fn put_s3(bucket: &Bucket, s3_path: &str, output: &[u8]) -> String {
-
-    let (url, _) = bucket.execute(Command::Put { content: output }, &s3_path);
-    let t = time::now();
-    let method = &"GET";
-    let amzdate = match t.strftime(&bucket.link.long_date) {
-        Ok(x) => x.to_string(),
-        Err(e) => panic!("{:?}", e),
-    };
-    let datestamp = match t.strftime(&bucket.link.short_date) {
-        Ok(x) => x.to_string(),
-        Err(e) => panic!("{:?}", e),
-    };
-    let url: Url = match url.parse() {
-        Ok(x) => x,
-        Err(e) => panic!("{:?}", e),
-    };
-    let canonical_uri = &url.path();
-    let host = match url.host_str() {
-        Some(x) => x,
-        None => panic!("Unable to extract host string from url: {:?}", url),
-    };
-    let endpoint = format!("https://{}", host);
-    let canonical_headers = format!("host:{}\n", host);
-    let signed_headers = &"host";
-    let payload_hash = &bucket.link.amz_payload;
-    let credential_scope = format!("{}/{}/{}/{}",
-                                   datestamp,
-                                   &bucket.link.amz_region,
-                                   &bucket.link.amz_service,
-                                   &bucket.link.amz_req_ver);
-    let canonical_querystring = format!("{}={}&{}={}%2F{}&{}={}&{}={}&{}={}",
-                                        &"X-Amz-Algorithm",
-                                        &bucket.link.amz_algo,
-                                        &"X-Amz-Credential",
-                                        bucket.access_key,
-                                        credential_scope.replace("/", "%2F"),
-                                        &"X-Amz-Date",
-                                        &amzdate,
-                                        &"X-Amz-Expires",
-                                        bucket.link.amz_expire,
-                                        &"X-Amz-SignedHeaders",
-                                        signed_headers);
-    let canonical_request = format!("{}\n{}\n{}\n{}\n{}\n{}",
-                                    method,
-                                    &canonical_uri,
-                                    canonical_querystring,
-                                    canonical_headers,
-                                    signed_headers,
-                                    payload_hash);
-    let string_to_sign = format!("{}\n{}\n{}\n{}",
-                                 bucket.link.amz_algo,
-                                 amzdate,
-                                 credential_scope,
-                                 hash::hash(hash::Type::SHA256, canonical_request.as_bytes())
-                                     .to_hex());
-    let signing_key = get_signature_key(&bucket.secret_key,
-                                        &datestamp,
-                                        &bucket.link.amz_region,
-                                        &bucket.link.amz_service,
-                                        &bucket.link.amz_req_ver);
-    let signature = sign(&signing_key, &string_to_sign.as_bytes()).to_hex();
-    let canonical_querystring = format!("{}&{}={}",
-                                        canonical_querystring,
-                                        &"X-Amz-Signature",
-                                        signature);
-    format!("{}{}?{}", endpoint, canonical_uri, canonical_querystring)
+impl From<S3Error> for io::Error {
+    fn from(e: S3Error) -> io::Error {
+        io::Error::new(io::ErrorKind::Other, format!("{:?}", e))
+    }
 }
