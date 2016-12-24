@@ -26,8 +26,7 @@ pub fn main() {
     // List out contents of directory
     let (list, code) = bucket.list("", None).unwrap();
     assert_eq!(200, code);
-    let string = str::from_utf8(&list).unwrap();
-    println!("{}", string);
+    println!("{:?}", list);
 
     // Make sure that our "test_file" doesn't exist, delete it if it does. Note
     // that the s3 library returns the HTTP code even if it indicates a failure
