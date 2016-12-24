@@ -5,6 +5,8 @@ extern crate chrono;
 extern crate crypto;
 extern crate curl;
 extern crate hex;
+extern crate serde;
+extern crate serde_xml;
 extern crate url;
 
 #[macro_use]
@@ -30,6 +32,8 @@ use url::Url;
 const LONG_DATE: &'static str = "%Y%m%dT%H%M%SZ";
 const EMPTY_PAYLOAD_SHA: &'static str = "e3b0c44298fc1c149afbf4c8996fb924\
                                          27ae41e4649b934ca495991b7852b855";
+
+include!(concat!(env!("OUT_DIR"), "/serde_types.rs"));
 
 /// Object holding info about an S3 bucket which provides easy access to S3
 /// operations.
@@ -139,6 +143,8 @@ pub enum S3Error {
     CurlError(curl::Error),
     /// General Input/Output error.
     IoError(io::Error),
+    /// Unable to decode the XML returned from S3
+    XmlError(serde_xml::Error),
 }
 
 /// Generic return type of S3 functions.
@@ -284,16 +290,18 @@ impl Bucket {
     ///
     /// let (list, code) = bucket.list("/", Some("/")).unwrap();
     /// assert_eq!(200, code);
-    /// let string = str::from_utf8(&list).unwrap();
-    /// println!("{}", string);
+    /// println!("{:?}", list);
     /// ```
-    pub fn list(&self, prefix: &str, delimiter: Option<&str>) -> S3Result<(Vec<u8>, u32)> {
+    pub fn list(&self, prefix: &str, delimiter: Option<&str>) -> S3Result<(ListBucketResult, u32)> {
         let command = Command::List {
             prefix: prefix,
             delimiter: delimiter,
         };
         let request = Request::new(self, "/", command);
-        request.execute()
+        let result = try!(request.execute());
+        let result_string = String::from_utf8_lossy(&result.0);
+        let deserialized: ListBucketResult = try!(serde_xml::from_str(&result_string));
+        Ok((deserialized, result.1))
     }
 
     /// Get a reference to the name of the S3 bucket.
@@ -662,5 +670,11 @@ impl From<io::Error> for S3Error {
 impl From<S3Error> for io::Error {
     fn from(e: S3Error) -> io::Error {
         io::Error::new(io::ErrorKind::Other, format!("{:?}", e))
+    }
+}
+
+impl From<serde_xml::Error> for S3Error {
+    fn from(e: serde_xml::Error) -> S3Error {
+        S3Error::XmlError(e)
     }
 }
