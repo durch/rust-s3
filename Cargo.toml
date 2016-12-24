@@ -8,6 +8,10 @@ readme = "README.md"
 keywords = ["Amazon", "AWS", "S3"]
 license = "MIT"
 documentation = "https://durch.github.io/rust-s3/"
+build = "build.rs"
+
+[build-dependencies]
+serde_codegen = "0.8"
 
 [lib]
 name = "s3"
@@ -19,4 +23,6 @@ curl = "0.4.0"
 hex = "0.2.0"
 log = "0.3.6"
 rust-crypto = "0.2.0"
+serde = "~0.8"
+serde_xml = "~0.9"
 url = "1.2.4"
