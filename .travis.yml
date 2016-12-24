@@ -16,15 +16,12 @@ before_script:
   pip install 'travis-cargo<0.2' --user &&
   export PATH=$HOME/.local/bin:$PATH
 script:
-- |
-  travis-cargo build &&
-  travis-cargo test &&
-  travis-cargo bench &&  
-  travis-cargo --only stable doc
+- "travis-cargo build &&\ntravis-cargo test &&\ntravis-cargo bench &&  \ntravis-cargo
+  --only stable doc\n"
 after_success:
 - travis-cargo --only stable doc-upload
 - travis-cargo coveralls --no-sudo --verify
 env:
   global:
   - TRAVIS_CARGO_NIGHTLY_FEATURE=""
-  - secure: KaD0+HuOrqHdzW9GwES/7IgNO01W032sH7WRgHK89EuRZkxzqxJ7J7ln5TQ+8meEMtaq0HYFuOMg4oqPB6cSn7gFBIOjKOMJim32AOG0VAWLYFNdsoP9ctEWVSuQ1YjP6IIDWohwzDfYyNrP0uND21A0UZGLCLySAYxhCn1VZ92c3Z+gA1kJN5wxFxeZxvbWR28ApqHoir1I/xI2rf+5qz50zN3hhoc7SiKoo3z/8oiKDVT6fALR6QV2kbe2ELTA3XyUE1vvw2vojt792Dlg7kulORreR33MmODnR+PKcUJ0Ypblkuja3eg8Vt1haCmb3P829Ziwtf8f7tlmCzJM2wEhZvN+FZFao3TwBiqm9791tJ9vTCsboVvTeNd2pY3iFztUXUSgRVzAQ0uvE9/jnaL3BWewndLFPrKBo2VnLFGNma7hCryOFnWrfymuWoBjjsfJd17KOs0HvMqYjzsDBLQWFn7nug25pkZMM1XOXwSz2EiD3eeRmpyjLHQ7i1XX72+KehwIBzabBIeK4mkExCl+c/pyITQOHzhspa3wHJPXr1iupybrvXDlmOArN1r8AoyLNQgusTakRAGXeO4xAg9v/Ki1Evp+EzgGFIfM/IS6A1VSWCTdvHwiGEfICU0P4+kFrTbBZJN0CaGQTsnrEwsgG1Ngt1zn+T+F9BvefeI=
+  - secure: vZBwXTe1pfo1Xg487mL7J5reidojIiWFyTEU3btlE5+jE5Yvk02t9fZ+3o8nzfHspRqDgNoyVeNv6+ExB+y5Djzl3VMs78+28+EfOcgZj4+d9C+igsXSS2FfmYZsLDiss8OMdzB2Gn3zKvoKBpka/cMtcIXL19jCDeIhb7Q2pRKqxmJelBU+MiBkbGedAtWENdzY86G6pvg6+HnjdS8Hpg8v+ud9LlxSuUfi2deM4A3cFbBjGMnHl8UmD9MT/68lGiUfq89NVnJb2heoHiaetpfViY9okH9X0AkY67ad/iEMRcUJzoVXfZJ1Dq3eRFrMnAQNRcyCNRy43VmOXXZZY3XgMpRkBUQ9TdjEyL+G3i4Ftaao8diyh0ISwu+kt6/j8/VWD2fekGUyCT3Uypj6i9f5ZcNtW5Brs/Ol/yThLcB+ltakkvtmq3U+Lw5FoBtjiC8bm4PFeUobwgWeuH+WIaUJDE9KBuu1cBlEqF/jTMLVTWHB+I3Bis6PKeG99KeulefJqFLHG8Pey3i5PPoxnVV2OxP3GWYFt0wUOZwNWQnRjluflN6Ch9MzFngNCXfyktbynQczEGMmtPBh5k1adeZ33Fck50+jSlEOmtX2HWNeyksD6+G+4bxEcK4zu67zz6V/k/xgy18074RIK2nMl1KjaxKkcDOdhO4WE+2dMXQ=
