@@ -2,7 +2,7 @@
 [![](https://travis-ci.org/durch/rust-s3.svg?branch=master)](https://travis-ci.org/durch/rust-s3)
 [![](http://meritbadge.herokuapp.com/rust-s3)](https://crates.io/crates/rust-s3)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/durch/rust-s3/blob/master/LICENSE.md)
-[![Join the chat at https://gitter.im/rust-s3/Lobby](https://badges.gitter.im/durch/rust-s3.svg)](https://gitter.im/durch/rust-s3?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Join the chat at https://gitter.im/durch/rust-s3](https://badges.gitter.im/durch/rust-s3.svg)](https://gitter.im/durch/rust-s3?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 ## rust-s3 [[docs](https://durch.github.io/rust-s3/)]
 
 Tiny Rust library for working with Amazon S3
