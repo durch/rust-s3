@@ -7,8 +7,6 @@
 
 Tiny Rust library for working with Amazon S3
 
-*Increasingly more loosly based on [crates.io](https://github.com/rust-lang/crates.io/tree/master/src/s3) implementation.*
-
 ### Intro
 Very modest interface towards Amazon S3.
 Supports `put`, `get`, `list`, and `delete`.
