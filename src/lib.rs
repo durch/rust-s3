@@ -592,7 +592,6 @@ impl<'a> Request<'a> {
         // the same name.
         let mut headers: Headers = self.bucket.extra_headers.clone();
         headers.insert("Host".into(), self.bucket.host().into());
-        headers.insert("Date".into(), self.datetime.to_rfc2822());
         headers.insert("Content-Length".into(), self.content_length().to_string());
         headers.insert("Content-Type".into(), self.content_type());
         headers.insert("X-Amz-Content-Sha256".into(), sha256.clone());
@@ -605,6 +604,14 @@ impl<'a> Request<'a> {
         // This must be last, as it signs the other headers
         let authorization = self.authorization(&headers);
         headers.insert("Authorization".into(), authorization);
+
+        // The format of RFC2822 is somewhat malleable, so including it in
+        // signed headers can cause signature mismatches. We do include the
+        // X-Amz-Date header, so requests are still properly limited to a date
+        // range and can't be used again e.g. reply attacks. Adding this header
+        // after the generation of the Authorization header leaves it out of
+        // the signed headers.
+        headers.insert("Date".into(), self.datetime.to_rfc2822());
 
         Ok(headers)
     }
