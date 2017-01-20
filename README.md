@@ -32,7 +32,7 @@ rust-s3 = '0.2.3'
 
 #### Example
 
-```
+```rust
 extern crate s3;
 use s3::{Bucket, put_s3, get_s3, list_s3};
 
