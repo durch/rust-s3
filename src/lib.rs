@@ -55,6 +55,7 @@ pub struct Bucket {
     credentials: Credentials,
     extra_headers: Headers,
     extra_query: Query,
+    endpoint: Option<String>,
 }
 
 /// AWS access credentials: access key, secret key, and optional token.
@@ -143,8 +144,10 @@ pub enum S3Error {
     CurlError(curl::Error),
     /// General Input/Output error.
     IoError(io::Error),
-    /// Unable to decode the XML returned from S3
+    /// Unable to decode the XML returned from S3.
     XmlError(serde_xml::Error),
+    /// Unable to construct a url with the endpoint, bucket name and path.
+    UrlParseError(url::ParseError),
 }
 
 /// Generic return type of S3 functions.
@@ -198,6 +201,7 @@ impl Bucket {
             credentials: credentials,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
+            endpoint: None,
         }
     }
 
@@ -388,6 +392,17 @@ impl Bucket {
     pub fn extra_query_mut(&mut self) -> &mut Query {
         &mut self.extra_query
     }
+
+    /// Get the custom endpoint if one has been set.
+    pub fn get_endpoint(&self) -> Option<&str> {
+        self.endpoint.as_ref().map(|e| e.as_str())
+    }
+
+    /// Sets the endpoint to be used.
+    /// If set to None (default), the endpoint will be constructed via the region.
+    pub fn set_endpoint(&mut self, endpoint: Option<String>) {
+        self.endpoint = endpoint;
+    }
 }
 
 impl Credentials {
@@ -495,20 +510,24 @@ impl<'a> Request<'a> {
         }
     }
 
-    fn url(&self) -> Url {
-        let mut url_str = String::from("https://");
-        url_str.push_str(self.bucket.host());
-        url_str.push_str("/");
+    fn url(&self) -> S3Result<Url> {
+        let mut url_str = self.bucket.endpoint.clone().unwrap_or_else(|| {
+            let mut url_str = String::from("https://");
+            url_str.push_str(self.bucket.host());
+            url_str
+        });
+
+        if !url_str.ends_with('/') {
+            url_str.push('/');
+        }
         url_str.push_str(self.bucket.name());
+
         if !self.path.starts_with('/') {
-            url_str.push_str("/");
+            url_str.push('/');
         }
         url_str.push_str(&signing::uri_encode(self.path, false));
 
-        // Since every part of this URL is either pre-encoded or statically
-        // generated, there's really no way this should fail.
-        let mut url = Url::parse(&url_str).expect("static URL parsing");
-
+        let mut url = try!(Url::parse(&url_str));
         for (key, value) in self.bucket.extra_query.iter() {
             url.query_pairs_mut().append_pair(key, value);
         }
@@ -520,7 +539,7 @@ impl<'a> Request<'a> {
             query_pairs.append_pair("list-type", "2");
         }
 
-        url
+        Ok(url)
     }
 
     fn content_length(&self) -> usize {
@@ -552,11 +571,11 @@ impl<'a> Request<'a> {
         self.datetime.format(LONG_DATE).to_string()
     }
 
-    fn canonical_request(&self, headers: &Headers) -> String {
-        signing::canonical_request(self.command.http_verb(),
-                                   &self.url(),
-                                   headers,
-                                   &self.sha256())
+    fn canonical_request(&self, headers: &Headers) -> S3Result<String> {
+        Ok(signing::canonical_request(self.command.http_verb(),
+                                      &try!(self.url()),
+                                      headers,
+                                      &self.sha256()))
     }
 
     fn string_to_sign(&self, request: &str) -> String {
@@ -570,18 +589,18 @@ impl<'a> Request<'a> {
                              "s3")
     }
 
-    fn authorization(&self, headers: &Headers) -> String {
-        let canonical_request = self.canonical_request(headers);
+    fn authorization(&self, headers: &Headers) -> S3Result<String> {
+        let canonical_request = try!(self.canonical_request(headers));
         let string_to_sign = self.string_to_sign(&canonical_request);
         let mut hmac = Hmac::new(Sha256::new(), &self.signing_key());
         hmac.input(string_to_sign.as_bytes());
         let signature = hmac.result().code().to_hex();
         let signed_header = signing::signed_header_string(headers);
-        signing::authorization_header(self.bucket.access_key(),
-                                      &self.datetime,
-                                      self.bucket.region(),
-                                      &signed_header,
-                                      &signature)
+        Ok(signing::authorization_header(self.bucket.access_key(),
+                                         &self.datetime,
+                                         self.bucket.region(),
+                                         &signed_header,
+                                         &signature))
     }
 
     fn headers(&self) -> S3Result<Headers> {
@@ -603,7 +622,7 @@ impl<'a> Request<'a> {
 
         // This must be last, as it signs the other headers
         let authorization = self.authorization(&headers);
-        headers.insert("Authorization".into(), authorization);
+        headers.insert("Authorization".into(), try!(authorization));
 
         // The format of RFC2822 is somewhat malleable, so including it in
         // signed headers can cause signature mismatches. We do include the
@@ -628,7 +647,7 @@ impl<'a> Request<'a> {
 
     fn execute(&self) -> S3Result<(Vec<u8>, u32)> {
         let mut handle = Easy::new();
-        try!(handle.url(self.url().as_str()));
+        try!(handle.url(try!(self.url()).as_str()));
 
         // Special handling to load PUT content
         let mut content_cursor = try!(self.load_content(&mut handle));
@@ -683,5 +702,53 @@ impl From<S3Error> for io::Error {
 impl From<serde_xml::Error> for S3Error {
     fn from(e: serde_xml::Error) -> S3Error {
         S3Error::XmlError(e)
+    }
+}
+
+impl From<url::ParseError> for S3Error {
+    fn from(e: url::ParseError) -> S3Error {
+        S3Error::UrlParseError(e)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn region_url(bucket_name: &str, path: &str, region: Region) -> String {
+        let credentials = Credentials::new("access_key", "secret_key", None);
+        let bucket = Bucket::new(bucket_name, region, credentials);
+        let request = Request::new(&bucket, path, Command::Get);
+        request.url().unwrap().to_string()
+    }
+
+    #[test]
+    fn test_region_url() {
+        assert_eq!(region_url("some-bucket", "some-path", Region::ApSoutheast1),
+                   "https://s3-ap-southeast-1.amazonaws.com/some-bucket/some-path");
+        assert_eq!(region_url("foo", "bar", Region::UsEast1),
+                   "https://s3.amazonaws.com/foo/bar");
+        assert_eq!(region_url("foo", "/bar/baz", Region::UsEast1),
+                   "https://s3.amazonaws.com/foo/bar/baz");
+    }
+
+    fn endpoint_url(bucket_name: &str, path: &str, endpoint: &str) -> String {
+        let credentials = Credentials::new("access_key", "secret_key", None);
+        let mut bucket = Bucket::new(bucket_name, Region::UsEast1, credentials);
+        bucket.set_endpoint(Some(String::from(endpoint)));
+        let request = Request::new(&bucket, path, Command::Get);
+        request.url().unwrap().to_string()
+    }
+
+    #[test]
+    fn test_endpoint_url() {
+        assert_eq!(endpoint_url("testbucket", "testpath", "http://localhost/"),
+                   "http://localhost/testbucket/testpath");
+        assert_eq!(endpoint_url("foo", "/bar/baz", "http://localhost:8080"),
+                   "http://localhost:8080/foo/bar/baz");
+        assert_eq!(endpoint_url("bucket", "path", "https://mypersonals3.org/"),
+                   "https://mypersonals3.org/bucket/path");
+        assert_eq!(endpoint_url("bucket", "path", "https://mypersonals3.com:1234/"),
+                   "https://mypersonals3.com:1234/bucket/path");
     }
 }
