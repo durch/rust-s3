@@ -6,6 +6,4 @@
 # More information here http://doc.crates.io/guide.html#cargotoml-vs-cargolock
 Cargo.lock
 .idea/
-Dockerfile
-docker-compose.yml
 test.file

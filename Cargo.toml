@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["Drazen Urch", "Nick Stevens"]
 description = "Tiny Rust library for working with Amazon S3."
 repository = "https://github.com/durch/rust-s3"
@@ -8,10 +8,6 @@ readme = "README.md"
 keywords = ["Amazon", "AWS", "S3"]
 license = "MIT"
 documentation = "https://durch.github.io/rust-s3/"
-build = "build.rs"
-
-[build-dependencies]
-serde_codegen = "0.8"
 
 [lib]
 name = "s3"
@@ -20,9 +16,12 @@ path = "src/lib.rs"
 [dependencies]
 chrono = "0.2.0"
 curl = "0.4.0"
+error-chain = "0.10"
 hex = "0.2.0"
-log = "0.3.6"
 rust-crypto = "0.2.0"
-serde = "~0.8"
-serde_xml = "~0.9"
+serde_derive = "0.9"
+serde = "0.9"
+serde-xml-rs = "0.1.2"
+#serde_xml = "0.9"
 url = "1.2.4"
+

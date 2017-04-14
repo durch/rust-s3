@@ -1,11 +1,10 @@
-#[macro_use]
-extern crate log;
 extern crate s3;
 
 use std::env;
 use std::str;
 
-use s3::{Bucket, Credentials};
+use s3::bucket::Bucket;
+use s3::credentials::Credentials;
 
 const BUCKET: &'static str = "example-bucket";
 const REGION: &'static str = "us-east-1";

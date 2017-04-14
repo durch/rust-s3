@@ -1,5 +1,5 @@
-#[derive(Deserialize, Debug)]
 /// Owner information for the object
+#[derive(Deserialize, Debug)]
 pub struct Owner {
     #[serde(rename = "DisplayName")]
     /// Object owner's name.
@@ -9,8 +9,9 @@ pub struct Owner {
     pub id: String,
 }
 
-#[derive(Deserialize, Debug)]
+
 /// An individual object in a ListBucketResult
+#[derive(Deserialize, Debug)]
 pub struct Object {
     #[serde(rename = "LastModified")]
     /// Date and time the object was last modified.
@@ -33,8 +34,9 @@ pub struct Object {
     pub size: i32,
 }
 
-#[derive(Deserialize, Debug)]
+
 /// The parsed result of a s3 bucket listing
+#[derive(Deserialize, Debug)]
 pub struct ListBucketResult {
     #[serde(rename = "Name")]
     /// Name of the bucket.
@@ -75,8 +77,8 @@ pub struct ListBucketResult {
     pub common_prefixes: Vec<CommonPrefix>,
 }
 
-#[derive(Deserialize, Debug)]
 /// CommonPrefix is used to group keys
+#[derive(Deserialize, Debug)]
 pub struct CommonPrefix {
     #[serde(rename = "Prefix")]
     /// Keys that begin with the indicated prefix.

@@ -10,8 +10,8 @@ use crypto::hmac::Hmac;
 use crypto::mac::Mac;
 use crypto::sha2::Sha256;
 use url::Url;
-
-use super::{Headers, Region};
+use region::Region;
+use request::Headers;
 
 const SHORT_DATE: &'static str = "%Y%m%d";
 const LONG_DATETIME: &'static str = "%Y%m%dT%H%M%SZ";
@@ -141,7 +141,7 @@ mod tests {
     use hex::ToHex;
     use url::Url;
 
-    use ::Headers;
+    use request::Headers;
     use super::*;
 
     #[test]
