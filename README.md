@@ -27,52 +27,59 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```
 [dependencies]
-rust-s3 = '0.2.3'
+rust-s3 = '0.5.0'
 ```
 
 #### Example
 
 ```rust
 extern crate s3;
-use s3::{Bucket, put_s3, get_s3, list_s3};
 
-const AWS_ACCESS: &'static str = "access_key";
-const AWS_SECRET: &'static str = "secret_key";
+use std::env;
+use std::str;
 
-fn main () {
-  // Bucket instance
-  let bucket = Bucket::new(S3_BUCKET.to_string(),
-                              None,
-                              AWS_ACCESS.to_string(),
-                              AWS_SECRET.to_string(),
-                              None);
+use s3::bucket::Bucket;
+use s3::credentials::Credentials;
 
-  // Put
-  let put_me = "I want to go to S3".to_string();
-  let url = put_s3(&bucket,
-                  &"/",
-                  &put_me.as_bytes());
-  println!("{}", url);
+const BUCKET: &'static str = "example-bucket";
+const REGION: &'static str = "us-east-1";
+const MESSAGE: &'static str = "I want to go to S3";
 
-  // List
-  let bytes = list_s3(&bucket,
-                      &"/",
-                      &"/",
-                      &"/");
-  let string = String::from_utf8_lossy(&bytes);
-  println!("{}", string);
-
-  // Get
-  let path = &"test_file";
-  let mut buffer = match File::create(path) {
-            Ok(x) => x,
-            Err(e) => panic!("{:?}, {}", e, path)
-          };
-  let bytes = get_s3(&bucket, Some(&path));
-  match buffer.write(&bytes) {
-    Ok(_) => {} // info!("Written {} bytes from {}", x, path),
-    Err(e) => panic!("{:?}", e)
-  }
+fn load_credentials() -> Credentials {
+    let aws_access = env::var("AWS_ACCESS_KEY_ID").expect("Must specify AWS_ACCESS_KEY_ID");
+    let aws_secret = env::var("AWS_SECRET_ACCESS_KEY").expect("Must specify AWS_SECRET_ACCESS_KEY");
+    Credentials::new(&aws_access, &aws_secret, None)
 }
-  ```
+
+pub fn main() {
+    // Create Bucket in REGION for BUCKET
+    let credentials = load_credentials();
+    let region = REGION.parse().unwrap();
+    let bucket = Bucket::new(BUCKET, region, credentials);
+
+    // List out contents of directory
+    let (list, code) = bucket.list("", None).unwrap();
+    assert_eq!(200, code);
+    println!("{:?}", list);
+
+    // Make sure that our "test_file" doesn't exist, delete it if it does. Note
+    // that the s3 library returns the HTTP code even if it indicates a failure
+    // (i.e. 404) since we can't predict desired usage. For example, you may
+    // expect a 404 to make sure a file doesn't exist.
+    let (_, code) = bucket.delete("test_file").unwrap();
+    assert_eq!(204, code);
+
+    // Put a "test_file" with the contents of MESSAGE at the root of the
+    // bucket.
+    let (_, code) = bucket.put("test_file", MESSAGE.as_bytes(), "text/plain").unwrap();
+    assert_eq!(200, code);
+
+    // Get the "test_file" contents and make sure that the returned message
+    // matches what we sent.
+    let (data, code) = bucket.get("test_file").unwrap();
+    let string = str::from_utf8(&data).unwrap();
+    assert_eq!(200, code);
+    assert_eq!(MESSAGE, string);
+}
+```
 
