@@ -1,14 +1,15 @@
 //! Simple access to Amazon Web Service's (AWS) Simple Storage Service (S3)
 extern crate chrono;
-extern crate crypto;
 extern crate curl;
 #[macro_use]
 extern crate error_chain;
 extern crate hex;
+extern crate hmac;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde;
 extern crate serde_xml_rs as serde_xml;
+extern crate sha2;
 extern crate url;
 
 

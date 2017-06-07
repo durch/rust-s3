@@ -5,10 +5,8 @@ use bucket::Bucket;
 use chrono::{DateTime, UTC};
 use command::Command;
 
-use crypto::digest::Digest;
-use crypto::hmac::Hmac;
-use crypto::mac::Mac;
-use crypto::sha2::Sha256;
+use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256};
 use curl::easy::{Easy, List, ReadError};
 use error::S3Result;
 use hex::ToHex;
@@ -90,9 +88,9 @@ impl<'a> Request<'a> {
     fn sha256(&self) -> String {
         match self.command {
             Command::Put { content, .. } => {
-                let mut sha = Sha256::new();
+                let mut sha = Sha256::default();
                 sha.input(content);
-                sha.result_str()
+                sha.result().as_slice().to_hex()
             }
             _ => EMPTY_PAYLOAD_SHA.into(),
         }
@@ -123,7 +121,7 @@ impl<'a> Request<'a> {
     fn authorization(&self, headers: &Headers) -> String {
         let canonical_request = self.canonical_request(headers);
         let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac = Hmac::new(Sha256::new(), &self.signing_key());
+        let mut hmac = Hmac::<Sha256>::new(&self.signing_key());
         hmac.input(string_to_sign.as_bytes());
         let signature = hmac.result().code().to_hex();
         let signed_header = signing::signed_header_string(headers);
