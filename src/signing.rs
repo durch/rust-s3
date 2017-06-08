@@ -5,13 +5,12 @@
 use std::str;
 
 use chrono::{DateTime, UTC};
-use crypto::digest::Digest;
-use crypto::hmac::Hmac;
-use crypto::mac::Mac;
-use crypto::sha2::Sha256;
+use hex::ToHex;
+use hmac::{Hmac, Mac};
 use url::Url;
 use region::Region;
 use request::Headers;
+use sha2::{Digest, Sha256};
 
 const SHORT_DATE: &'static str = "%Y%m%d";
 const LONG_DATETIME: &'static str = "%Y%m%dT%H%M%SZ";
@@ -87,12 +86,12 @@ pub fn scope_string(datetime: &DateTime<UTC>, region: Region) -> String {
 /// Generate the "string to sign" - the value to which the HMAC signing is
 /// applied to sign requests.
 pub fn string_to_sign(datetime: &DateTime<UTC>, region: Region, canonical_req: &str) -> String {
-    let mut hasher = Sha256::new();
+    let mut hasher = Sha256::default();
     hasher.input(canonical_req.as_bytes());
     format!("AWS4-HMAC-SHA256\n{timestamp}\n{scope}\n{hash}",
             timestamp = datetime.format(LONG_DATETIME),
             scope = scope_string(datetime, region),
-            hash = hasher.result_str())
+            hash = hasher.result().as_slice().to_hex())
 }
 
 /// Generate the AWS signing key, derived from the secret key, date, region,
@@ -102,15 +101,14 @@ pub fn signing_key(datetime: &DateTime<UTC>,
                    region: Region,
                    service: &str)
                    -> Vec<u8> {
-    let sha256 = Sha256::new();
     let secret = String::from("AWS4") + secret_key;
-    let mut date_hmac = Hmac::new(sha256, secret.as_bytes());
+    let mut date_hmac = Hmac::<Sha256>::new(secret.as_bytes());
     date_hmac.input(datetime.format(SHORT_DATE).to_string().as_bytes());
-    let mut region_hmac = Hmac::new(sha256, &date_hmac.result().code());
+    let mut region_hmac = Hmac::<Sha256>::new(&date_hmac.result().code());
     region_hmac.input(region.to_string().as_bytes());
-    let mut service_hmac = Hmac::new(sha256, &region_hmac.result().code());
+    let mut service_hmac = Hmac::<Sha256>::new(&region_hmac.result().code());
     service_hmac.input(service.as_bytes());
-    let mut signing_hmac = Hmac::new(sha256, &service_hmac.result().code());
+    let mut signing_hmac = Hmac::<Sha256>::new(&service_hmac.result().code());
     signing_hmac.input("aws4_request".as_bytes());
     signing_hmac.result().code().into()
 }
@@ -135,9 +133,6 @@ mod tests {
     use std::str;
 
     use chrono::{TimeZone, UTC};
-    use crypto::hmac::Hmac;
-    use crypto::mac::Mac;
-    use crypto::sha2::Sha256;
     use hex::ToHex;
     use url::Url;
 
@@ -238,7 +233,7 @@ mod tests {
         let expected = "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41";
         let secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
         let signing_key = signing_key(&datetime, secret, "us-east-1".parse().unwrap(), "s3");
-        let mut hmac = Hmac::new(Sha256::new(), &signing_key);
+        let mut hmac = Hmac::<Sha256>::new(&signing_key);
         hmac.input(string_to_sign.as_bytes());
         assert_eq!(expected, hmac.result().code().to_hex());
     }
