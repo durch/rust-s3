@@ -28,7 +28,7 @@ pub struct Object {
     pub key: String,
     #[serde(rename = "Owner")]
     /// Bucket owner
-    pub owner: Owner,
+    pub owner: Option<Owner>,
     #[serde(rename = "Size")]
     /// Size in bytes of the object.
     pub size: i32,
@@ -46,10 +46,10 @@ pub struct ListBucketResult {
     /// is true), you can use the key name in this field as a marker in the subsequent request
     /// to get next set of objects. Amazon S3 lists objects in UTF-8 character encoding in
     /// lexicographical order.
-    pub next_marker: String,
+    pub next_marker: Option<String>,
     #[serde(rename = "Delimiter")]
     /// A delimiter is a character you use to group keys.
-    pub delimiter: String,
+    pub delimiter: Option<String>,
     #[serde(rename = "MaxKeys")]
     /// Sets the maximum number of keys returned in the response body.
     pub max_keys: i32,
@@ -59,10 +59,10 @@ pub struct ListBucketResult {
     #[serde(rename = "Marker")]
     /// Indicates where in the bucket listing begins. Marker is included in the response if
     /// it was sent with the request.
-    pub marker: String,
+    pub marker: Option<String>,
     #[serde(rename = "EncodingType")]
     /// Specifies the encoding method to used
-    pub encoding_type: String,
+    pub encoding_type: Option<String>,
     #[serde(rename = "IsTruncated")]
     ///  Specifies whether (true) or not (false) all of the results were returned.
     ///  If the number of results exceeds that specified by MaxKeys, all of the results
@@ -74,7 +74,7 @@ pub struct ListBucketResult {
     #[serde(rename = "CommonPrefixs")]
     /// All of the keys rolled up into a common prefix count as a single return when
     /// calculating the number of returns.
-    pub common_prefixes: Vec<CommonPrefix>,
+    pub common_prefixes: Option<Vec<CommonPrefix>>,
 }
 
 /// CommonPrefix is used to group keys
