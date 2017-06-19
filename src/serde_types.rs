@@ -31,7 +31,7 @@ pub struct Object {
     pub owner: Option<Owner>,
     #[serde(rename = "Size")]
     /// Size in bytes of the object.
-    pub size: i32,
+    pub size: u64,
 }
 
 
