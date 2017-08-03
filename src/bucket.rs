@@ -158,7 +158,6 @@ impl Bucket {
         let result = request.execute()?;
         let result_string = String::from_utf8_lossy(&result.0);
         if 200 <= result.1 && result.1 < 300 {
-            println!("{}", result_string);
             let deserialized: ListBucketResult = serde_xml::deserialize(result_string.as_bytes())?;
             Ok((deserialized, result.1))
         } else {
