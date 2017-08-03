@@ -84,3 +84,13 @@ pub struct CommonPrefix {
     /// Keys that begin with the indicated prefix.
     pub prefix: String,
 }
+
+#[derive(Deserialize, Debug)]
+pub struct AwsError {
+    #[serde(rename = "Code")]
+    pub code: String,
+    #[serde(rename = "Message")]
+    pub message: String,
+    #[serde(rename = "RequestId")]
+    pub request_id: String,
+}

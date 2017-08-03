@@ -7,5 +7,8 @@ error_chain! {
             SerdeXML(::serde_xml::Error);
             Curl(::curl::Error);
         }
-
+        errors {
+            AwsError { info: ::serde_types::AwsError, status: u32, body: String } {
+            }
+        }
     }
