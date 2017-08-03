@@ -6,9 +6,9 @@ use credentials::Credentials;
 use command::Command;
 use region::Region;
 use request::{Request, Headers, Query};
-use serde_types::ListBucketResult;
+use serde_types::{ListBucketResult, AwsError};
 
-use error::S3Result;
+use error::{S3Result, ErrorKind};
 
 /// # Example
 /// ```
@@ -157,8 +157,17 @@ impl Bucket {
         let request = Request::new(self, "/", command);
         let result = request.execute()?;
         let result_string = String::from_utf8_lossy(&result.0);
-        let deserialized: ListBucketResult = serde_xml::deserialize(result_string.as_bytes())?;
-        Ok((deserialized, result.1))
+        if result.1 < 300 {
+            let deserialized: ListBucketResult = serde_xml::deserialize(result_string.as_bytes())?;
+            Ok((deserialized, result.1))
+        } else {
+            let deserialized: AwsError = serde_xml::deserialize(result_string.as_bytes())?;
+            let err = ErrorKind::AwsError{
+                info: deserialized,
+                status: result.1,
+                body: result_string.into_owned() };
+            Err(err.into())
+        }
     }
 
     /// Get a reference to the name of the S3 bucket.

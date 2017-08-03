@@ -68,10 +68,10 @@ pub struct ListBucketResult {
     ///  If the number of results exceeds that specified by MaxKeys, all of the results
     ///  might not be returned.
     pub is_truncated: bool,
-    #[serde(rename = "Contents")]
+    #[serde(rename = "Contents", default)]
     /// Metadata about each object returned.
     pub contents: Vec<Object>,
-    #[serde(rename = "CommonPrefixs")]
+    #[serde(rename = "CommonPrefixs", default)]
     /// All of the keys rolled up into a common prefix count as a single return when
     /// calculating the number of returns.
     pub common_prefixes: Option<Vec<CommonPrefix>>,
@@ -83,4 +83,14 @@ pub struct CommonPrefix {
     #[serde(rename = "Prefix")]
     /// Keys that begin with the indicated prefix.
     pub prefix: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AwsError {
+    #[serde(rename = "Code")]
+    pub code: String,
+    #[serde(rename = "Message")]
+    pub message: String,
+    #[serde(rename = "RequestId")]
+    pub request_id: String,
 }
