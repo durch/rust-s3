@@ -7,6 +7,8 @@
 
 Tiny Rust library for working with Amazon S3
 
+*PSA: Please PR against the dev branch, it should be up parallel to master at all times*
+
 ### Intro
 Very modest interface towards Amazon S3.
 Supports `put`, `get`, `list`, and `delete`.
