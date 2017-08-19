@@ -4,7 +4,7 @@
 
 use std::str;
 
-use chrono::{DateTime, UTC};
+use chrono::{DateTime, Utc};
 use hex::ToHex;
 use hmac::{Hmac, Mac};
 use url::Url;
@@ -77,7 +77,7 @@ pub fn canonical_request(method: &str, url: &Url, headers: &Headers, sha256: &st
 }
 
 /// Generate an AWS scope string.
-pub fn scope_string(datetime: &DateTime<UTC>, region: Region) -> String {
+pub fn scope_string(datetime: &DateTime<Utc>, region: Region) -> String {
     format!("{date}/{region}/s3/aws4_request",
             date = datetime.format(SHORT_DATE),
             region = region)
@@ -85,7 +85,7 @@ pub fn scope_string(datetime: &DateTime<UTC>, region: Region) -> String {
 
 /// Generate the "string to sign" - the value to which the HMAC signing is
 /// applied to sign requests.
-pub fn string_to_sign(datetime: &DateTime<UTC>, region: Region, canonical_req: &str) -> String {
+pub fn string_to_sign(datetime: &DateTime<Utc>, region: Region, canonical_req: &str) -> String {
     let mut hasher = Sha256::default();
     hasher.input(canonical_req.as_bytes());
     format!("AWS4-HMAC-SHA256\n{timestamp}\n{scope}\n{hash}",
@@ -96,7 +96,7 @@ pub fn string_to_sign(datetime: &DateTime<UTC>, region: Region, canonical_req: &
 
 /// Generate the AWS signing key, derived from the secret key, date, region,
 /// and service name.
-pub fn signing_key(datetime: &DateTime<UTC>,
+pub fn signing_key(datetime: &DateTime<Utc>,
                    secret_key: &str,
                    region: Region,
                    service: &str)
@@ -115,7 +115,7 @@ pub fn signing_key(datetime: &DateTime<UTC>,
 
 /// Generate the AWS authorization header.
 pub fn authorization_header(access_key: &str,
-                            datetime: &DateTime<UTC>,
+                            datetime: &DateTime<Utc>,
                             region: Region,
                             signed_headers: &str,
                             signature: &str)
@@ -132,7 +132,7 @@ pub fn authorization_header(access_key: &str,
 mod tests {
     use std::str;
 
-    use chrono::{TimeZone, UTC};
+    use chrono::{TimeZone, Utc};
     use hex::ToHex;
     use url::Url;
 
@@ -186,7 +186,7 @@ mod tests {
     fn test_aws_signing_key() {
         let key = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
         let expected = "c4afb1cc5771d871763a393e44b703571b55cc28424d1a5e86da6ed3c154a4b9";
-        let datetime = UTC.ymd(2015, 8, 30).and_hms(0, 0, 0);
+        let datetime = Utc.ymd(2015, 8, 30).and_hms(0, 0, 0);
         let signature = signing_key(&datetime, key, "us-east-1".parse().unwrap(), "iam");
         assert_eq!(expected, signature.to_hex());
     }
@@ -226,7 +226,7 @@ mod tests {
         let canonical = canonical_request("GET", &url, &headers, EXPECTED_SHA);
         assert_eq!(EXPECTED_CANONICAL_REQUEST, canonical);
 
-        let datetime = UTC.ymd(2013, 5, 24).and_hms(0, 0, 0);
+        let datetime = Utc.ymd(2013, 5, 24).and_hms(0, 0, 0);
         let string_to_sign = string_to_sign(&datetime, "us-east-1".parse().unwrap(), &canonical);
         assert_eq!(EXPECTED_STRING_TO_SIGN, string_to_sign);
 
