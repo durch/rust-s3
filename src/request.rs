@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{Read, Cursor};
 
 use bucket::Bucket;
-use chrono::{DateTime, UTC};
+use chrono::{DateTime, Utc};
 use command::Command;
 
 use hmac::{Hmac, Mac};
@@ -30,7 +30,7 @@ pub struct Request<'a> {
     pub bucket: &'a Bucket,
     pub path: &'a str,
     pub command: Command<'a>,
-    pub datetime: DateTime<UTC>,
+    pub datetime: DateTime<Utc>,
 }
 
 impl<'a> Request<'a> {
@@ -39,7 +39,7 @@ impl<'a> Request<'a> {
             bucket: bucket,
             path: path,
             command: command,
-            datetime: UTC::now(),
+            datetime: Utc::now(),
         }
     }
 
