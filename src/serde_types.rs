@@ -63,7 +63,7 @@ pub struct ListBucketResult {
     #[serde(rename = "EncodingType")]
     /// Specifies the encoding method to used
     pub encoding_type: Option<String>,
-    #[serde(rename = "IsTruncated")]
+    #[serde(rename = "IsTruncated", deserialize_with = "super::deserializer::bool_deserializer")]
     ///  Specifies whether (true) or not (false) all of the results were returned.
     ///  If the number of results exceeds that specified by MaxKeys, all of the results
     ///  might not be returned.
