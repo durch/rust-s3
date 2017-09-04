@@ -12,6 +12,9 @@ use region::Region;
 use request::Headers;
 use sha2::{Digest, Sha256};
 
+use serde_xml;
+use serde_types::ListBucketResult;
+
 const SHORT_DATE: &'static str = "%Y%m%d";
 const LONG_DATETIME: &'static str = "%Y%m%dT%H%M%SZ";
 
@@ -236,5 +239,22 @@ mod tests {
         let mut hmac = Hmac::<Sha256>::new(&signing_key);
         hmac.input(string_to_sign.as_bytes());
         assert_eq!(expected, hmac.result().code().to_hex());
+    }
+
+    #[test]
+    fn test_parse_list_bucket_result() {
+        let result_string = r###"
+            <?xml version="1.0" encoding="UTF-8"?>
+            <ListBucketResult
+                xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+                <Name>RelationalAI</Name>
+                <Prefix>/</Prefix>
+                <KeyCount>0</KeyCount>
+                <MaxKeys>1000</MaxKeys>
+                <IsTruncated>true</IsTruncated>
+            </ListBucketResult>
+        "###;
+        let deserialized: ListBucketResult = serde_xml::deserialize(result_string.as_bytes()).expect("Parse error!");
+        assert!(deserialized.is_truncated);
     }
 }
