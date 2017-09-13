@@ -5,6 +5,7 @@ extern crate curl;
 extern crate error_chain;
 extern crate hex;
 extern crate hmac;
+extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_xml_rs as serde_xml;
