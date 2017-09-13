@@ -4,17 +4,20 @@ use std::io::{Read, Cursor};
 use bucket::Bucket;
 use chrono::{DateTime, Utc};
 use command::Command;
-
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use curl::easy::{Easy, List, ReadError};
-use error::S3Result;
 use hex::ToHex;
-use signing;
 use url::Url;
+use serde_xml;
+
+use serde_types::AwsError;
+use signing;
+use error::{S3Result, ErrorKind};
 
 use EMPTY_PAYLOAD_SHA;
 use LONG_DATE;
+
 
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
@@ -206,6 +209,17 @@ impl<'a> Request<'a> {
 
             transfer.perform()?;
         }
-        Ok((dst, handle.response_code()?))
+        let resp_code = handle.response_code()?;
+        if resp_code < 300 {
+            Ok((dst, resp_code))
+        } else {
+            let deserialized: AwsError = serde_xml::deserialize(dst.as_slice())?;
+            let err = ErrorKind::AwsError {
+                info: deserialized,
+                status: resp_code,
+                body: String::from_utf8_lossy(dst.as_slice()).into_owned()
+            };
+            Err(err.into())
+        }
     }
 }
