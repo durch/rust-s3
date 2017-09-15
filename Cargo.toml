@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.7.1"
+version = "0.8.0"
 authors = ["Drazen Urch", "Nick Stevens"]
 description = "Tiny Rust library for working with Amazon S3."
 repository = "https://github.com/durch/rust-s3"

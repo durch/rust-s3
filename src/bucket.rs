@@ -128,6 +128,23 @@ impl Bucket {
         request.execute()
     }
 
+    fn _list(&self,
+                 prefix: &str,
+                 delimiter: Option<&str>,
+                 continuation_token: Option<&str>)
+                 -> S3Result<(ListBucketResult, u32)> {
+        let command = Command::List {
+            prefix: prefix,
+            delimiter: delimiter,
+            continuation_token: continuation_token,
+        };
+        let request = Request::new(self, "/", command);
+        let result = request.execute()?;
+        let result_string = String::from_utf8_lossy(&result.0);
+        let deserialized: ListBucketResult = serde_xml::deserialize(result_string.as_bytes())?;
+        Ok((deserialized, result.1))
+    }
+
     /// List the contents of an S3 bucket.
     ///
     /// # Example
@@ -145,20 +162,24 @@ impl Bucket {
     /// let credentials = Credentials::new("access_key", "secret_key", None);
     /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
-    /// let (list, code) = bucket.list("/", Some("/")).unwrap();
-    /// assert_eq!(200, code);
-    /// println!("{:?}", list);
+    /// let results = bucket.list("/", Some("/")).unwrap();
+    /// for (list, code) in results {
+    ///     assert_eq!(200, code);
+    ///     println!("{:?}", list);
+    /// }
     /// ```
-    pub fn list(&self, prefix: &str, delimiter: Option<&str>) -> S3Result<(ListBucketResult, u32)> {
-        let command = Command::List {
-            prefix: prefix,
-            delimiter: delimiter,
-        };
-        let request = Request::new(self, "/", command);
-        let result = request.execute()?;
-        let result_string = String::from_utf8_lossy(&result.0);
-        let deserialized: ListBucketResult = serde_xml::deserialize(result_string.as_bytes())?;
-        Ok((deserialized, result.1))
+    pub fn list(&self, prefix: &str, delimiter: Option<&str>) -> S3Result<Vec<(ListBucketResult, u32)>> {
+        let mut results = Vec::new();
+        let mut result = self._list(prefix, delimiter, None)?;
+        loop {
+            results.push(result.clone());
+            match result.0.next_continuation_token {
+                Some(token) => result = self._list(prefix, delimiter, Some(&token))?,
+                None => break,
+            }
+        }
+
+        Ok(results)
     }
 
     /// Get a reference to the name of the S3 bucket.

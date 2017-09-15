@@ -64,11 +64,14 @@ impl<'a> Request<'a> {
             url.query_pairs_mut().append_pair(key, value);
         }
 
-        if let Command::List { prefix, delimiter } = self.command {
+        if let Command::List { prefix, delimiter, continuation_token } = self.command {
             let mut query_pairs = url.query_pairs_mut();
             delimiter.map(|d| query_pairs.append_pair("delimiter", d));
             query_pairs.append_pair("prefix", prefix);
             query_pairs.append_pair("list-type", "2");
+            if let Some(token) = continuation_token {
+                query_pairs.append_pair("continuation-token", token);
+            }
         }
 
         url

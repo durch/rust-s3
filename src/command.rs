@@ -8,6 +8,7 @@ pub enum Command<'a> {
     List {
         prefix: &'a str,
         delimiter: Option<&'a str>,
+        continuation_token: Option<&'a str>
     },
 }
 
