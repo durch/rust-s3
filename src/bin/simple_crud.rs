@@ -34,8 +34,8 @@ pub fn main() {
     // that the s3 library returns the HTTP code even if it indicates a failure
     // (i.e. 404) since we can't predict desired usage. For example, you may
     // expect a 404 to make sure a file doesn't exist.
-    // let (_, code) = bucket.delete("test_file").unwrap();
-    // assert_eq!(204, code);
+    let (_, code) = bucket.delete("test_file").unwrap();
+    assert_eq!(204, code);
 
     // // Put a "test_file" with the contents of MESSAGE at the root of the
     // // bucket.
