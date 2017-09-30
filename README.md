@@ -60,7 +60,7 @@ pub fn main() {
     let bucket = Bucket::new(BUCKET, region, credentials);
 
     // List out contents of directory
-    let results = bucket.list("/", Some("/")).unwrap();
+    let results = bucket.list("", None).unwrap();
     for (list, code) in results {
          assert_eq!(200, code);
          println!("{:?}", list);
