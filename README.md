@@ -60,10 +60,11 @@ pub fn main() {
     let bucket = Bucket::new(BUCKET, region, credentials);
 
     // List out contents of directory
-    let (list, code) = bucket.list("", None).unwrap();
-    assert_eq!(200, code);
-    println!("{:?}", list);
-
+    let results = bucket.list("/", Some("/")).unwrap();
+    for (list, code) in results {
+         assert_eq!(200, code);
+         println!("{:?}", list);
+    }
     // Make sure that our "test_file" doesn't exist, delete it if it does. Note
     // that the s3 library returns the HTTP code even if it indicates a failure
     // (i.e. 404) since we can't predict desired usage. For example, you may
