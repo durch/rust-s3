@@ -72,7 +72,7 @@ pub struct ListBucketResult {
     #[serde(rename = "Contents", default)]
     /// Metadata about each object returned.
     pub contents: Vec<Object>,
-    #[serde(rename = "CommonPrefixs", default)]
+    #[serde(rename = "CommonPrefixes", default)]
     /// All of the keys rolled up into a common prefix count as a single return when
     /// calculating the number of returns.
     pub common_prefixes: Option<Vec<CommonPrefix>>,
