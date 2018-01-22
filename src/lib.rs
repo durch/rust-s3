@@ -23,6 +23,5 @@ pub mod serde_types;
 pub mod signing;
 pub mod deserializer;
 
-const LONG_DATE: &'static str = "%Y%m%dT%H%M%SZ";
-const EMPTY_PAYLOAD_SHA: &'static str = "e3b0c44298fc1c149afbf4c8996fb924\
-                                         27ae41e4649b934ca495991b7852b855";
+const LONG_DATE: &str = "%Y%m%dT%H%M%SZ";
+const EMPTY_PAYLOAD_SHA: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";

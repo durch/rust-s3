@@ -9,7 +9,7 @@ pub struct Owner {
     pub id: String,
 }
 
-/// An individual object in a ListBucketResult
+/// An individual object in a `ListBucketResult`
 #[derive(Deserialize, Debug, Clone)]
 pub struct Object {
     #[serde(rename = "LastModified")]
@@ -78,7 +78,7 @@ pub struct ListBucketResult {
     pub common_prefixes: Option<Vec<CommonPrefix>>,
 }
 
-/// CommonPrefix is used to group keys
+/// `CommonPrefix` is used to group keys
 #[derive(Deserialize, Debug, Clone)]
 pub struct CommonPrefix {
     #[serde(rename = "Prefix")]

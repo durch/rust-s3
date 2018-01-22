@@ -15,10 +15,9 @@ pub enum Command<'a> {
 impl<'a> Command<'a> {
     pub fn http_verb(&self) -> &'static str {
         match *self {
-            Command::Get => "GET",
+            Command::Get | Command::List { .. }=> "GET",
             Command::Put { .. } => "PUT",
-            Command::Delete => "DELETE",
-            Command::List { .. } => "GET",
+            Command::Delete => "DELETE"
         }
     }
 }

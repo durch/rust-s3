@@ -60,7 +60,7 @@ impl<'a> Request<'a> {
         // generated, there's really no way this should fail.
         let mut url = Url::parse(&url_str).expect("static URL parsing");
 
-        for (key, value) in self.bucket.extra_query.iter() {
+        for (key, value) in &self.bucket.extra_query {
             url.query_pairs_mut().append_pair(key, value);
         }
 
@@ -114,7 +114,7 @@ impl<'a> Request<'a> {
     }
 
     fn string_to_sign(&self, request: &str) -> String {
-        signing::string_to_sign(&self.datetime, self.bucket.region(), &request)
+        signing::string_to_sign(&self.datetime, self.bucket.region(), request)
     }
 
     fn signing_key(&self) -> Vec<u8> {
@@ -192,7 +192,7 @@ impl<'a> Request<'a> {
 
         // Build and set a Curl List of headers
         let mut list = List::new();
-        for (key, value) in try!(self.headers()).iter() {
+        for (key, value) in &self.headers()? {
             let header = format!("{}: {}", key, value);
             list.append(&header)?;
         }

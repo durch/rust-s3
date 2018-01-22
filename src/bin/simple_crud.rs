@@ -6,9 +6,9 @@ use std::str;
 use s3::bucket::Bucket;
 use s3::credentials::Credentials;
 
-const BUCKET: &'static str = "example-bucket";
-const REGION: &'static str = "us-east-1";
-const MESSAGE: &'static str = "I want to go to S3";
+const BUCKET: &str = "example-bucket";
+const REGION: &str = "us-east-1";
+const MESSAGE: &str = "I want to go to S3";
 
 fn load_credentials() -> Credentials {
     let aws_access = env::var("AWS_KEY_ID").expect("Must specify AWS_ACCESS_KEY_ID");

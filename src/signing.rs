@@ -12,11 +12,8 @@ use region::Region;
 use request::Headers;
 use sha2::{Digest, Sha256};
 
-use serde_xml;
-use serde_types::ListBucketResult;
-
-const SHORT_DATE: &'static str = "%Y%m%d";
-const LONG_DATETIME: &'static str = "%Y%m%dT%H%M%SZ";
+const SHORT_DATE: &str = "%Y%m%d";
+const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
 
 /// Encode a URI following the specific requirements of the AWS service.
 pub fn uri_encode(string: &str, encode_slash: bool) -> String {
@@ -72,10 +69,10 @@ pub fn signed_header_string(headers: &Headers) -> String {
 pub fn canonical_request(method: &str, url: &Url, headers: &Headers, sha256: &str) -> String {
     format!("{method}\n{uri}\n{query_string}\n{headers}\n\n{signed}\n{sha256}",
             method = method,
-            uri = canonical_uri_string(&url),
-            query_string = canonical_query_string(&url),
+            uri = canonical_uri_string(url),
+            query_string = canonical_query_string(url),
             headers = canonical_header_string(headers),
-            signed = signed_header_string(&headers),
+            signed = signed_header_string(headers),
             sha256 = sha256)
 }
 
@@ -107,12 +104,12 @@ pub fn signing_key(datetime: &DateTime<Utc>,
     let secret = String::from("AWS4") + secret_key;
     let mut date_hmac = Hmac::<Sha256>::new(secret.as_bytes());
     date_hmac.input(datetime.format(SHORT_DATE).to_string().as_bytes());
-    let mut region_hmac = Hmac::<Sha256>::new(&date_hmac.result().code());
+    let mut region_hmac = Hmac::<Sha256>::new(date_hmac.result().code());
     region_hmac.input(region.to_string().as_bytes());
-    let mut service_hmac = Hmac::<Sha256>::new(&region_hmac.result().code());
+    let mut service_hmac = Hmac::<Sha256>::new(region_hmac.result().code());
     service_hmac.input(service.as_bytes());
-    let mut signing_hmac = Hmac::<Sha256>::new(&service_hmac.result().code());
-    signing_hmac.input("aws4_request".as_bytes());
+    let mut signing_hmac = Hmac::<Sha256>::new(service_hmac.result().code());
+    signing_hmac.input(b"aws4_request");
     signing_hmac.result().code().into()
 }
 
@@ -141,6 +138,9 @@ mod tests {
 
     use request::Headers;
     use super::*;
+
+    use serde_xml;
+    use serde_types::ListBucketResult;
 
     #[test]
     fn test_base_url_encode() {
