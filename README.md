@@ -47,13 +47,9 @@ const BUCKET: &'static str = "example-bucket";
 const REGION: &'static str = "us-east-1";
 const MESSAGE: &'static str = "I want to go to S3";
 
-fn load_credentials() -> Credentials {
-    Credentials::default()
-}
-
 pub fn main() {
     // Create Bucket in REGION for BUCKET
-    let credentials = load_credentials();
+    let credentials = Credentials::default();
     let region = REGION.parse().unwrap();
     let bucket = Bucket::new(BUCKET, region, credentials);
 
