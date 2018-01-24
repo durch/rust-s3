@@ -6,6 +6,8 @@ error_chain! {
             FromUtf8(::std::string::FromUtf8Error);
             SerdeXML(::serde_xml::Error);
             Curl(::curl::Error);
+            Env(::std::env::VarError);
+            Ini(::ini::ini::Error);
         }
         errors {
             AwsError { info: ::serde_types::AwsError, status: u32, body: String } {

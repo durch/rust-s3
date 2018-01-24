@@ -1,6 +1,5 @@
 extern crate s3;
 
-use std::env;
 use std::str;
 
 use s3::bucket::Bucket;
@@ -11,9 +10,7 @@ const REGION: &str = "us-east-1";
 const MESSAGE: &str = "I want to go to S3";
 
 fn load_credentials() -> Credentials {
-    let aws_access = env::var("AWS_KEY_ID").expect("Must specify AWS_ACCESS_KEY_ID");
-    let aws_secret = env::var("AWS_SECRET_KEY").expect("Must specify AWS_SECRET_ACCESS_KEY");
-    Credentials::new(&aws_access, &aws_secret, None)
+    Credentials::default()
 }
 
 pub fn main() {
@@ -28,7 +25,7 @@ pub fn main() {
         assert_eq!(200, code);
         println!("{:?}", list.contents.len());
     }
-    
+
 
     // Make sure that our "test_file" doesn't exist, delete it if it does. Note
     // that the s3 library returns the HTTP code even if it indicates a failure

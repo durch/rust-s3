@@ -17,7 +17,7 @@ use error::S3Result;
 ///
 /// let bucket_name = "rust-s3-test";
 /// let region = "us-east-1".parse().unwrap();
-/// let credentials = Credentials::new("access_key", "secret_key", None);
+/// let credentials = Credentials::default();
 ///
 /// let bucket = Bucket::new(bucket_name, region, credentials);
 /// ```
@@ -40,7 +40,7 @@ impl Bucket {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::new("access_key", "secret_key", None);
+    /// let credentials = Credentials::default();
     ///
     /// let bucket = Bucket::new(bucket_name, region, credentials);
     /// ```
@@ -64,7 +64,7 @@ impl Bucket {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::new("access_key", "secret_key", None);
+    /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// let (data, code) = bucket.get("/test.file").unwrap();
@@ -86,7 +86,7 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::new("access_key", "secret_key", None);
+    /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// let (_, code) = bucket.delete("/test.file").unwrap();
@@ -112,7 +112,7 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::new("access_key", "secret_key", None);
+    /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// let content = "I want to go to S3".as_bytes();
@@ -159,7 +159,7 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::new("access_key", "secret_key", None);
+    /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// let results = bucket.list("/", Some("/")).unwrap();
