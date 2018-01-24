@@ -29,7 +29,7 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```
 [dependencies]
-rust-s3 = "0.5.0"
+rust-s3 = "0.9.0"
 ```
 
 #### Example
@@ -48,9 +48,7 @@ const REGION: &'static str = "us-east-1";
 const MESSAGE: &'static str = "I want to go to S3";
 
 fn load_credentials() -> Credentials {
-    let aws_access = env::var("AWS_ACCESS_KEY_ID").expect("Must specify AWS_ACCESS_KEY_ID");
-    let aws_secret = env::var("AWS_SECRET_ACCESS_KEY").expect("Must specify AWS_SECRET_ACCESS_KEY");
-    Credentials::new(&aws_access, &aws_secret, None)
+    Credentials::default()
 }
 
 pub fn main() {
