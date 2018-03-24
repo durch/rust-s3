@@ -50,6 +50,10 @@ pub enum Region {
     SaEast1,
     /// Digital Ocean nyc3
     DoNyc3,
+    /// Digital Ocean ams3
+    DoAms3,
+    /// Digital Ocean sgp1
+    DoSgp1,
 }
 
 impl fmt::Display for Region {
@@ -72,6 +76,8 @@ impl fmt::Display for Region {
             EuWest3 => write!(f, "eu-west-3"),
             SaEast1 => write!(f, "sa-east-1"),
             DoNyc3 => write!(f, "nyc3"),
+            DoAms3 => write!(f, "ams3"),
+            DoSgp1 => write!(f, "sgp1"),
         }
     }
 }
@@ -98,6 +104,8 @@ impl FromStr for Region {
             "eu-west-3" => Ok(EuWest3),
             "sa-east-1" => Ok(SaEast1),
             "nyc3" => Ok(DoNyc3),
+            "ams3" => Ok(DoAms3),
+            "sgp1" => Ok(DoSgp1),
             _ => Err(s.to_string().into()),
         }
     }
@@ -125,6 +133,8 @@ impl Region {
             EuWest3 => "s3-eu-west-3.amazonaws.com",
             SaEast1 => "s3-sa-east-1.amazonaws.com",
             DoNyc3 => "nyc3.digitaloceanspaces.com",
+            DoAms3 => "ams3.digitaloceanspaces.com",
+            DoSgp1 => "sgp1.digitaloceanspaces.com",
         }
     }
 }
