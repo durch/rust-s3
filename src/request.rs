@@ -39,9 +39,9 @@ pub struct Request<'a> {
 impl<'a> Request<'a> {
     pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> Request<'b> {
         Request {
-            bucket: bucket,
-            path: path,
-            command: command,
+            bucket,
+            path,
+            command,
             datetime: Utc::now(),
         }
     }

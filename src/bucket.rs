@@ -47,8 +47,8 @@ impl Bucket {
     pub fn new(name: &str, region: Region, credentials: Credentials) -> Bucket {
         Bucket {
             name: name.into(),
-            region: region,
-            credentials: credentials,
+            region,
+            credentials,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
         }
@@ -119,10 +119,10 @@ impl Bucket {
     /// let (_, code) = bucket.put("/test.file", content, "text/plain").unwrap();
     /// assert_eq!(201, code);
     /// ```
-    pub fn put(&self, path: &str, data: &[u8], content_type: &str) -> S3Result<(Vec<u8>, u32)> {
+    pub fn put(&self, path: &str, content: &[u8], content_type: &str) -> S3Result<(Vec<u8>, u32)> {
         let command = Command::Put {
-            content: data,
-            content_type: content_type,
+            content,
+            content_type,
         };
         let request = Request::new(self, path, command);
         request.execute()
@@ -134,9 +134,9 @@ impl Bucket {
                  continuation_token: Option<&str>)
                  -> S3Result<(ListBucketResult, u32)> {
         let command = Command::List {
-            prefix: prefix,
-            delimiter: delimiter,
-            continuation_token: continuation_token,
+            prefix,
+            delimiter,
+            continuation_token,
         };
         let request = Request::new(self, "/", command);
         let result = request.execute()?;
