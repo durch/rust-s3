@@ -194,7 +194,7 @@ impl Bucket {
 
     /// Get the region this object will connect to.
     pub fn region(&self) -> Region {
-        self.region
+        self.region.clone()
     }
 
     /// Get a reference to the AWS access key.

@@ -77,7 +77,7 @@ pub fn canonical_request(method: &str, url: &Url, headers: &Headers, sha256: &st
 }
 
 /// Generate an AWS scope string.
-pub fn scope_string(datetime: &DateTime<Utc>, region: Region) -> String {
+pub fn scope_string(datetime: &DateTime<Utc>, region: &Region) -> String {
     format!("{date}/{region}/s3/aws4_request",
             date = datetime.format(SHORT_DATE),
             region = region)
@@ -85,7 +85,7 @@ pub fn scope_string(datetime: &DateTime<Utc>, region: Region) -> String {
 
 /// Generate the "string to sign" - the value to which the HMAC signing is
 /// applied to sign requests.
-pub fn string_to_sign(datetime: &DateTime<Utc>, region: Region, canonical_req: &str) -> String {
+pub fn string_to_sign(datetime: &DateTime<Utc>, region: &Region, canonical_req: &str) -> String {
     let mut hasher = Sha256::default();
     hasher.input(canonical_req.as_bytes());
     format!("AWS4-HMAC-SHA256\n{timestamp}\n{scope}\n{hash}",
@@ -98,7 +98,7 @@ pub fn string_to_sign(datetime: &DateTime<Utc>, region: Region, canonical_req: &
 /// and service name.
 pub fn signing_key(datetime: &DateTime<Utc>,
                    secret_key: &str,
-                   region: Region,
+                   region: &Region,
                    service: &str)
                    -> Vec<u8> {
     let secret = String::from("AWS4") + secret_key;
@@ -116,7 +116,7 @@ pub fn signing_key(datetime: &DateTime<Utc>,
 /// Generate the AWS authorization header.
 pub fn authorization_header(access_key: &str,
                             datetime: &DateTime<Utc>,
-                            region: Region,
+                            region: &Region,
                             signed_headers: &str,
                             signature: &str)
                             -> String {
@@ -190,7 +190,7 @@ mod tests {
         let key = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
         let expected = "c4afb1cc5771d871763a393e44b703571b55cc28424d1a5e86da6ed3c154a4b9";
         let datetime = Utc.ymd(2015, 8, 30).and_hms(0, 0, 0);
-        let signature = signing_key(&datetime, key, "us-east-1".parse().unwrap(), "iam");
+        let signature = signing_key(&datetime, key, &"us-east-1".parse().unwrap(), "iam");
         assert_eq!(expected, signature.to_hex());
     }
 
@@ -230,12 +230,12 @@ mod tests {
         assert_eq!(EXPECTED_CANONICAL_REQUEST, canonical);
 
         let datetime = Utc.ymd(2013, 5, 24).and_hms(0, 0, 0);
-        let string_to_sign = string_to_sign(&datetime, "us-east-1".parse().unwrap(), &canonical);
+        let string_to_sign = string_to_sign(&datetime, &"us-east-1".parse().unwrap(), &canonical);
         assert_eq!(EXPECTED_STRING_TO_SIGN, string_to_sign);
 
         let expected = "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41";
         let secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-        let signing_key = signing_key(&datetime, secret, "us-east-1".parse().unwrap(), "s3");
+        let signing_key = signing_key(&datetime, secret, &"us-east-1".parse().unwrap(), "s3");
         let mut hmac = Hmac::<Sha256>::new(&signing_key);
         hmac.input(string_to_sign.as_bytes());
         assert_eq!(expected, hmac.result().code().to_hex());

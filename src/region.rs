@@ -3,7 +3,9 @@ use std::str::{self, FromStr};
 
 use error::{S3Result, S3Error};
 
-/// AWS S3 [region identifier](https://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region)
+/// AWS S3 [region identifier](https://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region),
+/// passing in custom values is also possible, in that case it is up to you to pass a valid endpoint,
+/// otherwise boom will happen :)
 ///
 /// # Example
 /// ```
@@ -16,7 +18,7 @@ use error::{S3Result, S3Error};
 /// // Choose region directly
 /// let region = Region::EuWest2;
 /// ```
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Region {
     /// us-east-1
     UsEast1,
@@ -54,6 +56,8 @@ pub enum Region {
     DoAms3,
     /// Digital Ocean sgp1
     DoSgp1,
+    /// Custom region
+    Custom(String),
 }
 
 impl fmt::Display for Region {
@@ -78,6 +82,7 @@ impl fmt::Display for Region {
             DoNyc3 => write!(f, "nyc3"),
             DoAms3 => write!(f, "ams3"),
             DoSgp1 => write!(f, "sgp1"),
+            Custom(ref _endpoint) => write!(f, "custom")
         }
     }
 }
@@ -106,7 +111,7 @@ impl FromStr for Region {
             "nyc3" => Ok(DoNyc3),
             "ams3" => Ok(DoAms3),
             "sgp1" => Ok(DoSgp1),
-            _ => Err(s.to_string().into()),
+            x => Ok(Custom(x.to_string()))
         }
     }
 }
@@ -135,6 +140,7 @@ impl Region {
             DoNyc3 => "nyc3.digitaloceanspaces.com",
             DoAms3 => "ams3.digitaloceanspaces.com",
             DoSgp1 => "sgp1.digitaloceanspaces.com",
+            Custom(ref endpoint) => endpoint
         }
     }
 }

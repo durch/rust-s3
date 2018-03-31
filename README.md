@@ -5,7 +5,7 @@
 [![Join the chat at https://gitter.im/durch/rust-s3](https://badges.gitter.im/durch/rust-s3.svg)](https://gitter.im/durch/rust-s3?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 ## rust-s3 [[docs](https://durch.github.io/rust-s3/)]
 
-Tiny Rust library for working with Amazon S3
+Tiny Rust library for working with Amazon S3 or arbitrary S3 compatible APIs
 
 ### Intro
 Very modest interface towards Amazon S3.
@@ -27,8 +27,16 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```
 [dependencies]
-rust-s3 = "0.9.0"
+rust-s3 = "0.9.2"
 ```
+
+#### Beta, with custom endpoints and no ssl verification
+```
+[dependencies]
+rust-s3 = {version = "0.10.0-beta.0", features = ["no-verify-ssl"]}
+```
+
+
 
 #### Example
 

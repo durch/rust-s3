@@ -114,13 +114,13 @@ impl<'a> Request<'a> {
     }
 
     fn string_to_sign(&self, request: &str) -> String {
-        signing::string_to_sign(&self.datetime, self.bucket.region(), request)
+        signing::string_to_sign(&self.datetime, &self.bucket.region(), request)
     }
 
     fn signing_key(&self) -> Vec<u8> {
         signing::signing_key(&self.datetime,
                              self.bucket.secret_key(),
-                             self.bucket.region(),
+                             &self.bucket.region(),
                              "s3")
     }
 
@@ -133,7 +133,7 @@ impl<'a> Request<'a> {
         let signed_header = signing::signed_header_string(headers);
         signing::authorization_header(self.bucket.access_key(),
                                       &self.datetime,
-                                      self.bucket.region(),
+                                      &self.bucket.region(),
                                       &signed_header,
                                       &signature)
     }
@@ -198,6 +198,11 @@ impl<'a> Request<'a> {
         }
         handle.http_headers(list)?;
 
+        if cfg!(feature = "no-verify-ssl") {
+            handle.ssl_verify_peer(false)?;
+        }
+
+
         // Run the transfer
         let mut dst = Vec::new();
         {
@@ -220,7 +225,7 @@ impl<'a> Request<'a> {
             let err = ErrorKind::AwsError {
                 info: deserialized,
                 status: resp_code,
-                body: String::from_utf8_lossy(dst.as_slice()).into_owned()
+                body: String::from_utf8_lossy(dst.as_slice()).into_owned(),
             };
             Err(err.into())
         }
