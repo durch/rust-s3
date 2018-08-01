@@ -189,7 +189,11 @@ impl Bucket {
 
     /// Get a reference to the hostname of the S3 API endpoint.
     pub fn host(&self) -> &str {
-        self.region.endpoint()
+        self.region.host()
+    }
+
+    pub fn scheme(&self) -> &str {
+        self.region.scheme()
     }
 
     /// Get the region this object will connect to.

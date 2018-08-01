@@ -47,10 +47,7 @@ impl<'a> Request<'a> {
     }
 
     fn url(&self) -> Url {
-        let mut url_str = match self.bucket.host().find("://") {
-            Some(_) => String::from(self.bucket.host()),
-            None => format!("https://{}", self.bucket.host())
-        };
+        let mut url_str = format!("{}://{}", self.bucket.scheme(), self.bucket.host());
         url_str.push_str("/");
         url_str.push_str(self.bucket.name());
         if !self.path.starts_with('/') {
@@ -249,6 +246,11 @@ mod tests {
         let request = Request::new(&bucket, path, Command::Get);
 
         assert_eq!(request.url().scheme(), "https");
+
+        let headers = request.headers().unwrap();
+        let host = headers.get("Host").unwrap();
+
+        assert_eq!(*host, "custom-region".to_string());
     }
 
     #[test]
@@ -259,5 +261,10 @@ mod tests {
         let request = Request::new(&bucket, path, Command::Get);
 
         assert_eq!(request.url().scheme(), "http");
+
+        let headers = request.headers().unwrap();
+        let host = headers.get("Host").unwrap();
+
+        assert_eq!(*host, "custom-region".to_string());
     }
 }
