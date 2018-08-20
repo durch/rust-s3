@@ -150,9 +150,9 @@ impl<'a> Request<'a> {
         headers.insert("X-Amz-Content-Sha256".into(), sha256.clone());
         headers.insert("X-Amz-Date".into(), self.long_date());
 
-        self.bucket.credentials().token.as_ref().map(|token| {
+        if let Some(token) = self.bucket.credentials().token.as_ref() {
             headers.insert("X-Amz-Security-Token".into(), token.clone());
-        });
+        }
 
         // This must be last, as it signs the other headers
         let authorization = self.authorization(&headers);
