@@ -47,8 +47,7 @@ impl<'a> Request<'a> {
     }
 
     fn url(&self) -> Url {
-        let mut url_str = String::from("https://");
-        url_str.push_str(self.bucket.host());
+        let mut url_str = format!("{}://{}", self.bucket.scheme(), self.bucket.host());
         url_str.push_str("/");
         url_str.push_str(self.bucket.name());
         if !self.path.starts_with('/') {
@@ -229,5 +228,43 @@ impl<'a> Request<'a> {
             };
             Err(err.into())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bucket::Bucket;
+    use command::Command;
+    use credentials::Credentials;
+    use request::Request;
+
+    #[test]
+    fn url_uses_https_by_default() {
+        let region = "custom-region".parse().unwrap();
+        let bucket = Bucket::new("my-first-bucket", region, Credentials::default());
+        let path = "/my-first/path";
+        let request = Request::new(&bucket, path, Command::Get);
+
+        assert_eq!(request.url().scheme(), "https");
+
+        let headers = request.headers().unwrap();
+        let host = headers.get("Host").unwrap();
+
+        assert_eq!(*host, "custom-region".to_string());
+    }
+
+    #[test]
+    fn url_uses_scheme_from_custom_region_if_defined() {
+        let region = "http://custom-region".parse().unwrap();
+        let bucket = Bucket::new("my-second-bucket", region, Credentials::default());
+        let path = "/my-second/path";
+        let request = Request::new(&bucket, path, Command::Get);
+
+        assert_eq!(request.url().scheme(), "http");
+
+        let headers = request.headers().unwrap();
+        let host = headers.get("Host").unwrap();
+
+        assert_eq!(*host, "custom-region".to_string());
     }
 }

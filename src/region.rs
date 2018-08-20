@@ -143,4 +143,28 @@ impl Region {
             Custom(ref endpoint) => endpoint
         }
     }
+
+    pub fn scheme(&self) -> &str {
+        match *self {
+            Region::Custom(ref s) => {
+                match s.find("://") {
+                    Some(pos) => &s[..pos],
+                    None => "https"
+                }
+            },
+            _ => "https"
+        }
+    }
+
+    pub fn host(&self) -> &str {
+        match *self {
+            Region::Custom(ref s) => {
+                match s.find("://") {
+                    Some(pos) => &s[pos + 3..],
+                    None => &s
+                }
+            },
+            _ => self.endpoint()
+        }
+    }
 }
