@@ -36,10 +36,16 @@ pub enum Region {
     ApNortheast1,
     /// ap-northeast-2
     ApNortheast2,
+    /// ap-northeast-3
+    ApNortheast3,
     /// ap-southeast-1
     ApSoutheast1,
     /// ap-southeast-2
     ApSoutheast2,
+    /// cn-north-1
+    CnNorth1,
+    /// cn-northwest-1
+    CnNorthwest1,
     /// eu-central-1
     EuCentral1,
     /// eu-west-1
@@ -72,8 +78,11 @@ impl fmt::Display for Region {
             ApSouth1 => write!(f, "ap-south-1"),
             ApNortheast1 => write!(f, "ap-northeast-1"),
             ApNortheast2 => write!(f, "ap-northeast-2"),
+            ApNortheast3 => write!(f, "ap-northeast-3"),
             ApSoutheast1 => write!(f, "ap-southeast-1"),
             ApSoutheast2 => write!(f, "ap-southeast-2"),
+            CnNorth1 => write!(f, "cn-north-1"),
+            CnNorthwest1 => write!(f, "cn-northwest-1"),
             EuCentral1 => write!(f, "eu-central-1"),
             EuWest1 => write!(f, "eu-west-1"),
             EuWest2 => write!(f, "eu-west-2"),
@@ -101,8 +110,11 @@ impl FromStr for Region {
             "ap-south-1" => Ok(ApSouth1),
             "ap-northeast-1" => Ok(ApNortheast1),
             "ap-northeast-2" => Ok(ApNortheast2),
+            "ap-northeast-3" => Ok(ApNortheast3),
             "ap-southeast-1" => Ok(ApSoutheast1),
             "ap-southeast-2" => Ok(ApSoutheast2),
+            "cn-north-1" => Ok(CnNorth1),
+            "cn-northwest-1" => Ok(CnNorthwest1),
             "eu-central-1" => Ok(EuCentral1),
             "eu-west-1" => Ok(EuWest1),
             "eu-west-2" => Ok(EuWest2),
@@ -130,8 +142,11 @@ impl Region {
             ApSouth1 => "s3-ap-south-1.amazonaws.com",
             ApNortheast1 => "s3-ap-northeast-1.amazonaws.com",
             ApNortheast2 => "s3-ap-northeast-2.amazonaws.com",
+            ApNortheast3 => "s3-ap-northeast-3.amazonaws.com",
             ApSoutheast1 => "s3-ap-southeast-1.amazonaws.com",
             ApSoutheast2 => "s3-ap-southeast-2.amazonaws.com",
+            CnNorth1 => "s3.cn-north-1.amazonaws.com.cn",
+            CnNorthwest1 => "s3.cn-northwest-1.amazonaws.com.cn",
             EuCentral1 => "s3-eu-central-1.amazonaws.com",
             EuWest1 => "s3-eu-west-1.amazonaws.com",
             EuWest2 => "s3-eu-west-2.amazonaws.com",
