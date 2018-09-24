@@ -1,3 +1,5 @@
+use reqwest::Method;
+
 pub enum Command<'a> {
     Put {
         content: &'a [u8],
@@ -13,11 +15,11 @@ pub enum Command<'a> {
 }
 
 impl<'a> Command<'a> {
-    pub fn http_verb(&self) -> &'static str {
+    pub fn http_verb(&self) -> Method {
         match *self {
-            Command::Get | Command::List { .. }=> "GET",
-            Command::Put { .. } => "PUT",
-            Command::Delete => "DELETE"
+            Command::Get | Command::List { .. } => Method::GET,
+            Command::Put { .. } => Method::PUT,
+            Command::Delete => Method::DELETE,
         }
     }
 }
