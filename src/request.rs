@@ -238,10 +238,18 @@ mod tests {
     use credentials::Credentials;
     use request::Request;
 
+    // Fake keys - otherwise using Credentials::default will use actual user
+    // credentials if they exist.
+    fn fake_credentials() -> Credentials {
+        const ACCESS_KEY: &'static str = "AKIAIOSFODNN7EXAMPLE";
+        const SECRET_KEY: &'static str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        Credentials::new(Some(ACCESS_KEY.into()), Some(SECRET_KEY.into()), None, None)
+    }
+
     #[test]
     fn url_uses_https_by_default() {
         let region = "custom-region".parse().unwrap();
-        let bucket = Bucket::new("my-first-bucket", region, Credentials::default());
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials());
         let path = "/my-first/path";
         let request = Request::new(&bucket, path, Command::Get);
 
@@ -256,7 +264,7 @@ mod tests {
     #[test]
     fn url_uses_scheme_from_custom_region_if_defined() {
         let region = "http://custom-region".parse().unwrap();
-        let bucket = Bucket::new("my-second-bucket", region, Credentials::default());
+        let bucket = Bucket::new("my-second-bucket", region, fake_credentials());
         let path = "/my-second/path";
         let request = Request::new(&bucket, path, Command::Get);
 

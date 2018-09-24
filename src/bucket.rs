@@ -12,6 +12,10 @@ use error::S3Result;
 
 /// # Example
 /// ```
+/// # // Fake  credentials so we don't access user's real credentials in tests
+/// # use std::env;
+/// # env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
+/// # env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
 /// use s3::bucket::Bucket;
 /// use s3::credentials::Credentials;
 ///
@@ -35,6 +39,10 @@ impl Bucket {
     ///
     /// # Example
     /// ```
+    /// # // Fake  credentials so we don't access user's real credentials in tests
+    /// # use std::env;
+    /// # env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
+    /// # env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
     /// use s3::bucket::Bucket;
     /// use s3::credentials::Credentials;
     ///
