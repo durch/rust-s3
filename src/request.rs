@@ -217,7 +217,7 @@ impl<'a> Request<'a> {
         let mut dst = Vec::new();
         response.read_to_end(&mut dst)?;
 
-        let resp_code = response.status().as_u16() as u32;
+        let resp_code = u32::from(response.status().as_u16());
         if resp_code < 300 {
             Ok((dst, resp_code))
         } else {

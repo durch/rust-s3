@@ -1,5 +1,6 @@
 use error::S3Result;
 use std::env;
+use dirs;
 use ini::Ini;
 
 /// AWS access credentials: access key, secret key, and optional token.
@@ -111,7 +112,7 @@ impl Credentials {
     }
 
     fn from_profile(section: Option<String>) -> S3Result<Credentials> {
-        let home_dir = match env::home_dir() {
+        let home_dir = match dirs::home_dir() {
             Some(path) => path,
             None => bail!("Impossible to get your home dir!"),
         };

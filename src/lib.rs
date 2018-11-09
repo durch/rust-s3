@@ -12,6 +12,7 @@ extern crate serde_xml_rs as serde_xml;
 extern crate sha2;
 extern crate url;
 extern crate ini;
+extern crate dirs;
 
 
 pub mod bucket;
