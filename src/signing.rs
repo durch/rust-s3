@@ -9,7 +9,7 @@ use hex::ToHex;
 use hmac::{Hmac, Mac};
 use url::Url;
 use region::Region;
-use request::Headers;
+use reqwest::header::HeaderMap;
 use sha2::{Digest, Sha256};
 
 const SHORT_DATE: &str = "%Y%m%d";
@@ -50,23 +50,34 @@ pub fn canonical_query_string(uri: &Url) -> String {
 }
 
 /// Generate a canonical header string from the provided headers.
-pub fn canonical_header_string(headers: &Headers) -> String {
-    let mut keyvalues = headers.iter()
-        .map(|(key, value)| key.to_lowercase() + ":" + value.trim())
-        .collect::<Vec<String>>();
+pub fn canonical_header_string(headers: &HeaderMap) -> String {
+    let mut keyvalues = headers
+        .iter()
+        .filter_map(|(key, value)| {
+            // Values that are not strings are silently dropped (AWS wouldn't
+            // accept them anyway)
+            if let Ok(value_inner) = value.to_str() {
+                Some(key.as_str().to_lowercase() + ":" + value_inner.trim())
+            } else {
+                None
+            }
+        }).collect::<Vec<String>>();
     keyvalues.sort();
     keyvalues.join("\n")
 }
 
 /// Generate a signed header string from the provided headers.
-pub fn signed_header_string(headers: &Headers) -> String {
-    let mut keys = headers.iter().map(|(key, _)| key.to_lowercase()).collect::<Vec<String>>();
+pub fn signed_header_string(headers: &HeaderMap) -> String {
+    let mut keys = headers
+        .keys()
+        .map(|key| key.as_str().to_lowercase())
+        .collect::<Vec<String>>();
     keys.sort();
     keys.join(";")
 }
 
 /// Generate a canonical request.
-pub fn canonical_request(method: &str, url: &Url, headers: &Headers, sha256: &str) -> String {
+pub fn canonical_request(method: &str, url: &Url, headers: &HeaderMap, sha256: &str) -> String {
     format!("{method}\n{uri}\n{query_string}\n{headers}\n\n{signed}\n{sha256}",
             method = method,
             uri = canonical_uri_string(url),
@@ -134,9 +145,9 @@ mod tests {
 
     use chrono::{TimeZone, Utc};
     use hex::ToHex;
+    use reqwest::header::{HeaderMap, HeaderValue};
     use url::Url;
 
-    use request::Headers;
     use super::*;
 
     use serde_xml;
@@ -172,11 +183,10 @@ mod tests {
 
     #[test]
     fn test_headers_encode() {
-        let headers: Headers = vec![("X-Amz-Date".into(), "20130708T220855Z".into()),
-                                    ("FOO".into(), "bAr".into()),
-                                    ("host".into(), "s3.amazonaws.com".into())]
-            .into_iter()
-            .collect();
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Amz-Date", HeaderValue::from_static("20130708T220855Z"));
+        headers.insert("FOO", HeaderValue::from_static("bAr"));
+        headers.insert("host", HeaderValue::from_static("s3.amazonaws.com"));
         let canonical = canonical_header_string(&headers);
         let expected = "foo:bAr\nhost:s3.amazonaws.com\nx-amz-date:20130708T220855Z";
         assert_eq!(expected, canonical);
@@ -220,12 +230,17 @@ mod tests {
     #[test]
     fn test_signing() {
         let url = Url::parse("https://examplebucket.s3.amazonaws.com/test.txt").unwrap();
-        let headers: Headers = vec![("X-Amz-Date".into(), "20130524T000000Z".into()),
-                                    ("range".into(), "bytes=0-9".into()),
-                                    ("host".into(), "examplebucket.s3.amazonaws.com".into()),
-                                    ("X-Amz-Content-Sha256".into(), EXPECTED_SHA.into())]
-            .into_iter()
-            .collect();
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Amz-Date", HeaderValue::from_static("20130524T000000Z"));
+        headers.insert("range", HeaderValue::from_static("bytes=0-9"));
+        headers.insert(
+            "host",
+            HeaderValue::from_static("examplebucket.s3.amazonaws.com"),
+        );
+        headers.insert(
+            "X-Amz-Content-Sha256",
+            HeaderValue::from_static(EXPECTED_SHA),
+        );
         let canonical = canonical_request("GET", &url, &headers, EXPECTED_SHA);
         assert_eq!(EXPECTED_CANONICAL_REQUEST, canonical);
 

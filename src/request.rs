@@ -1,12 +1,14 @@
 use std::collections::HashMap;
-use std::io::{Read, Cursor};
+use std::io::Read;
 
 use bucket::Bucket;
 use chrono::{DateTime, Utc};
 use command::Command;
+use error::S3Error;
 use hmac::{Hmac, Mac};
+use reqwest;
+use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use sha2::{Digest, Sha256};
-use curl::easy::{Easy, List, ReadError};
 use hex::ToHex;
 use url::Url;
 use serde_xml;
@@ -105,11 +107,13 @@ impl<'a> Request<'a> {
         self.datetime.format(LONG_DATE).to_string()
     }
 
-    fn canonical_request(&self, headers: &Headers) -> String {
-        signing::canonical_request(self.command.http_verb(),
-                                   &self.url(),
-                                   headers,
-                                   &self.sha256())
+    fn canonical_request(&self, headers: &HeaderMap) -> String {
+        signing::canonical_request(
+            self.command.http_verb().as_str(),
+            &self.url(),
+            headers,
+            &self.sha256(),
+        )
     }
 
     fn string_to_sign(&self, request: &str) -> String {
@@ -117,46 +121,58 @@ impl<'a> Request<'a> {
     }
 
     fn signing_key(&self) -> Vec<u8> {
-        signing::signing_key(&self.datetime,
-                             self.bucket.secret_key(),
-                             &self.bucket.region(),
-                             "s3")
+        signing::signing_key(
+            &self.datetime,
+            self.bucket.secret_key(),
+            &self.bucket.region(),
+            "s3",
+        )
     }
 
-    fn authorization(&self, headers: &Headers) -> String {
+    fn authorization(&self, headers: &HeaderMap) -> String {
         let canonical_request = self.canonical_request(headers);
         let string_to_sign = self.string_to_sign(&canonical_request);
         let mut hmac = Hmac::<Sha256>::new(&self.signing_key());
         hmac.input(string_to_sign.as_bytes());
         let signature = hmac.result().code().to_hex();
         let signed_header = signing::signed_header_string(headers);
-        signing::authorization_header(self.bucket.access_key(),
-                                      &self.datetime,
-                                      &self.bucket.region(),
-                                      &signed_header,
-                                      &signature)
+        signing::authorization_header(
+            self.bucket.access_key(),
+            &self.datetime,
+            &self.bucket.region(),
+            &signed_header,
+            &signature,
+        )
     }
 
-    fn headers(&self) -> S3Result<Headers> {
+    fn headers(&self) -> S3Result<HeaderMap> {
         // Generate this once, but it's used in more than one place.
         let sha256 = self.sha256();
 
         // Start with extra_headers, that way our headers replace anything with
         // the same name.
-        let mut headers: Headers = self.bucket.extra_headers.clone();
-        headers.insert("Host".into(), self.bucket.host().into());
-        headers.insert("Content-Length".into(), self.content_length().to_string());
-        headers.insert("Content-Type".into(), self.content_type());
-        headers.insert("X-Amz-Content-Sha256".into(), sha256.clone());
-        headers.insert("X-Amz-Date".into(), self.long_date());
+        let mut headers = self
+            .bucket
+            .extra_headers
+            .iter()
+            .map(|(k, v)| Ok((k.parse::<HeaderName>()?, v.parse::<HeaderValue>()?)))
+            .collect::<Result<HeaderMap, S3Error>>()?;
+        headers.insert(header::HOST, self.bucket.host().parse()?);
+        headers.insert(
+            header::CONTENT_LENGTH,
+            self.content_length().to_string().parse()?,
+        );
+        headers.insert(header::CONTENT_TYPE, self.content_type().parse()?);
+        headers.insert("X-Amz-Content-Sha256", sha256.parse()?);
+        headers.insert("X-Amz-Date", self.long_date().parse()?);
 
         if let Some(token) = self.bucket.credentials().token.as_ref() {
-            headers.insert("X-Amz-Security-Token".into(), token.clone());
+            headers.insert("X-Amz-Security-Token", token.parse()?);
         }
 
         // This must be last, as it signs the other headers
         let authorization = self.authorization(&headers);
-        headers.insert("Authorization".into(), authorization);
+        headers.insert(header::AUTHORIZATION, authorization.parse()?);
 
         // The format of RFC2822 is somewhat malleable, so including it in
         // signed headers can cause signature mismatches. We do include the
@@ -164,59 +180,44 @@ impl<'a> Request<'a> {
         // range and can't be used again e.g. reply attacks. Adding this header
         // after the generation of the Authorization header leaves it out of
         // the signed headers.
-        headers.insert("Date".into(), self.datetime.to_rfc2822());
+        headers.insert(header::DATE, self.datetime.to_rfc2822().parse()?);
 
         Ok(headers)
     }
 
-    fn load_content(&self, handle: &mut Easy) -> S3Result<Cursor<&[u8]>> {
-        if let Command::Put { content, .. } = self.command {
-            try!(handle.put(true));
-            try!(handle.post_field_size(content.len() as u64));
-            Ok(Cursor::new(content))
-        } else {
-            Ok(Cursor::new(&[] as &[u8]))
-        }
-    }
-
     pub fn execute(&self) -> S3Result<(Vec<u8>, u32)> {
-        let mut handle = Easy::new();
-        handle.url(self.url().as_str())?;
+        // TODO: preserve client across requests
+        let client = if cfg!(feature = "no-verify-ssl") {
+            reqwest::Client::builder()
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true)
+                .build()?
+        } else {
+            reqwest::Client::new()
+        };
 
-        // Special handling to load PUT content
-        let mut content_cursor = try!(self.load_content(&mut handle));
+        // Build headers
+        let headers = self.headers()?;
 
-        // Set GET, PUT, etc
-        handle.custom_request(self.command.http_verb())?;
+        // Get owned content to pass to reqwest
+        let content = if let Command::Put { content, .. } = self.command {
+            Vec::from(content)
+        } else {
+            Vec::new()
+        };
 
-        // Build and set a Curl List of headers
-        let mut list = List::new();
-        for (key, value) in &self.headers()? {
-            let header = format!("{}: {}", key, value);
-            list.append(&header)?;
-        }
-        handle.http_headers(list)?;
+        // Build and sent HTTP request
+        let request = client
+            .request(self.command.http_verb(), self.url())
+            .headers(headers)
+            .body(content);
+        let mut response = request.send()?;
 
-        if cfg!(feature = "no-verify-ssl") {
-            handle.ssl_verify_peer(false)?;
-        }
-
-
-        // Run the transfer
+        // Read and process response
         let mut dst = Vec::new();
-        {
-            let mut transfer = handle.transfer();
+        response.read_to_end(&mut dst)?;
 
-            transfer.read_function(|buf| content_cursor.read(buf).or(Err(ReadError::Abort)))?;
-
-            transfer.write_function(|data| {
-                dst.extend_from_slice(data);
-                Ok(data.len())
-            })?;
-
-            transfer.perform()?;
-        }
-        let resp_code = handle.response_code()?;
+        let resp_code = response.status().as_u16() as u32;
         if resp_code < 300 {
             Ok((dst, resp_code))
         } else {
