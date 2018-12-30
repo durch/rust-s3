@@ -21,7 +21,6 @@ use EMPTY_PAYLOAD_SHA;
 use LONG_DATE;
 
 
-
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
 
@@ -49,13 +48,24 @@ impl<'a> Request<'a> {
     }
 
     fn url(&self) -> Url {
-        let mut url_str = format!("{}://{}", self.bucket.scheme(), self.bucket.host());
-        url_str.push_str("/");
-        url_str.push_str(self.bucket.name());
+        let mut url_str = match self.command {
+            Command::BucketOpGet => format!("{}://{}", self.bucket.scheme(), self.bucket.self_host()),
+            _ => format!("{}://{}", self.bucket.scheme(), self.bucket.host())
+        };
+        match self.command {
+            Command::BucketOpGet => {}
+            _ => {
+                url_str.push_str("/");
+                url_str.push_str(&self.bucket.name());
+            }
+        }
         if !self.path.starts_with('/') {
             url_str.push_str("/");
         }
-        url_str.push_str(&signing::uri_encode(self.path, false));
+        match self.command {
+            Command::BucketOpGet => url_str.push_str(self.path),
+            _ => url_str.push_str(&signing::uri_encode(self.path, false))
+        };
 
         // Since every part of this URL is either pre-encoded or statically
         // generated, there's really no way this should fail.
@@ -75,6 +85,7 @@ impl<'a> Request<'a> {
             }
         }
 
+//        println!("{}", url);
         url
     }
 
@@ -123,7 +134,7 @@ impl<'a> Request<'a> {
     fn signing_key(&self) -> Vec<u8> {
         signing::signing_key(
             &self.datetime,
-            self.bucket.secret_key(),
+            &self.bucket.secret_key(),
             &self.bucket.region(),
             "s3",
         )
@@ -137,7 +148,7 @@ impl<'a> Request<'a> {
         let signature = hmac.result().code().to_hex();
         let signed_header = signing::signed_header_string(headers);
         signing::authorization_header(
-            self.bucket.access_key(),
+            &self.bucket.access_key(),
             &self.datetime,
             &self.bucket.region(),
             &signed_header,
@@ -157,7 +168,10 @@ impl<'a> Request<'a> {
             .iter()
             .map(|(k, v)| Ok((k.parse::<HeaderName>()?, v.parse::<HeaderValue>()?)))
             .collect::<Result<HeaderMap, S3Error>>()?;
-        headers.insert(header::HOST, self.bucket.host().parse()?);
+        match self.command {
+            Command::BucketOpGet => headers.insert(header::HOST, self.bucket.self_host().parse()?),
+            _ => headers.insert(header::HOST, self.bucket.host().parse()?)
+        };
         headers.insert(
             header::CONTENT_LENGTH,
             self.content_length().to_string().parse()?,
@@ -238,6 +252,7 @@ mod tests {
     use command::Command;
     use credentials::Credentials;
     use request::Request;
+    use error::S3Result;
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
@@ -248,9 +263,9 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_https_by_default() {
-        let region = "custom-region".parse().unwrap();
-        let bucket = Bucket::new("my-first-bucket", region, fake_credentials());
+    fn url_uses_https_by_default() -> S3Result<()>{
+        let region = "custom-region".parse()?;
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
         let request = Request::new(&bucket, path, Command::Get);
 
@@ -260,12 +275,13 @@ mod tests {
         let host = headers.get("Host").unwrap();
 
         assert_eq!(*host, "custom-region".to_string());
+        Ok(())
     }
 
     #[test]
-    fn url_uses_scheme_from_custom_region_if_defined() {
-        let region = "http://custom-region".parse().unwrap();
-        let bucket = Bucket::new("my-second-bucket", region, fake_credentials());
+    fn url_uses_scheme_from_custom_region_if_defined() -> S3Result<()> {
+        let region = "http://custom-region".parse()?;
+        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
         let request = Request::new(&bucket, path, Command::Get);
 
@@ -275,5 +291,6 @@ mod tests {
         let host = headers.get("Host").unwrap();
 
         assert_eq!(*host, "custom-region".to_string());
+        Ok(())
     }
 }

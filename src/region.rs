@@ -129,54 +129,54 @@ impl FromStr for Region {
 }
 
 impl Region {
-    pub fn endpoint(&self) -> &str {
+    pub fn endpoint(&self) -> String {
         use self::Region::*;
         match *self {
             // Surprisingly, us-east-1 does not have a
             // s3-us-east-1.amazonaws.com DNS record
-            UsEast1 => "s3.amazonaws.com",
-            UsEast2 => "s3-us-east-2.amazonaws.com",
-            UsWest1 => "s3-us-west-1.amazonaws.com",
-            UsWest2 => "s3-us-west-2.amazonaws.com",
-            CaCentral1 => "s3-ca-central-1.amazonaws.com",
-            ApSouth1 => "s3-ap-south-1.amazonaws.com",
-            ApNortheast1 => "s3-ap-northeast-1.amazonaws.com",
-            ApNortheast2 => "s3-ap-northeast-2.amazonaws.com",
-            ApNortheast3 => "s3-ap-northeast-3.amazonaws.com",
-            ApSoutheast1 => "s3-ap-southeast-1.amazonaws.com",
-            ApSoutheast2 => "s3-ap-southeast-2.amazonaws.com",
-            CnNorth1 => "s3.cn-north-1.amazonaws.com.cn",
-            CnNorthwest1 => "s3.cn-northwest-1.amazonaws.com.cn",
-            EuCentral1 => "s3-eu-central-1.amazonaws.com",
-            EuWest1 => "s3-eu-west-1.amazonaws.com",
-            EuWest2 => "s3-eu-west-2.amazonaws.com",
-            EuWest3 => "s3-eu-west-3.amazonaws.com",
-            SaEast1 => "s3-sa-east-1.amazonaws.com",
-            DoNyc3 => "nyc3.digitaloceanspaces.com",
-            DoAms3 => "ams3.digitaloceanspaces.com",
-            DoSgp1 => "sgp1.digitaloceanspaces.com",
-            Custom(ref endpoint) => endpoint
+            UsEast1 => String::from("s3.amazonaws.com"),
+            UsEast2 => String::from("s3-us-east-2.amazonaws.com"),
+            UsWest1 => String::from("s3-us-west-1.amazonaws.com"),
+            UsWest2 => String::from("s3-us-west-2.amazonaws.com"),
+            CaCentral1 => String::from("s3-ca-central-1.amazonaws.com"),
+            ApSouth1 => String::from("s3-ap-south-1.amazonaws.com"),
+            ApNortheast1 => String::from("s3-ap-northeast-1.amazonaws.com"),
+            ApNortheast2 => String::from("s3-ap-northeast-2.amazonaws.com"),
+            ApNortheast3 => String::from("s3-ap-northeast-3.amazonaws.com"),
+            ApSoutheast1 => String::from("s3-ap-southeast-1.amazonaws.com"),
+            ApSoutheast2 => String::from("s3-ap-southeast-2.amazonaws.com"),
+            CnNorth1 => String::from("s3.cn-north-1.amazonaws.com.cn"),
+            CnNorthwest1 => String::from("s3.cn-northwest-1.amazonaws.com.cn"),
+            EuCentral1 => String::from("s3-eu-central-1.amazonaws.com"),
+            EuWest1 => String::from("s3-eu-west-1.amazonaws.com"),
+            EuWest2 => String::from("s3-eu-west-2.amazonaws.com"),
+            EuWest3 => String::from("s3-eu-west-3.amazonaws.com"),
+            SaEast1 => String::from("s3-sa-east-1.amazonaws.com"),
+            DoNyc3 => String::from("nyc3.digitaloceanspaces.com"),
+            DoAms3 => String::from("ams3.digitaloceanspaces.com"),
+            DoSgp1 => String::from("sgp1.digitaloceanspaces.com"),
+            Custom(ref endpoint) => endpoint.to_string()
         }
     }
 
-    pub fn scheme(&self) -> &str {
+    pub fn scheme(&self) -> String {
         match *self {
             Region::Custom(ref s) => {
                 match s.find("://") {
-                    Some(pos) => &s[..pos],
-                    None => "https"
+                    Some(pos) => s[..pos].to_string(),
+                    None => "https".to_string()
                 }
             },
-            _ => "https"
+            _ => "https".to_string()
         }
     }
 
-    pub fn host(&self) -> &str {
+    pub fn host(&self) -> String {
         match *self {
             Region::Custom(ref s) => {
                 match s.find("://") {
-                    Some(pos) => &s[pos + 3..],
-                    None => &s
+                    Some(pos) => s[pos + 3..].to_string(),
+                    None => s.to_string()
                 }
             },
             _ => self.endpoint()
