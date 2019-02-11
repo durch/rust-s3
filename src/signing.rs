@@ -207,7 +207,7 @@ mod tests {
     const EXPECTED_SHA: &'static str = "e3b0c44298fc1c149afbf4c8996fb924\
                                         27ae41e4649b934ca495991b7852b855";
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    #[rustfmt::skip]
     const EXPECTED_CANONICAL_REQUEST: &'static str =
         "GET\n\
          /test.txt\n\
@@ -220,7 +220,7 @@ mod tests {
          host;range;x-amz-content-sha256;x-amz-date\n\
          e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    #[rustfmt::skip]
     const EXPECTED_STRING_TO_SIGN: &'static str =
         "AWS4-HMAC-SHA256\n\
          20130524T000000Z\n\

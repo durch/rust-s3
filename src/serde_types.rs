@@ -33,6 +33,11 @@ pub struct Object {
     pub size: u64,
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct BucketLocationResult {
+    #[serde(rename = "$value")]
+    pub region: String
+}
 
 /// The parsed result of a s3 bucket listing
 #[derive(Deserialize, Debug, Clone)]

@@ -12,12 +12,13 @@ pub enum Command<'a> {
         delimiter: Option<&'a str>,
         continuation_token: Option<&'a str>
     },
+    BucketOpGet
 }
 
 impl<'a> Command<'a> {
     pub fn http_verb(&self) -> Method {
         match *self {
-            Command::Get | Command::List { .. } => Method::GET,
+            Command::Get | Command::List { .. } | Command::BucketOpGet => Method::GET,
             Command::Put { .. } => Method::PUT,
             Command::Delete => Method::DELETE,
         }

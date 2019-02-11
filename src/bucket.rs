@@ -7,7 +7,7 @@ use credentials::Credentials;
 use command::Command;
 use region::Region;
 use request::{Request, Headers, Query};
-use serde_types::ListBucketResult;
+use serde_types::{ListBucketResult, BucketLocationResult};
 use error::S3Result;
 
 /// # Example
@@ -50,16 +50,16 @@ impl Bucket {
     /// let region = "us-east-1".parse().unwrap();
     /// let credentials = Credentials::default();
     ///
-    /// let bucket = Bucket::new(bucket_name, region, credentials);
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// ```
-    pub fn new(name: &str, region: Region, credentials: Credentials) -> Bucket {
-        Bucket {
+    pub fn new(name: &str, region: Region, credentials: Credentials) -> S3Result<Bucket> {
+        Ok(Bucket {
             name: name.into(),
             region,
             credentials,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
-        }
+        })
     }
 
     /// Gets file from an S3 path.
@@ -73,7 +73,7 @@ impl Bucket {
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
     /// let credentials = Credentials::default();
-    /// let bucket = Bucket::new(bucket_name, region, credentials);
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (data, code) = bucket.get("/test.file").unwrap();
     /// println!("Code: {}\nData: {:?}", code, data);
@@ -82,6 +82,45 @@ impl Bucket {
         let command = Command::Get;
         let request = Request::new(self, path, command);
         request.execute()
+    }
+
+
+//// Get bucket location from S3
+////
+/// # Example
+/// ```rust,no_run
+/// # // Fake  credentials so we don't access user's real credentials in tests
+/// # use std::env;
+/// # env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
+/// # env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+/// use s3::bucket::Bucket;
+/// use s3::credentials::Credentials;
+///
+/// let bucket_name = "rust-s3-test";
+/// let region = "eu-central-1".parse().unwrap();
+/// let credentials = Credentials::default();
+///
+/// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+/// println!("{}", bucket.location().unwrap().0)
+/// ```
+    pub fn location(&self) -> S3Result<(Region, u32)> {
+        let request = Request::new(self, "?location", Command::BucketOpGet);
+        let result = request.execute()?;
+        let result_string = String::from_utf8_lossy(&result.0);
+        let region = match serde_xml::deserialize(result_string.as_bytes()) {
+            Ok(r) => {
+                let location_result: BucketLocationResult = r;
+                location_result.region.parse()?
+            }
+            Err(e) => {
+                if e.to_string() == "missing field `$value`" {
+                    "us-east-1".parse()?
+                } else {
+                    bail!(e)
+                }
+            }
+        };
+        Ok((region, result.1))
     }
 
     /// Delete file from an S3 path.
@@ -95,7 +134,7 @@ impl Bucket {
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
     /// let credentials = Credentials::default();
-    /// let bucket = Bucket::new(bucket_name, region, credentials);
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (_, code) = bucket.delete("/test.file").unwrap();
     /// assert_eq!(204, code);
@@ -121,7 +160,7 @@ impl Bucket {
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
     /// let credentials = Credentials::default();
-    /// let bucket = Bucket::new(bucket_name, region, credentials);
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let content = "I want to go to S3".as_bytes();
     /// let (_, code) = bucket.put("/test.file", content, "text/plain").unwrap();
@@ -137,10 +176,10 @@ impl Bucket {
     }
 
     fn _list(&self,
-                 prefix: &str,
-                 delimiter: Option<&str>,
-                 continuation_token: Option<&str>)
-                 -> S3Result<(ListBucketResult, u32)> {
+             prefix: &str,
+             delimiter: Option<&str>,
+             continuation_token: Option<&str>)
+             -> S3Result<(ListBucketResult, u32)> {
         let command = Command::List {
             prefix,
             delimiter,
@@ -168,7 +207,7 @@ impl Bucket {
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
     /// let credentials = Credentials::default();
-    /// let bucket = Bucket::new(bucket_name, region, credentials);
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let results = bucket.list("/", Some("/")).unwrap();
     /// for (list, code) in results {
@@ -191,16 +230,20 @@ impl Bucket {
     }
 
     /// Get a reference to the name of the S3 bucket.
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn name(&self) -> String {
+        self.name.to_string()
     }
 
     /// Get a reference to the hostname of the S3 API endpoint.
-    pub fn host(&self) -> &str {
+    pub fn host(&self) -> String {
         self.region.host()
     }
 
-    pub fn scheme(&self) -> &str {
+    pub fn self_host(&self) -> String {
+        format!("{}.s3.amazonaws.com", self.name)
+    }
+
+    pub fn scheme(&self) -> String {
         self.region.scheme()
     }
 
@@ -210,13 +253,13 @@ impl Bucket {
     }
 
     /// Get a reference to the AWS access key.
-    pub fn access_key(&self) -> &str {
-        &self.credentials.access_key
+    pub fn access_key(&self) -> String {
+        self.credentials.access_key.clone()
     }
 
     /// Get a reference to the AWS secret key.
-    pub fn secret_key(&self) -> &str {
-        &self.credentials.secret_key
+    pub fn secret_key(&self) -> String {
+        self.credentials.secret_key.clone()
     }
 
     /// Get a reference to the AWS token.
