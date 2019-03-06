@@ -1,3 +1,5 @@
+extern crate md5;
+
 use std::collections::HashMap;
 use std::io::Read;
 
@@ -83,6 +85,10 @@ impl<'a> Request<'a> {
             if let Some(token) = continuation_token {
                 query_pairs.append_pair("continuation-token", token);
             }
+        }
+
+        if let Command::Tag { .. } = self.command {
+            url.query_pairs_mut().append_pair("tagging", "");
         }
 
 //        println!("{}", url);
@@ -184,6 +190,11 @@ impl<'a> Request<'a> {
             headers.insert("X-Amz-Security-Token", token.parse()?);
         }
 
+        if let Command::Tag { .. } = self.command {
+            let sign = md5::compute(self.command.tags_xml());
+            headers.insert("Content-MD5", format!("{:x}", sign).parse()?);
+        }
+
         // This must be last, as it signs the other headers
         let authorization = self.authorization(&headers);
         headers.insert(header::AUTHORIZATION, authorization.parse()?);
@@ -216,6 +227,8 @@ impl<'a> Request<'a> {
         // Get owned content to pass to reqwest
         let content = if let Command::Put { content, .. } = self.command {
             Vec::from(content)
+        } else if let Command::Tag { .. } = self.command {
+            Vec::from(self.command.tags_xml())
         } else {
             Vec::new()
         };

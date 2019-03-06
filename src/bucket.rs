@@ -175,6 +175,14 @@ impl Bucket {
         request.execute()
     }
 
+    pub fn tag(&self, path: &str, tags: Vec<(&str, &str)>) -> S3Result<(Vec<u8>, u32)> {
+        let command = Command::Tag {
+            tags
+        };
+        let request = Request::new(self, path, command);
+        request.execute()
+    }
+
     fn _list(&self,
              prefix: &str,
              delimiter: Option<&str>,
