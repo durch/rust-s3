@@ -175,9 +175,46 @@ impl Bucket {
         request.execute()
     }
 
+    fn _tags_xml(&self, tags: Vec<(&str, &str)>) -> String {
+        let mut s = String::new();
+        let content = tags
+            .iter()
+            .map(|&(name, value)| format!("<Tag><Key>{}</Key><Value>{}</Value></Tag>", name, value))
+            .fold(String::new(), |mut a, b| {
+                a.push_str(b.as_str());
+                a
+            });
+        s.push_str("<Tagging><TagSet>");
+        s.push_str(&content);
+        s.push_str("</TagSet></Tagging>");
+
+        s
+    }
+
+    /// Tag an S3 object.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::credentials::Credentials;
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let aws_access = &"access_key";
+    /// let aws_secret = &"secret_key";
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    ///s let credentials = Credentials::default();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// let (_, code) = bucket.tag("/test.file", vec![("Tag1", "Value1"), ("Tag2", "Value2")]).unwrap();
+    /// assert_eq!(201, code);
+    /// ```
     pub fn tag(&self, path: &str, tags: Vec<(&str, &str)>) -> S3Result<(Vec<u8>, u32)> {
+        let content = self._tags_xml(tags);
         let command = Command::Tag {
-            tags
+            tags: &content.to_string()
         };
         let request = Request::new(self, path, command);
         request.execute()
