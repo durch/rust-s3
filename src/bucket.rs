@@ -205,7 +205,7 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    ///s let credentials = Credentials::default();
+    /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (_, code) = bucket.tag("/test.file", vec![("Tag1", "Value1"), ("Tag2", "Value2")]).unwrap();
