@@ -5,6 +5,9 @@ pub enum Command<'a> {
         content: &'a [u8],
         content_type: &'a str,
     },
+    Tag {
+        tags: &'a str
+    },
     Get,
     Delete,
     List {
@@ -19,7 +22,7 @@ impl<'a> Command<'a> {
     pub fn http_verb(&self) -> Method {
         match *self {
             Command::Get | Command::List { .. } | Command::BucketOpGet => Method::GET,
-            Command::Put { .. } => Method::PUT,
+            Command::Put { .. } | Command::Tag { .. } => Method::PUT,
             Command::Delete => Method::DELETE,
         }
     }

@@ -1,3 +1,6 @@
+extern crate base64;
+extern crate md5;
+
 use std::collections::HashMap;
 use std::io::Read;
 
@@ -85,6 +88,10 @@ impl<'a> Request<'a> {
             }
         }
 
+        if let Command::Tag { .. } = self.command {
+            url.query_pairs_mut().append_pair("tagging", "");
+        }
+
 //        println!("{}", url);
         url
     }
@@ -92,6 +99,7 @@ impl<'a> Request<'a> {
     fn content_length(&self) -> usize {
         match self.command {
             Command::Put { content, .. } => content.len(),
+            Command::Tag { tags } => tags.len(),
             _ => 0,
         }
     }
@@ -108,6 +116,11 @@ impl<'a> Request<'a> {
             Command::Put { content, .. } => {
                 let mut sha = Sha256::default();
                 sha.input(content);
+                sha.result().as_slice().to_hex()
+            },
+            Command::Tag { tags } => {
+                let mut sha = Sha256::default();
+                sha.input(tags.as_bytes());
                 sha.result().as_slice().to_hex()
             }
             _ => EMPTY_PAYLOAD_SHA.into(),
@@ -184,6 +197,12 @@ impl<'a> Request<'a> {
             headers.insert("X-Amz-Security-Token", token.parse()?);
         }
 
+        if let Command::Tag { tags } = self.command {
+            let digest = md5::compute(tags);
+            let hash = base64::encode(digest.as_ref());
+            headers.insert("Content-MD5", hash.parse()?);
+        }
+
         // This must be last, as it signs the other headers
         let authorization = self.authorization(&headers);
         headers.insert(header::AUTHORIZATION, authorization.parse()?);
@@ -216,11 +235,12 @@ impl<'a> Request<'a> {
         // Get owned content to pass to reqwest
         let content = if let Command::Put { content, .. } = self.command {
             Vec::from(content)
+        } else if let Command::Tag { tags } = self.command {
+            Vec::from(tags)
         } else {
             Vec::new()
         };
 
-        // Build and sent HTTP request
         let request = client
             .request(self.command.http_verb(), self.url())
             .headers(headers)
