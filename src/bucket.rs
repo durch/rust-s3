@@ -175,7 +175,7 @@ impl Bucket {
         request.execute()
     }
 
-    fn _tags_xml(&self, tags: Vec<(&str, &str)>) -> String {
+    fn _tags_xml(&self, tags: &[(&str, &str)]) -> String {
         let mut s = String::new();
         let content = tags
             .iter()
@@ -208,11 +208,11 @@ impl Bucket {
     /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    /// let (_, code) = bucket.tag("/test.file", vec![("Tag1", "Value1"), ("Tag2", "Value2")]).unwrap();
+    /// let (_, code) = bucket.tag("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).unwrap();
     /// assert_eq!(201, code);
     /// ```
-    pub fn tag(&self, path: &str, tags: Vec<(&str, &str)>) -> S3Result<(Vec<u8>, u32)> {
-        let content = self._tags_xml(tags);
+    pub fn tag(&self, path: &str, tags: &[(&str, &str)]) -> S3Result<(Vec<u8>, u32)> {
+        let content = self._tags_xml(&tags);
         let command = Command::Tag {
             tags: &content.to_string()
         };
