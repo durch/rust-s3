@@ -241,7 +241,7 @@ impl Bucket {
     ///
     /// let (tags, code) = bucket.get_tags("/test.file").unwrap();
     /// if code == 200 {
-    ///     for (tag_name, tag_value) in res {
+    ///     for (tag_name, tag_value) in tags {
     ///         println!("{}={}", tag_name, tag_value);
     ///     }
     /// }
