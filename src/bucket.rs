@@ -1,3 +1,5 @@
+extern crate regex;
+
 use std::collections::HashMap;
 use std::mem;
 
@@ -218,6 +220,48 @@ impl Bucket {
         };
         let request = Request::new(self, path, command);
         request.execute()
+    }
+
+    /// Retrieve an S3 object list of tags.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::credentials::Credentials;
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let aws_access = &"access_key";
+    /// let aws_secret = &"secret_key";
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// let (tags, code) = bucket.get_tags("/test.file").unwrap();
+    /// if code == 200 {
+    ///     for (tag_name, tag_value) in res {
+    ///         println!("{}={}", tag_name, tag_value);
+    ///     }
+    /// }
+    /// ```
+    pub fn get_tags(&self, path: &str) -> S3Result<(Vec<(String, String)>, u32)> {
+        let command = Command::GetTags { };
+        let request = Request::new(self, path, command);
+        let result = request.execute()?;
+        let mut tags = vec!();
+
+        if result.1 == 200 {
+            let result_string = String::from_utf8_lossy(&result.0);
+
+            let re = regex::Regex::new(r"<Key>([\s|\S]+)</Key><Value>([\s|\S]+)</Value>").unwrap();
+            for c in re.captures_iter(&result_string) {
+                tags.push((String::from(&c[1]), String::from(&c[2])));
+            }
+        }
+
+        Ok((tags, result.1))
     }
 
     fn _list(&self,

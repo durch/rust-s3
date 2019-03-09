@@ -88,8 +88,11 @@ impl<'a> Request<'a> {
             }
         }
 
-        if let Command::Tag { .. } = self.command {
-            url.query_pairs_mut().append_pair("tagging", "");
+        match self.command {
+            Command::Tag { .. } | Command::GetTags => {
+                url.query_pairs_mut().append_pair("tagging", "");
+            },
+            _ => {}
         }
 
 //        println!("{}", url);
