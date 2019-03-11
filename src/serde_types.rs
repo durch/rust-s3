@@ -34,6 +34,36 @@ pub struct Object {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+pub struct Tagging {
+    #[serde(rename = "TagSet")]
+    pub tag_set: Vec<Tag>
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct Tag {
+    #[serde(rename = "Tag")]
+    pub kvpair: KVPair
+}
+
+impl Tag {
+    pub fn key(&self) -> String {
+        self.kvpair.key.clone()
+    }
+
+    pub fn value(&self) -> String {
+        self.kvpair.value.clone()
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct KVPair {
+    #[serde(rename = "Key")]
+    pub key: String,
+    #[serde(rename = "Value")]
+    pub value: String,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct BucketLocationResult {
     #[serde(rename = "$value")]
     pub region: String
