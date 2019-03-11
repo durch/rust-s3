@@ -1,5 +1,3 @@
-extern crate regex;
-
 use std::collections::HashMap;
 use std::mem;
 
@@ -11,6 +9,7 @@ use region::Region;
 use request::{Request, Headers, Query};
 use serde_types::{ListBucketResult, BucketLocationResult};
 use error::S3Result;
+use serde_types::Tagging;
 
 /// # Example
 /// ```
@@ -87,24 +86,24 @@ impl Bucket {
     }
 
 
-//// Get bucket location from S3
+    //// Get bucket location from S3
 ////
-/// # Example
-/// ```rust,no_run
-/// # // Fake  credentials so we don't access user's real credentials in tests
-/// # use std::env;
-/// # env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
-/// # env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
-/// use s3::bucket::Bucket;
-/// use s3::credentials::Credentials;
-///
-/// let bucket_name = "rust-s3-test";
-/// let region = "eu-central-1".parse().unwrap();
-/// let credentials = Credentials::default();
-///
-/// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
-/// println!("{}", bucket.location().unwrap().0)
-/// ```
+    /// # Example
+    /// ```rust,no_run
+    /// # // Fake  credentials so we don't access user's real credentials in tests
+    /// # use std::env;
+    /// # env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
+    /// # env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+    /// use s3::bucket::Bucket;
+    /// use s3::credentials::Credentials;
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "eu-central-1".parse().unwrap();
+    /// let credentials = Credentials::default();
+    ///
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    /// println!("{}", bucket.location().unwrap().0)
+    /// ```
     pub fn location(&self) -> S3Result<(Region, u32)> {
         let request = Request::new(self, "?location", Command::BucketOpGet);
         let result = request.execute()?;
@@ -189,7 +188,6 @@ impl Bucket {
         s.push_str("<Tagging><TagSet>");
         s.push_str(&content);
         s.push_str("</TagSet></Tagging>");
-
         s
     }
 
@@ -241,27 +239,25 @@ impl Bucket {
     ///
     /// let (tags, code) = bucket.get_tags("/test.file").unwrap();
     /// if code == 200 {
-    ///     for (tag_name, tag_value) in tags {
-    ///         println!("{}={}", tag_name, tag_value);
+    ///     for tag in tags.expect("No tags found").tag_set {
+    ///         println!("{}={}", tag.key(), tag.value());
     ///     }
     /// }
     /// ```
-    pub fn get_tags(&self, path: &str) -> S3Result<(Vec<(String, String)>, u32)> {
-        let command = Command::GetTags { };
+    pub fn get_tags(&self, path: &str) -> S3Result<(Option<Tagging>, u32)> {
+        let command = Command::GetTags {};
         let request = Request::new(self, path, command);
         let result = request.execute()?;
-        let mut tags = vec!();
 
-        if result.1 == 200 {
+        let tagging = if result.1 == 200 {
             let result_string = String::from_utf8_lossy(&result.0);
+            println!("{}", result_string);
+            Some(serde_xml::deserialize(result_string.as_bytes())?)
+        } else {
+            None
+        };
 
-            let re = regex::Regex::new(r"<Key>([\s|\S]+)</Key><Value>([\s|\S]+)</Value>").unwrap();
-            for c in re.captures_iter(&result_string) {
-                tags.push((String::from(&c[1]), String::from(&c[2])));
-            }
-        }
-
-        Ok((tags, result.1))
+        Ok((tagging, result.1))
     }
 
     fn _list(&self,

@@ -17,19 +17,19 @@ pub fn main() -> S3Result<()> {
     let bucket = Bucket::new(BUCKET, region, credentials)?;
 
     // List out contents of directory
-    let results = bucket.list("", None).unwrap();
-    for (list, code) in results {
-        assert_eq!(200, code);
-        println!("{:?}", list.contents.len());
-    }
+//    let results = bucket.list("", None).unwrap();
+//    for (list, code) in results {
+//        assert_eq!(200, code);
+//        println!("{:?}", list.contents.len());
+//    }
 
 
     // Make sure that our "test_file" doesn't exist, delete it if it does. Note
     // that the s3 library returns the HTTP code even if it indicates a failure
     // (i.e. 404) since we can't predict desired usage. For example, you may
     // expect a 404 to make sure a fi le doesn't exist.
-    let (_, code) = bucket.delete("test_file")?;
-    assert_eq!(204, code);
+//    let (_, code) = bucket.delete("test_file")?;
+//    assert_eq!(204, code);
 
     // Put a "test_file" with the contents of MESSAGE at the root of the
     // bucket.
@@ -45,5 +45,11 @@ pub fn main() -> S3Result<()> {
 
 //  Get bucket location
     println!("{:?}", bucket.location()?);
+
+    bucket.tag("test_file", &[("test", "tag")])?;
+    println!("Tags set");
+    let (tags, _status) = bucket.get_tags("test_file")?;
+    println!("{:?}", tags);
+
     Ok(())
 }
