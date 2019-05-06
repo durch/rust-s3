@@ -220,6 +220,33 @@ impl Bucket {
         request.execute()
     }
 
+
+    /// Delete tags from an S3 object.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::credentials::Credentials;
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let aws_access = &"access_key";
+    /// let aws_secret = &"secret_key";
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// let (_, code) = bucket.delete_object_tagging("/test.file").unwrap();
+    /// assert_eq!(201, code);
+    /// ```
+    pub fn delete_object_tagging(&self, path: &str) -> S3Result<(Vec<u8>, u32)> {
+        let command = Command::DeleteObjectTagging;
+        let request = Request::new(self, path, command);
+        request.execute()
+    }
+
     /// Retrieve an S3 object list of tags.
     ///
     /// # Example
