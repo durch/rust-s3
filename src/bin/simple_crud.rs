@@ -33,12 +33,12 @@ pub fn main() -> S3Result<()> {
 
     // Put a "test_file" with the contents of MESSAGE at the root of the
     // bucket.
-    let (_, code) = bucket.put("test_file", MESSAGE.as_bytes(), "text/plain")?;
+    let (_, code) = bucket.put_object("test_file", MESSAGE.as_bytes(), "text/plain")?;
     assert_eq!(200, code);
 
     // Get the "test_file" contents and make sure that the returned message
     // matches what we sent.
-    let (data, code) = bucket.get("test_file")?;
+    let (data, code) = bucket.get_object("test_file")?;
     let string = str::from_utf8(&data).unwrap();
     assert_eq!(200, code);
     assert_eq!(MESSAGE, string);
@@ -46,9 +46,9 @@ pub fn main() -> S3Result<()> {
 //  Get bucket location
     println!("{:?}", bucket.location()?);
 
-    bucket.tag("test_file", &[("test", "tag")])?;
+    bucket.put_object_tagging("test_file", &[("test", "tag")])?;
     println!("Tags set");
-    let (tags, _status) = bucket.get_tags("test_file")?;
+    let (tags, _status) = bucket.get_object_tagging("test_file")?;
     println!("{:?}", tags);
 
     Ok(())

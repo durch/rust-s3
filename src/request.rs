@@ -52,11 +52,11 @@ impl<'a> Request<'a> {
 
     fn url(&self) -> Url {
         let mut url_str = match self.command {
-            Command::BucketOpGet => format!("{}://{}", self.bucket.scheme(), self.bucket.self_host()),
+            Command::GetBucketLocation => format!("{}://{}", self.bucket.scheme(), self.bucket.self_host()),
             _ => format!("{}://{}", self.bucket.scheme(), self.bucket.host())
         };
         match self.command {
-            Command::BucketOpGet => {}
+            Command::GetBucketLocation => {}
             _ => {
                 url_str.push_str("/");
                 url_str.push_str(&self.bucket.name());
@@ -66,7 +66,7 @@ impl<'a> Request<'a> {
             url_str.push_str("/");
         }
         match self.command {
-            Command::BucketOpGet => url_str.push_str(self.path),
+            Command::GetBucketLocation => url_str.push_str(self.path),
             _ => url_str.push_str(&signing::uri_encode(self.path, false))
         };
 
@@ -78,7 +78,7 @@ impl<'a> Request<'a> {
             url.query_pairs_mut().append_pair(key, value);
         }
 
-        if let Command::List { prefix, delimiter, continuation_token } = self.command {
+        if let Command::ListBucket { prefix, delimiter, continuation_token } = self.command {
             let mut query_pairs = url.query_pairs_mut();
             delimiter.map(|d| query_pairs.append_pair("delimiter", d));
             query_pairs.append_pair("prefix", prefix);
@@ -89,7 +89,7 @@ impl<'a> Request<'a> {
         }
 
         match self.command {
-            Command::Tag { .. } | Command::GetTags => {
+            Command::PutObjectTagging { .. } | Command::GetObjectTagging | Command::DeleteObjectTagging => {
                 url.query_pairs_mut().append_pair("tagging", "");
             },
             _ => {}
@@ -101,27 +101,27 @@ impl<'a> Request<'a> {
 
     fn content_length(&self) -> usize {
         match self.command {
-            Command::Put { content, .. } => content.len(),
-            Command::Tag { tags } => tags.len(),
+            Command::PutObject { content, .. } => content.len(),
+            Command::PutObjectTagging { tags } => tags.len(),
             _ => 0,
         }
     }
 
     fn content_type(&self) -> String {
         match self.command {
-            Command::Put { content_type, .. } => content_type.into(),
+            Command::PutObject { content_type, .. } => content_type.into(),
             _ => "text/plain".into(),
         }
     }
 
     fn sha256(&self) -> String {
         match self.command {
-            Command::Put { content, .. } => {
+            Command::PutObject { content, .. } => {
                 let mut sha = Sha256::default();
                 sha.input(content);
                 sha.result().as_slice().to_hex()
             },
-            Command::Tag { tags } => {
+            Command::PutObjectTagging { tags } => {
                 let mut sha = Sha256::default();
                 sha.input(tags.as_bytes());
                 sha.result().as_slice().to_hex()
@@ -185,7 +185,7 @@ impl<'a> Request<'a> {
             .map(|(k, v)| Ok((k.parse::<HeaderName>()?, v.parse::<HeaderValue>()?)))
             .collect::<Result<HeaderMap, S3Error>>()?;
         match self.command {
-            Command::BucketOpGet => headers.insert(header::HOST, self.bucket.self_host().parse()?),
+            Command::GetBucketLocation => headers.insert(header::HOST, self.bucket.self_host().parse()?),
             _ => headers.insert(header::HOST, self.bucket.host().parse()?)
         };
         headers.insert(
@@ -200,7 +200,7 @@ impl<'a> Request<'a> {
             headers.insert("X-Amz-Security-Token", token.parse()?);
         }
 
-        if let Command::Tag { tags } = self.command {
+        if let Command::PutObjectTagging { tags } = self.command {
             let digest = md5::compute(tags);
             let hash = base64::encode(digest.as_ref());
             headers.insert("Content-MD5", hash.parse()?);
@@ -236,9 +236,9 @@ impl<'a> Request<'a> {
         let headers = self.headers()?;
 
         // Get owned content to pass to reqwest
-        let content = if let Command::Put { content, .. } = self.command {
+        let content = if let Command::PutObject { content, .. } = self.command {
             Vec::from(content)
-        } else if let Command::Tag { tags } = self.command {
+        } else if let Command::PutObjectTagging { tags } = self.command {
             Vec::from(tags)
         } else {
             Vec::new()
@@ -290,7 +290,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = Request::new(&bucket, path, Command::Get);
+        let request = Request::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -306,7 +306,7 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = Request::new(&bucket, path, Command::Get);
+        let request = Request::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url().scheme(), "http");
 

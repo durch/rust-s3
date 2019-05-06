@@ -76,11 +76,11 @@ impl Bucket {
     /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    /// let (data, code) = bucket.get("/test.file").unwrap();
+    /// let (data, code) = bucket.get_object("/test.file").unwrap();
     /// println!("Code: {}\nData: {:?}", code, data);
     /// ```
-    pub fn get(&self, path: &str) -> S3Result<(Vec<u8>, u32)> {
-        let command = Command::Get;
+    pub fn get_object(&self, path: &str) -> S3Result<(Vec<u8>, u32)> {
+        let command = Command::GetObject;
         let request = Request::new(self, path, command);
         request.execute()
     }
@@ -105,7 +105,7 @@ impl Bucket {
     /// println!("{}", bucket.location().unwrap().0)
     /// ```
     pub fn location(&self) -> S3Result<(Region, u32)> {
-        let request = Request::new(self, "?location", Command::BucketOpGet);
+        let request = Request::new(self, "?location", Command::GetBucketLocation);
         let result = request.execute()?;
         let result_string = String::from_utf8_lossy(&result.0);
         let region = match serde_xml::deserialize(result_string.as_bytes()) {
@@ -137,11 +137,11 @@ impl Bucket {
     /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    /// let (_, code) = bucket.delete("/test.file").unwrap();
+    /// let (_, code) = bucket.delete_object("/test.file").unwrap();
     /// assert_eq!(204, code);
     /// ```
-    pub fn delete(&self, path: &str) -> S3Result<(Vec<u8>, u32)> {
-        let command = Command::Delete;
+    pub fn delete_object(&self, path: &str) -> S3Result<(Vec<u8>, u32)> {
+        let command = Command::DeleteObject;
         let request = Request::new(self, path, command);
         request.execute()
     }
@@ -164,11 +164,11 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let content = "I want to go to S3".as_bytes();
-    /// let (_, code) = bucket.put("/test.file", content, "text/plain").unwrap();
+    /// let (_, code) = bucket.put_object("/test.file", content, "text/plain").unwrap();
     /// assert_eq!(201, code);
     /// ```
-    pub fn put(&self, path: &str, content: &[u8], content_type: &str) -> S3Result<(Vec<u8>, u32)> {
-        let command = Command::Put {
+    pub fn put_object(&self, path: &str, content: &[u8], content_type: &str) -> S3Result<(Vec<u8>, u32)> {
+        let command = Command::PutObject {
             content,
             content_type,
         };
@@ -208,12 +208,12 @@ impl Bucket {
     /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    /// let (_, code) = bucket.tag("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).unwrap();
+    /// let (_, code) = bucket.put_object_tagging("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).unwrap();
     /// assert_eq!(201, code);
     /// ```
-    pub fn tag(&self, path: &str, tags: &[(&str, &str)]) -> S3Result<(Vec<u8>, u32)> {
+    pub fn put_object_tagging(&self, path: &str, tags: &[(&str, &str)]) -> S3Result<(Vec<u8>, u32)> {
         let content = self._tags_xml(&tags);
-        let command = Command::Tag {
+        let command = Command::PutObjectTagging {
             tags: &content.to_string()
         };
         let request = Request::new(self, path, command);
@@ -237,15 +237,15 @@ impl Bucket {
     /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    /// let (tags, code) = bucket.get_tags("/test.file").unwrap();
+    /// let (tags, code) = bucket.get_object_tagging("/test.file").unwrap();
     /// if code == 200 {
     ///     for tag in tags.expect("No tags found").tag_set {
     ///         println!("{}={}", tag.key(), tag.value());
     ///     }
     /// }
     /// ```
-    pub fn get_tags(&self, path: &str) -> S3Result<(Option<Tagging>, u32)> {
-        let command = Command::GetTags {};
+    pub fn get_object_tagging(&self, path: &str) -> S3Result<(Option<Tagging>, u32)> {
+        let command = Command::GetObjectTagging {};
         let request = Request::new(self, path, command);
         let result = request.execute()?;
 
@@ -265,7 +265,7 @@ impl Bucket {
              delimiter: Option<&str>,
              continuation_token: Option<&str>)
              -> S3Result<(ListBucketResult, u32)> {
-        let command = Command::List {
+        let command = Command::ListBucket {
             prefix,
             delimiter,
             continuation_token,

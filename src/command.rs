@@ -1,30 +1,32 @@
 use reqwest::Method;
 
 pub enum Command<'a> {
-    Put {
+    DeleteObject,
+    DeleteObjectTagging,
+    GetObject,
+    GetObjectTagging,
+    PutObject {
         content: &'a [u8],
         content_type: &'a str,
     },
-    Tag {
+    PutObjectTagging {
         tags: &'a str
     },
-    GetTags,
-    Get,
-    Delete,
-    List {
+
+    ListBucket {
         prefix: &'a str,
         delimiter: Option<&'a str>,
         continuation_token: Option<&'a str>
     },
-    BucketOpGet
+    GetBucketLocation
 }
 
 impl<'a> Command<'a> {
     pub fn http_verb(&self) -> Method {
         match *self {
-            Command::Get | Command::List { .. } | Command::BucketOpGet | Command::GetTags => Method::GET,
-            Command::Put { .. } | Command::Tag { .. } => Method::PUT,
-            Command::Delete => Method::DELETE,
+            Command::GetObject | Command::ListBucket { .. } | Command::GetBucketLocation | Command::GetObjectTagging => Method::GET,
+            Command::PutObject { .. } | Command::PutObjectTagging { .. } => Method::PUT,
+            Command::DeleteObject | Command::DeleteObjectTagging => Method::DELETE,
         }
     }
 }
