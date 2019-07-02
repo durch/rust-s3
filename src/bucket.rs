@@ -3,6 +3,7 @@ use std::mem;
 
 use serde_xml;
 
+use std::io::Write;
 use credentials::Credentials;
 use command::Command;
 use region::Region;
@@ -85,9 +86,33 @@ impl Bucket {
         request.execute()
     }
 
+    /// Stream file from S3 path to a local file, generic over T: Write.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::credentials::Credentials;
+    /// use std::fs::File;
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    /// let mut output_file = File::create("output_file").expect("Unable to create file");
+    ///
+    /// let code = bucket.stream_object("/test.file", &mut output_file).unwrap();
+    /// println!("Code: {}", code);
+    /// ```
+    pub fn stream_object<T: Write>(&self, path: &str, writer: &mut T) -> S3Result<u32> {
+        let command = Command::GetObject;
+        let request = Request::new(self, path, command);
+        request.stream(writer)
+    }
+
 
     //// Get bucket location from S3
-////
+    ////
     /// # Example
     /// ```rust,no_run
     /// # // Fake  credentials so we don't access user's real credentials in tests
@@ -376,7 +401,7 @@ impl Bucket {
 
     /// Get a reference to the AWS token.
     pub fn token(&self) -> Option<&str> {
-        self.credentials.token.as_ref().map(|s| s.as_str())
+        self.credentials.token.as_ref().map(std::string::String::as_str)
     }
 
     /// Get a reference to the full [`Credentials`](struct.Credentials.html)
