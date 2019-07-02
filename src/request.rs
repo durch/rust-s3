@@ -2,7 +2,7 @@ extern crate base64;
 extern crate md5;
 
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Write};
 
 use bucket::Bucket;
 use chrono::{DateTime, Utc};
@@ -222,6 +222,16 @@ impl<'a> Request<'a> {
     }
 
     pub fn execute(&self) -> S3Result<(Vec<u8>, u32)> {
+        let response_tuple = self.maybe_stream::<Vec<u8>>(None)?;
+        Ok((response_tuple.0.unwrap(), response_tuple.1))
+    }
+
+    pub fn stream<T: Write>(&self, writer: &mut T) -> S3Result<u32> {
+        let response_tuple = self.maybe_stream(Some(writer))?;
+        Ok(response_tuple.1)
+    }
+
+    pub fn maybe_stream<T: Write>(&self, writer: Option<&mut T>) -> S3Result<(Option<Vec<u8>>, u32)> {
         // TODO: preserve client across requests
         let client = if cfg!(feature = "no-verify-ssl") {
             reqwest::Client::builder()
@@ -250,13 +260,21 @@ impl<'a> Request<'a> {
             .body(content);
         let mut response = request.send()?;
 
-        // Read and process response
-        let mut dst = Vec::new();
-        response.read_to_end(&mut dst)?;
-
         let resp_code = u32::from(response.status().as_u16());
+
+        let ret;
+        let mut dst = Vec::new();
+
         if resp_code < 300 {
-            Ok((dst, resp_code))
+            // Read and process response
+            if let Some(wrt) = writer {
+                response.copy_to(wrt)?;
+                ret = None;
+            } else {
+                response.copy_to(&mut dst)?;
+                ret = Some(dst)
+            }
+            Ok((ret, resp_code))
         } else {
             let deserialized: AwsError = serde_xml::deserialize(dst.as_slice())?;
             let err = ErrorKind::AwsError {
