@@ -14,8 +14,10 @@ Supports `put`, `get`, `list`, and `delete`.
 
 ### What is cool
 
-The main (and probably only) cool feature is that `put` commands return a presigned link to the file you uploaded.
+The main cool feature is that `put` commands return a presigned link to the file you uploaded.
 This means you can upload to s3, and give the link to select people without having to worry about publicly accessible files on S3.
+
+Also supports streaming S3 contents generic over `T: Write` (`0.14.0-beta.0`).
 
 ### Configuration
 
@@ -37,6 +39,11 @@ rust-s3 = "0.13.0"
 rust-s3 = {version = "0.13.0", features = ["no-verify-ssl"]}
 ```
 
+#### Beta version of streaming downloads via `stream_object` Bucket method
+```
+[dependencies]
+rust-s3 = "0.14.0-beta.0"
+```
 
 #### Example
 
