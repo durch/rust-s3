@@ -222,16 +222,16 @@ impl<'a> Request<'a> {
     }
 
     pub fn execute(&self) -> S3Result<(Vec<u8>, u32)> {
-        let response_tuple = self.maybe_stream::<Vec<u8>>(None)?;
+        let response_tuple = self._execute::<Vec<u8>>(None)?;
         Ok((response_tuple.0.unwrap(), response_tuple.1))
     }
 
-    pub fn stream<T: Write>(&self, writer: &mut T) -> S3Result<u32> {
-        let response_tuple = self.maybe_stream(Some(writer))?;
+    pub fn execute_to_writer<T: Write>(&self, writer: &mut T) -> S3Result<u32> {
+        let response_tuple = self._execute(Some(writer))?;
         Ok(response_tuple.1)
     }
 
-    pub fn maybe_stream<T: Write>(&self, writer: Option<&mut T>) -> S3Result<(Option<Vec<u8>>, u32)> {
+    fn _execute<T: Write>(&self, writer: Option<&mut T>) -> S3Result<(Option<Vec<u8>>, u32)> {
         // TODO: preserve client across requests
         let client = if cfg!(feature = "no-verify-ssl") {
             reqwest::Client::builder()

@@ -101,13 +101,13 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// let mut output_file = File::create("output_file").expect("Unable to create file");
     ///
-    /// let code = bucket.stream_object("/test.file", &mut output_file).unwrap();
+    /// let code = bucket.get_object_stream("/test.file", &mut output_file).unwrap();
     /// println!("Code: {}", code);
     /// ```
-    pub fn stream_object<T: Write>(&self, path: &str, writer: &mut T) -> S3Result<u32> {
+    pub fn get_object_stream<T: Write>(&self, path: &str, writer: &mut T) -> S3Result<u32> {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
-        request.stream(writer)
+        request.execute_to_writer(writer)
     }
 
 
