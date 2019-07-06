@@ -63,7 +63,7 @@ pub enum Region {
     /// Digital Ocean sgp1
     DoSgp1,
     /// Custom region
-    Custom(String),
+    Custom { region: String, endpoint: String },
 }
 
 impl fmt::Display for Region {
@@ -91,7 +91,7 @@ impl fmt::Display for Region {
             DoNyc3 => write!(f, "nyc3"),
             DoAms3 => write!(f, "ams3"),
             DoSgp1 => write!(f, "sgp1"),
-            Custom(ref _endpoint) => write!(f, "custom")
+            Custom { ref region, endpoint: _ } => write!(f, "{}", region.to_string())
         }
     }
 }
@@ -123,7 +123,7 @@ impl FromStr for Region {
             "nyc3" => Ok(DoNyc3),
             "ams3" => Ok(DoAms3),
             "sgp1" => Ok(DoSgp1),
-            x => Ok(Custom(x.to_string()))
+            x => Ok(Custom{ region: x.to_string(), endpoint: x.to_string() })
         }
     }
 }
@@ -155,15 +155,15 @@ impl Region {
             DoNyc3 => String::from("nyc3.digitaloceanspaces.com"),
             DoAms3 => String::from("ams3.digitaloceanspaces.com"),
             DoSgp1 => String::from("sgp1.digitaloceanspaces.com"),
-            Custom(ref endpoint) => endpoint.to_string()
+            Custom { region: _, ref endpoint } => endpoint.to_string()
         }
     }
 
     pub fn scheme(&self) -> String {
         match *self {
-            Region::Custom(ref s) => {
-                match s.find("://") {
-                    Some(pos) => s[..pos].to_string(),
+            Region::Custom{ region: _, ref endpoint } => {
+                match endpoint.find("://") {
+                    Some(pos) => endpoint[..pos].to_string(),
                     None => "https".to_string()
                 }
             },
@@ -173,10 +173,10 @@ impl Region {
 
     pub fn host(&self) -> String {
         match *self {
-            Region::Custom(ref s) => {
-                match s.find("://") {
-                    Some(pos) => s[pos + 3..].to_string(),
-                    None => s.to_string()
+            Region::Custom{ region: _, ref endpoint } => {
+                match endpoint.find("://") {
+                    Some(pos) => endpoint[pos + 3..].to_string(),
+                    None => endpoint.to_string()
                 }
             },
             _ => self.endpoint()
