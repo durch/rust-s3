@@ -17,6 +17,12 @@ use error::{S3Result, S3Error};
 ///
 /// // Choose region directly
 /// let region = Region::EuWest2;
+///
+/// // Custom region requires valid region name and endpoint
+/// let region_name = "nl-ams".to_string();
+/// let endpoint = "https://s3.nl-ams.scw.cloud".to_string();
+/// let region = Region::Custom { region: region_name, endpoint: endpoint };
+///
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Region {
