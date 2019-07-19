@@ -21,7 +21,7 @@ use error::{S3Result, S3Error};
 /// // Custom region requires valid region name and endpoint
 /// let region_name = "nl-ams".to_string();
 /// let endpoint = "https://s3.nl-ams.scw.cloud".to_string();
-/// let region = Region::Custom { region: region_name, endpoint: endpoint };
+/// let region = Region::Custom { region: region_name, endpoint };
 ///
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -97,7 +97,7 @@ impl fmt::Display for Region {
             DoNyc3 => write!(f, "nyc3"),
             DoAms3 => write!(f, "ams3"),
             DoSgp1 => write!(f, "sgp1"),
-            Custom { ref region, endpoint: _ } => write!(f, "{}", region.to_string())
+            Custom { ref region, .. } => write!(f, "{}", region.to_string())
         }
     }
 }
@@ -161,7 +161,7 @@ impl Region {
             DoNyc3 => String::from("nyc3.digitaloceanspaces.com"),
             DoAms3 => String::from("ams3.digitaloceanspaces.com"),
             DoSgp1 => String::from("sgp1.digitaloceanspaces.com"),
-            Custom { region: _, ref endpoint } => endpoint.to_string()
+            Custom { region: _, ref endpoint, .. } => endpoint.to_string()
         }
     }
 
