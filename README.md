@@ -30,19 +30,13 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```
 [dependencies]
-rust-s3 = "0.13.0"
+rust-s3 = "0.15.0"
 ```
 
 #### Disable SSL verification for endpoints
 ```
 [dependencies]
-rust-s3 = {version = "0.13.0", features = ["no-verify-ssl"]}
-```
-
-#### Beta version of streaming downloads via `stream_object` Bucket method
-```
-[dependencies]
-rust-s3 = "0.14.0-beta.0"
+rust-s3 = {version = "0.15.0", features = ["no-verify-ssl"]}
 ```
 
 #### Example
