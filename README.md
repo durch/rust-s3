@@ -17,7 +17,7 @@ Supports `put`, `get`, `list`, and `delete`.
 The main cool feature is that `put` commands return a presigned link to the file you uploaded.
 This means you can upload to s3, and give the link to select people without having to worry about publicly accessible files on S3.
 
-Also supports streaming S3 contents generic over `T: Write` (`0.15.0`).
+Also supports streaming S3 contents generic over `T: Write` as of `0.15.0`.
 
 ### Configuration
 

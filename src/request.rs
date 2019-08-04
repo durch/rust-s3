@@ -10,11 +10,14 @@ use command::Command;
 use error::S3Error;
 use hmac::{Hmac, Mac};
 use reqwest;
+use reqwest::async as async;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use sha2::{Digest, Sha256};
 use hex::ToHex;
 use url::Url;
 use serde_xml;
+
+use futures::future::{Future, result, FutureResult, ok};
 
 use serde_types::AwsError;
 use signing;
@@ -22,6 +25,7 @@ use error::{S3Result, ErrorKind};
 
 use EMPTY_PAYLOAD_SHA;
 use LONG_DATE;
+use reqwest::async::Response;
 
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
@@ -38,6 +42,7 @@ pub struct Request<'a> {
     pub path: &'a str,
     pub command: Command<'a>,
     pub datetime: DateTime<Utc>,
+    pub async: bool,
 }
 
 impl<'a> Request<'a> {
@@ -47,6 +52,7 @@ impl<'a> Request<'a> {
             path,
             command,
             datetime: Utc::now(),
+            async: false,
         }
     }
 
@@ -91,7 +97,7 @@ impl<'a> Request<'a> {
         match self.command {
             Command::PutObjectTagging { .. } | Command::GetObjectTagging | Command::DeleteObjectTagging => {
                 url.query_pairs_mut().append_pair("tagging", "");
-            },
+            }
             _ => {}
         }
 
@@ -120,7 +126,7 @@ impl<'a> Request<'a> {
                 let mut sha = Sha256::default();
                 sha.input(content);
                 sha.result().as_slice().to_hex()
-            },
+            }
             Command::PutObjectTagging { tags } => {
                 let mut sha = Sha256::default();
                 sha.input(tags.as_bytes());
@@ -226,9 +232,77 @@ impl<'a> Request<'a> {
         Ok((response_tuple.0.unwrap(), response_tuple.1))
     }
 
+    pub fn execute_async(&self) -> impl Future<Item=S3Result<(impl Future<Item=Vec<u8>>, u32)>> {
+        self._execute_async::<Vec<u8>>(None).map(
+            |response| match response {
+                Ok(tuple) => Ok(((tuple.0).0.unwrap(), tuple.1)),
+                Err(e) => Err(e)
+            })
+    }
+
     pub fn execute_to_writer<T: Write>(&self, writer: &mut T) -> S3Result<u32> {
         let response_tuple = self._execute(Some(writer))?;
         Ok(response_tuple.1)
+    }
+
+    pub fn execute_to_writer_async<'b, T: Write>(&self, writer: &'b mut T) -> impl Future<Item=S3Result<(impl Future<Item=Result<(), std::io::Error>> + 'b, u32)>> {
+        self._execute_async(Some(writer)).map(
+            |response| match response {
+                Ok(tuple) => Ok(((tuple.0).1.unwrap(), tuple.1)),
+                Err(e) => Err(e)
+            })
+    }
+
+    fn _execute_async<'b, T: Write>(&self, writer: Option<&'b mut T>) -> impl Future<Item=S3Result<((Option<impl Future<Item=Vec<u8>>>, Option<impl Future<Item=Result<(), std::io::Error>> + 'b>), u32)>> + 'b {
+        // TODO: preserve client across requests
+        let client = if cfg!(feature = "no-verify-ssl") {
+            async::Client::builder()
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true)
+                .build().expect("Could not build dangereous client!")
+        } else {
+            async::Client::new()
+        };
+
+        // Build headers
+        let headers = self.headers().expect("Could not get headers!");
+
+        // Get owned content to pass to reqwest
+        let content = if let Command::PutObject { content, .. } = self.command {
+            Vec::from(content)
+        } else if let Command::PutObjectTagging { tags } = self.command {
+            Vec::from(tags)
+        } else {
+            Vec::new()
+        };
+
+        let request = client
+            .request(self.command.http_verb(), self.url())
+            .headers(headers.to_owned())
+            .body(content.to_owned());
+
+        request.send()
+            .map(|mut response| {
+                let ret;
+                let resp_code = u32::from(response.status().as_u16());
+                if resp_code < 300 {
+                    if let Some(wrt) = writer {
+                        ret = (None, Some(response.text().map(move |body| wrt.write_all(body.as_bytes()))));
+                    } else {
+                        ret = (Some(response.text().map(|body| body.as_bytes().to_vec())), None);
+                    }
+                    Ok((ret, resp_code))
+                } else {
+                    let dst = Vec::new();
+                    let deserialized: AwsError = serde_xml::deserialize(dst.as_slice())?;
+                    let err = ErrorKind::AwsError {
+                        info: deserialized,
+                        status: resp_code,
+                        body: String::from_utf8_lossy(dst.as_slice()).into_owned(),
+                    };
+                    Err(err.into())
+                }
+            })
     }
 
     fn _execute<T: Write>(&self, writer: Option<&mut T>) -> S3Result<(Option<Vec<u8>>, u32)> {
@@ -256,8 +330,9 @@ impl<'a> Request<'a> {
 
         let request = client
             .request(self.command.http_verb(), self.url())
-            .headers(headers)
-            .body(content);
+            .headers(headers.to_owned())
+            .body(content.to_owned());
+
         let mut response = request.send()?;
 
         let resp_code = u32::from(response.status().as_u16());
@@ -304,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_https_by_default() -> S3Result<()>{
+    fn url_uses_https_by_default() -> S3Result<()> {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";

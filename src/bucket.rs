@@ -11,6 +11,7 @@ use request::{Request, Headers, Query};
 use serde_types::{ListBucketResult, BucketLocationResult};
 use error::S3Result;
 use serde_types::Tagging;
+use futures::Future;
 
 /// # Example
 /// ```
@@ -86,6 +87,35 @@ impl Bucket {
         request.execute()
     }
 
+    /// Gets file from an S3 path.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// extern crate futures;
+    ///
+    /// use s3::bucket::Bucket;
+    /// use s3::credentials::Credentials;
+    /// use futures::Future;
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// bucket.get_object_async("/test.file")
+    ///     .map(|response| {
+    ///         let (data, code) = response.unwrap();
+    ///         println!("Code: {}", code);
+    ///         data.map(|res| println!("{:?}", res));
+    /// });
+    /// ```
+    pub fn get_object_async(&self, path: &str) -> impl Future<Item=S3Result<(impl Future<Item=Vec<u8>>, u32)>> {
+        let command = Command::GetObject;
+        let request = Request::new(self, path, command);
+        request.execute_async()
+    }
+
     /// Stream file from S3 path to a local file, generic over T: Write.
     ///
     /// # Example:
@@ -108,6 +138,35 @@ impl Bucket {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
         request.execute_to_writer(writer)
+    }
+
+    /// Stream file from S3 path to a local file, generic over T: Write.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    ///
+    /// extern crate futures;
+    ///
+    /// use s3::bucket::Bucket;
+    /// use s3::credentials::Credentials;
+    /// use std::fs::File;
+    /// use futures::Future;
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    /// let mut output_file = File::create("output_file").expect("Unable to create file");
+    ///
+    /// bucket.get_object_stream_async("/test.file", &mut output_file)
+    ///     .map(|response| println!("Code: {}", response.unwrap().1));
+    ///
+    /// ```
+    pub fn get_object_stream_async<'b, T: Write>(&self, path: &str, writer: &'b mut T) -> impl Future<Item=S3Result<(impl Future<Item=Result<(), std::io::Error>> + 'b, u32)>> {
+        let command = Command::GetObject;
+        let request = Request::new(self, path, command);
+        request.execute_to_writer_async(writer)
     }
 
 
