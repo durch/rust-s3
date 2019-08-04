@@ -13,7 +13,7 @@ extern crate sha2;
 extern crate url;
 extern crate ini;
 extern crate dirs;
-
+extern crate futures;
 
 pub mod bucket;
 pub mod credentials;
