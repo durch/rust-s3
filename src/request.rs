@@ -9,7 +9,6 @@ use chrono::{DateTime, Utc};
 use command::Command;
 use error::S3Error;
 use hmac::{Hmac, Mac};
-use reqwest;
 use reqwest::async as async;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use sha2::{Digest, Sha256};
@@ -17,7 +16,7 @@ use hex::ToHex;
 use url::Url;
 use serde_xml;
 
-use futures::future::{Future, result, FutureResult, ok};
+use futures::prelude::*;
 
 use serde_types::AwsError;
 use signing;
@@ -253,8 +252,7 @@ impl<'a> Request<'a> {
             })
     }
 
-    fn _execute_async<'b, T: Write>(&self, writer: Option<&'b mut T>) -> impl Future<Item=S3Result<((Option<impl Future<Item=Vec<u8>>>, Option<impl Future<Item=Result<(), std::io::Error>> + 'b>), u32)>> + 'b {
-        // TODO: preserve client across requests
+    pub fn send(&self) -> impl Future<Item=Response, Error=S3Error> {
         let client = if cfg!(feature = "no-verify-ssl") {
             async::Client::builder()
                 .danger_accept_invalid_certs(true)
@@ -281,8 +279,14 @@ impl<'a> Request<'a> {
             .headers(headers.to_owned())
             .body(content.to_owned());
 
-        request.send()
-            .map(|mut response| {
+        request.send().map_err(|e| e.into())
+    }
+
+    fn _execute_async<'b, T: Write>(&self, writer: Option<&'b mut T>) -> impl Future<Item=S3Result<((Option<impl Future<Item=Vec<u8>>>, Option<impl Future<Item=Result<(), std::io::Error>> + 'b>), u32)>> + 'b {
+        // TODO: preserve client across requests
+
+        let response_future = self.send();
+        response_future.map(|mut response| {
                 let ret;
                 let resp_code = u32::from(response.status().as_u16());
                 if resp_code < 300 {
@@ -306,56 +310,30 @@ impl<'a> Request<'a> {
     }
 
     fn _execute<T: Write>(&self, writer: Option<&mut T>) -> S3Result<(Option<Vec<u8>>, u32)> {
-        // TODO: preserve client across requests
-        let client = if cfg!(feature = "no-verify-ssl") {
-            reqwest::Client::builder()
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true)
-                .build()?
-        } else {
-            reqwest::Client::new()
-        };
+        let mut response = self.send().wait()?;
 
-        // Build headers
-        let headers = self.headers()?;
-
-        // Get owned content to pass to reqwest
-        let content = if let Command::PutObject { content, .. } = self.command {
-            Vec::from(content)
-        } else if let Command::PutObjectTagging { tags } = self.command {
-            Vec::from(tags)
-        } else {
-            Vec::new()
-        };
-
-        let request = client
-            .request(self.command.http_verb(), self.url())
-            .headers(headers.to_owned())
-            .body(content.to_owned());
-
-        let mut response = request.send()?;
+        let response_text = response.text().wait()?;
 
         let resp_code = u32::from(response.status().as_u16());
 
         let ret;
-        let mut dst = Vec::new();
 
         if resp_code < 300 {
             // Read and process response
             if let Some(wrt) = writer {
-                response.copy_to(wrt)?;
+                wrt.write_all(response_text.as_bytes())?;
+//                response.copy_to(wrt)?;
                 ret = None;
             } else {
-                response.copy_to(&mut dst)?;
-                ret = Some(dst)
+                ret = Some(response_text.as_bytes().to_vec())
             }
             Ok((ret, resp_code))
         } else {
-            let deserialized: AwsError = serde_xml::deserialize(dst.as_slice())?;
+            let deserialized: AwsError = serde_xml::deserialize(response_text.as_bytes())?;
             let err = ErrorKind::AwsError {
                 info: deserialized,
                 status: resp_code,
-                body: String::from_utf8_lossy(dst.as_slice()).into_owned(),
+                body: String::from_utf8_lossy(response_text.as_bytes()).into_owned(),
             };
             Err(err.into())
         }
