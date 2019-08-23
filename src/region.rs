@@ -161,7 +161,7 @@ impl Region {
             DoNyc3 => String::from("nyc3.digitaloceanspaces.com"),
             DoAms3 => String::from("ams3.digitaloceanspaces.com"),
             DoSgp1 => String::from("sgp1.digitaloceanspaces.com"),
-            Custom { region: _, ref endpoint, .. } => endpoint.to_string()
+            Custom { ref endpoint, .. } => endpoint.to_string()
         }
     }
 

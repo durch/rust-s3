@@ -226,33 +226,55 @@ impl<'a> Request<'a> {
         Ok(headers)
     }
 
-    pub fn execute(&self) -> S3Result<(Vec<u8>, u32)> {
-        let response_tuple = self._execute::<Vec<u8>>(None)?;
-        Ok((response_tuple.0.unwrap(), response_tuple.1))
+    pub fn response_data(&self) -> S3Result<(Vec<u8>, u16)> {
+        match self.response_data_future().wait() {
+            Ok(response) => {
+                match response {
+                    Ok(data) => {
+                        match data.0.wait() {
+                            Ok(resolved) => Ok((resolved, data.1)),
+                            Err(_) => bail!("Could not read response!")
+                        }
+                    },
+                    Err(e) => Err(e)
+                }
+            },
+            Err(_) => bail!("Could not make request!")
+        }
     }
 
-    pub fn execute_async(&self) -> impl Future<Item=S3Result<(impl Future<Item=Vec<u8>>, u32)>> {
-        self._execute_async::<Vec<u8>>(None).map(
-            |response| match response {
-                Ok(tuple) => Ok(((tuple.0).0.unwrap(), tuple.1)),
-                Err(e) => Err(e)
-            })
+    pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> S3Result<u16> {
+        match self.response_data_to_writer_future(writer).wait() {
+            Ok(response) => {
+                match response {
+                    Ok(data) => {
+                        match data.0.wait() {
+                            Ok(to_writer) => {
+                                match to_writer {
+                                    Ok(_) => {},
+                                    Err(e) => return Err(e)
+                                };
+                                Ok(data.1)
+                            },
+                            Err(_) => bail!("Could not read response!")
+                        }
+                    },
+                    Err(e) => Err(e)
+                }
+            },
+            Err(_) => bail!("Could not make request!")
+        }
+
+//        match self.response_data_to_writer_future(writer).wait().map_err(|_| {}).unwrap() {
+//            Ok(response) => {
+//                response.0.wait().map_err(|_| {}).unwrap().unwrap();
+//                Ok(response.1)
+//            },
+//            Err(e) => Err(e)
+//        }
     }
 
-    pub fn execute_to_writer<T: Write>(&self, writer: &mut T) -> S3Result<u32> {
-        let response_tuple = self._execute(Some(writer))?;
-        Ok(response_tuple.1)
-    }
-
-    pub fn execute_to_writer_async<'b, T: Write>(&self, writer: &'b mut T) -> impl Future<Item=S3Result<(impl Future<Item=Result<(), std::io::Error>> + 'b, u32)>> {
-        self._execute_async(Some(writer)).map(
-            |response| match response {
-                Ok(tuple) => Ok(((tuple.0).1.unwrap(), tuple.1)),
-                Err(e) => Err(e)
-            })
-    }
-
-    pub fn send(&self) -> impl Future<Item=Response, Error=S3Error> {
+    pub fn response_future(&self) -> impl Future<Item=Response, Error=S3Error> {
         let client = if cfg!(feature = "no-verify-ssl") {
             async::Client::builder()
                 .danger_accept_invalid_certs(true)
@@ -282,61 +304,26 @@ impl<'a> Request<'a> {
         request.send().map_err(|e| e.into())
     }
 
-    fn _execute_async<'b, T: Write>(&self, writer: Option<&'b mut T>) -> impl Future<Item=S3Result<((Option<impl Future<Item=Vec<u8>>>, Option<impl Future<Item=Result<(), std::io::Error>> + 'b>), u32)>> + 'b {
-        // TODO: preserve client across requests
-
-        let response_future = self.send();
+    pub fn response_data_future(&self) -> impl Future<Item=S3Result<(impl Future<Item=Vec<u8>>, u16)>> {
+        let response_future = self.response_future();
         response_future.map(|mut response| {
-                let ret;
-                let resp_code = u32::from(response.status().as_u16());
-                if resp_code < 300 {
-                    if let Some(wrt) = writer {
-                        ret = (None, Some(response.text().map(move |body| wrt.write_all(body.as_bytes()))));
-                    } else {
-                        ret = (Some(response.text().map(|body| body.as_bytes().to_vec())), None);
-                    }
-                    Ok((ret, resp_code))
-                } else {
-                    let dst = Vec::new();
-                    let deserialized: AwsError = serde_xml::deserialize(dst.as_slice())?;
-                    let err = ErrorKind::AwsError {
-                        info: deserialized,
-                        status: resp_code,
-                        body: String::from_utf8_lossy(dst.as_slice()).into_owned(),
-                    };
-                    Err(err.into())
-                }
-            })
+            let response_code = response.status().as_u16();
+            let response_data = response.text().map(|body| body.as_bytes().to_vec());
+            Ok((response_data, response_code))
+        })
     }
 
-    fn _execute<T: Write>(&self, writer: Option<&mut T>) -> S3Result<(Option<Vec<u8>>, u32)> {
-        let mut response = self.send().wait()?;
-
-        let response_text = response.text().wait()?;
-
-        let resp_code = u32::from(response.status().as_u16());
-
-        let ret;
-
-        if resp_code < 300 {
-            // Read and process response
-            if let Some(wrt) = writer {
-                wrt.write_all(response_text.as_bytes())?;
-//                response.copy_to(wrt)?;
-                ret = None;
-            } else {
-                ret = Some(response_text.as_bytes().to_vec())
+    pub fn response_data_to_writer_future<'b, T: Write>(&self, writer: &'b mut T) -> impl Future<Item=S3Result<(impl Future<Item=S3Result<()>> + 'b, u16)>> + 'b {
+        let future_response = self.response_data_future();
+        future_response.map(|response| {
+            match response {
+                Ok(success) => {
+                    let to_writer_future = success.0.map(move |body| Ok(writer.write_all(body.as_slice())?));
+                    Ok((to_writer_future, success.1))
+                },
+                Err(e) => Err(e)
             }
-            Ok((ret, resp_code))
-        } else {
-            let deserialized: AwsError = serde_xml::deserialize(response_text.as_bytes())?;
-            let err = ErrorKind::AwsError {
-                info: deserialized,
-                status: resp_code,
-                body: String::from_utf8_lossy(response_text.as_bytes()).into_owned(),
-            };
-            Err(err.into())
-        }
+        })
     }
 }
 

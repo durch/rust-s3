@@ -13,7 +13,7 @@ error_chain! {
             ReqwestInvalidHeaderValue(::reqwest::header::InvalidHeaderValue);
         }
         errors {
-            AwsError { info: ::serde_types::AwsError, status: u32, body: String } {
+            AwsError { info: ::serde_types::AwsError, status: u16, body: String } {
             }
         }
     }
