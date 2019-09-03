@@ -1,31 +1,56 @@
 extern crate base64;
 extern crate md5;
 
+use snafu::{ResultExt, Snafu};
+
 use std::collections::HashMap;
 use std::io::{Read, Write};
 
 use bucket::Bucket;
 use chrono::{DateTime, Utc};
 use command::Command;
-use error::S3Error;
 use hmac::{Hmac, Mac};
 use reqwest::async as async;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use sha2::{Digest, Sha256};
 use hex::ToHex;
 use url::Url;
-use serde_xml;
 
 use futures::prelude::*;
 
 use serde_types::AwsError;
 use signing;
-use error::{S3Result, ErrorKind};
 
 use EMPTY_PAYLOAD_SHA;
 use LONG_DATE;
 use reqwest::async::Response;
 
+#[derive(Debug, Snafu)]
+pub enum Error {
+    InvalidHeaderName {
+        source: reqwest::header::InvalidHeaderName
+    },
+    InvalidHeaderValue {
+        source: reqwest::header::InvalidHeaderValue
+    },
+    ReqwestFuture,
+    ParseError {
+        source: std::string::ParseError
+    }
+
+}
+
+type S3Result<T, E = Error> = std::result::Result<T, E>;
+
+#[derive(Debug, Snafu)]
+enum InternalError {
+    BucketError {
+        source: ::bucket::Error
+    },
+    RegionError {
+        source: ::region::Error
+    }
+}
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -187,33 +212,33 @@ impl<'a> Request<'a> {
             .bucket
             .extra_headers
             .iter()
-            .map(|(k, v)| Ok((k.parse::<HeaderName>()?, v.parse::<HeaderValue>()?)))
-            .collect::<Result<HeaderMap, S3Error>>()?;
+            .map(|(k, v)| Ok((k.parse::<HeaderName>().context(InvalidHeaderName)?, v.parse::<HeaderValue>().context(InvalidHeaderValue)?)))
+            .collect::<Result<HeaderMap, Error>>()?;
         match self.command {
-            Command::GetBucketLocation => headers.insert(header::HOST, self.bucket.self_host().parse()?),
-            _ => headers.insert(header::HOST, self.bucket.host().parse()?)
+            Command::GetBucketLocation => headers.insert(header::HOST, self.bucket.self_host().parse().context(InvalidHeaderValue)?),
+            _ => headers.insert(header::HOST, self.bucket.host().parse().context(InvalidHeaderValue)?)
         };
         headers.insert(
             header::CONTENT_LENGTH,
-            self.content_length().to_string().parse()?,
+            self.content_length().to_string().parse().context(InvalidHeaderValue)?,
         );
-        headers.insert(header::CONTENT_TYPE, self.content_type().parse()?);
-        headers.insert("X-Amz-Content-Sha256", sha256.parse()?);
-        headers.insert("X-Amz-Date", self.long_date().parse()?);
+        headers.insert(header::CONTENT_TYPE, self.content_type().parse().context(InvalidHeaderValue)?);
+        headers.insert("X-Amz-Content-Sha256", sha256.parse().context(InvalidHeaderValue)?);
+        headers.insert("X-Amz-Date", self.long_date().parse().context(InvalidHeaderValue)?);
 
         if let Some(token) = self.bucket.credentials().token.as_ref() {
-            headers.insert("X-Amz-Security-Token", token.parse()?);
+            headers.insert("X-Amz-Security-Token", token.parse().context(InvalidHeaderValue)?);
         }
 
         if let Command::PutObjectTagging { tags } = self.command {
             let digest = md5::compute(tags);
             let hash = base64::encode(digest.as_ref());
-            headers.insert("Content-MD5", hash.parse()?);
+            headers.insert("Content-MD5", hash.parse().context(InvalidHeaderValue)?);
         }
 
         // This must be last, as it signs the other headers
         let authorization = self.authorization(&headers);
-        headers.insert(header::AUTHORIZATION, authorization.parse()?);
+        headers.insert(header::AUTHORIZATION, authorization.parse().context(InvalidHeaderValue)?);
 
         // The format of RFC2822 is somewhat malleable, so including it in
         // signed headers can cause signature mismatches. We do include the
@@ -221,60 +246,26 @@ impl<'a> Request<'a> {
         // range and can't be used again e.g. reply attacks. Adding this header
         // after the generation of the Authorization header leaves it out of
         // the signed headers.
-        headers.insert(header::DATE, self.datetime.to_rfc2822().parse()?);
+        headers.insert(header::DATE, self.datetime.to_rfc2822().parse().context(InvalidHeaderValue)?);
 
         Ok(headers)
     }
 
     pub fn response_data(&self) -> S3Result<(Vec<u8>, u16)> {
         match self.response_data_future().wait() {
-            Ok(response) => {
-                match response {
-                    Ok(data) => {
-                        match data.0.wait() {
-                            Ok(resolved) => Ok((resolved, data.1)),
-                            Err(_) => bail!("Could not read response!")
-                        }
-                    },
-                    Err(e) => Err(e)
-                }
-            },
-            Err(_) => bail!("Could not make request!")
+            Ok((response_data, status_code)) => Ok((response_data, status_code)),
+            Err(_) => Err(Error::ReqwestFuture)
         }
     }
 
     pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> S3Result<u16> {
         match self.response_data_to_writer_future(writer).wait() {
-            Ok(response) => {
-                match response {
-                    Ok(data) => {
-                        match data.0.wait() {
-                            Ok(to_writer) => {
-                                match to_writer {
-                                    Ok(_) => {},
-                                    Err(e) => return Err(e)
-                                };
-                                Ok(data.1)
-                            },
-                            Err(_) => bail!("Could not read response!")
-                        }
-                    },
-                    Err(e) => Err(e)
-                }
-            },
-            Err(_) => bail!("Could not make request!")
+            Ok(status_code) => Ok(status_code),
+            Err(_) => Err(Error::ReqwestFuture)
         }
-
-//        match self.response_data_to_writer_future(writer).wait().map_err(|_| {}).unwrap() {
-//            Ok(response) => {
-//                response.0.wait().map_err(|_| {}).unwrap().unwrap();
-//                Ok(response.1)
-//            },
-//            Err(e) => Err(e)
-//        }
     }
 
-    pub fn response_future(&self) -> impl Future<Item=Response, Error=S3Error> {
+    pub fn response_future(&self) -> impl Future<Item=Response, Error=reqwest::Error> {
         let client = if cfg!(feature = "no-verify-ssl") {
             async::Client::builder()
                 .danger_accept_invalid_certs(true)
@@ -301,30 +292,46 @@ impl<'a> Request<'a> {
             .headers(headers.to_owned())
             .body(content.to_owned());
 
-        request.send().map_err(|e| e.into())
+        request.send()
     }
 
-    pub fn response_data_future(&self) -> impl Future<Item=S3Result<(impl Future<Item=Vec<u8>>, u16)>> {
-        let response_future = self.response_future();
-        response_future.map(|mut response| {
-            let response_code = response.status().as_u16();
-            let response_data = response.text().map(|body| body.as_bytes().to_vec());
-            Ok((response_data, response_code))
-        })
+//    pub fn response_data_future2(&self) -> impl Future<Item=S3Result<(impl Future<Item=Vec<u8>>, u16)>> {
+//        let response_future = self.response_future();
+//        response_future.map(|mut response| {
+//            let response_code = response.status().as_u16();
+//            let response_data = response.text().map(|body| body.as_bytes().to_vec());
+//            Ok((response_data, response_code))
+//        })
+//    }
+
+    pub fn response_data_future(&self) -> impl Future<Item=(Vec<u8>, u16)> {
+        self.response_future()
+            .and_then(|mut response| Ok((response.text(), response.status().as_u16())))
+            .and_then(|(body_future, status_code)| {
+                body_future.and_then(move |body| Ok((body.as_bytes().to_vec(), status_code)))
+            })
     }
 
-    pub fn response_data_to_writer_future<'b, T: Write>(&self, writer: &'b mut T) -> impl Future<Item=S3Result<(impl Future<Item=S3Result<()>> + 'b, u16)>> + 'b {
+    pub fn response_data_to_writer_future<'b, T: Write>(&self, writer: &'b mut T) -> impl Future<Item=u16> + 'b {
         let future_response = self.response_data_future();
-        future_response.map(|response| {
-            match response {
-                Ok(success) => {
-                    let to_writer_future = success.0.map(move |body| Ok(writer.write_all(body.as_slice())?));
-                    Ok((to_writer_future, success.1))
-                },
-                Err(e) => Err(e)
-            }
+        future_response.and_then(move |(body, status_code)| {
+            writer.write_all(body.as_slice()).expect("Could not write to writer");
+            Ok(status_code)
         })
     }
+
+//    pub fn response_data_to_writer_future2<'b, T: Write>(&self, writer: &'b mut T) -> impl Future<Item=S3Result<(impl Future<Item=S3Result<()>> + 'b, u16)>> + 'b {
+//        let future_response = self.response_data_future();
+//        future_response.map(|response| {
+//            match response {
+//                Ok(success) => {
+//                    let to_writer_future = success.0.map(move |body| Ok(writer.write_all(body.as_slice())?));
+//                    Ok((to_writer_future, success.1))
+//                }
+//                Err(e) => Err(e)
+//            }
+//        })
+//    }
 }
 
 #[cfg(test)]
@@ -332,8 +339,11 @@ mod tests {
     use bucket::Bucket;
     use command::Command;
     use credentials::Credentials;
-    use request::Request;
-    use error::S3Result;
+    use request::{Request, InternalError};
+    use request::S3Result;
+    use snafu::ResultExt;
+    use url::form_urlencoded::Parse;
+    use request::{ParseError, BucketError, RegionError};
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
@@ -344,9 +354,9 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_https_by_default() -> S3Result<()> {
-        let region = "custom-region".parse()?;
-        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
+    fn url_uses_https_by_default() -> Result<(), InternalError> {
+        let region = "custom-region".parse().context(RegionError)?;
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials()).context(BucketError)?;
         let path = "/my-first/path";
         let request = Request::new(&bucket, path, Command::GetObject);
 
@@ -360,9 +370,9 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_scheme_from_custom_region_if_defined() -> S3Result<()> {
-        let region = "http://custom-region".parse()?;
-        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
+    fn url_uses_scheme_from_custom_region_if_defined() -> Result<(), InternalError> {
+        let region = "http://custom-region".parse().context(RegionError)?;
+        let bucket = Bucket::new("my-second-bucket", region, fake_credentials()).context(BucketError)?;
         let path = "/my-second/path";
         let request = Request::new(&bucket, path, Command::GetObject);
 

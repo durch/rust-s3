@@ -9,9 +9,25 @@ use command::Command;
 use region::Region;
 use request::{Request, Headers, Query};
 use serde_types::{ListBucketResult, BucketLocationResult};
-use error::{S3Result, S3Error};
 use serde_types::Tagging;
 use futures::Future;
+use futures::future::{loop_fn, Loop, ok, result, LoopFn};
+use snafu::{ResultExt, Snafu};
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    XmlError {
+        source: serde_xml::Error
+    },
+    RequestError {
+        source: ::request::Error
+    },
+    ParseError {
+        source: ::region::Error
+    }
+}
+
+type S3Result<T, E = Error> = std::result::Result<T, E>;
 
 /// # Example
 /// ```
@@ -84,7 +100,7 @@ impl Bucket {
     pub fn get_object(&self, path: &str) -> S3Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
-        request.response_data()
+        Ok(request.response_data().context(RequestError)?)
     }
 
     /// Gets file from an S3 path.
@@ -104,13 +120,12 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// bucket.get_object_async("/test.file")
-    ///     .map(|response| {
-    ///         let (data, code) = response.unwrap();
+    ///     .map(|(data, code)| {
     ///         println!("Code: {}", code);
-    ///         data.map(|res| println!("{:?}", res));
+    ///         println!("{:?}", data);
     /// });
     /// ```
-    pub fn get_object_async(&self, path: &str) -> impl Future<Item=S3Result<(impl Future<Item=Vec<u8>>, u16)>> {
+    pub fn get_object_async(&self, path: &str) -> impl Future<Item=(Vec<u8>, u16)> {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
         request.response_data_future()
@@ -137,7 +152,7 @@ impl Bucket {
     pub fn get_object_stream<T: Write>(&self, path: &str, writer: &mut T) -> S3Result<u16> {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
-        request.response_data_to_writer(writer)
+        Ok(request.response_data_to_writer(writer).context(RequestError)?)
     }
 
     /// Stream file from S3 path to a local file, generic over T: Write.
@@ -160,10 +175,10 @@ impl Bucket {
     /// let mut output_file = File::create("output_file").expect("Unable to create file");
     ///
     /// bucket.get_object_stream_async("/test.file", &mut output_file)
-    ///     .map(|response| println!("Code: {}", response.unwrap().1));
+    ///     .map(|status_code| println!("Code: {}", status_code));
     ///
     /// ```
-    pub fn get_object_stream_async<'b, T: Write>(&self, path: &str, writer: &'b mut T) -> impl Future<Item=S3Result<(impl Future<Item=Result<(), S3Error>> + 'b, u16)>> {
+    pub fn get_object_stream_async<'b, T: Write>(&self, path: &str, writer: &'b mut T) -> impl Future<Item=u16> + 'b {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
         request.response_data_to_writer_future(writer)
@@ -190,18 +205,18 @@ impl Bucket {
     /// ```
     pub fn location(&self) -> S3Result<(Region, u16)> {
         let request = Request::new(self, "?location", Command::GetBucketLocation);
-        let result = request.response_data()?;
-        let result_string = String::from_utf8_lossy(&result.0);
-        let region = match serde_xml::deserialize(result_string.as_bytes()) {
+        let result = request.response_data().context(RequestError)?;
+        let region_string = String::from_utf8_lossy(&result.0);
+        let region = match serde_xml::deserialize(region_string.as_bytes()) {
             Ok(r) => {
                 let location_result: BucketLocationResult = r;
-                location_result.region.parse()?
+                location_result.region.parse().context(ParseError)?
             }
             Err(e) => {
                 if e.to_string() == "missing field `$value`" {
-                    "us-east-1".parse()?
+                    "us-east-1".parse().context(ParseError)?
                 } else {
-                    bail!(e)
+                    panic!("lala")
                 }
             }
         };
@@ -227,7 +242,7 @@ impl Bucket {
     pub fn delete_object(&self, path: &str) -> S3Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObject;
         let request = Request::new(self, path, command);
-        request.response_data()
+        request.response_data().context(RequestError)
     }
 
     /// Put into an S3 bucket.
@@ -257,7 +272,7 @@ impl Bucket {
             content_type,
         };
         let request = Request::new(self, path, command);
-        request.response_data()
+        Ok(request.response_data().context(RequestError)?)
     }
 
     fn _tags_xml(&self, tags: &[(&str, &str)]) -> String {
@@ -301,7 +316,7 @@ impl Bucket {
             tags: &content.to_string()
         };
         let request = Request::new(self, path, command);
-        request.response_data()
+        Ok(request.response_data().context(RequestError)?)
     }
 
 
@@ -328,7 +343,7 @@ impl Bucket {
     pub fn delete_object_tagging(&self, path: &str) -> S3Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObjectTagging;
         let request = Request::new(self, path, command);
-        request.response_data()
+        Ok(request.response_data().context(RequestError)?)
     }
 
     /// Retrieve an S3 object list of tags.
@@ -358,12 +373,12 @@ impl Bucket {
     pub fn get_object_tagging(&self, path: &str) -> S3Result<(Option<Tagging>, u16)> {
         let command = Command::GetObjectTagging {};
         let request = Request::new(self, path, command);
-        let result = request.response_data()?;
+        let result = request.response_data().context(RequestError)?;
 
         let tagging = if result.1 == 200 {
             let result_string = String::from_utf8_lossy(&result.0);
             println!("{}", result_string);
-            Some(serde_xml::deserialize(result_string.as_bytes())?)
+            Some(serde_xml::deserialize(result_string.as_bytes()).context(XmlError)?)
         } else {
             None
         };
@@ -382,11 +397,34 @@ impl Bucket {
             continuation_token,
         };
         let request = Request::new(self, "/", command);
-        let result = request.response_data()?;
+        let result = request.response_data().context(RequestError)?;
         let result_string = String::from_utf8_lossy(&result.0);
-        let deserialized: ListBucketResult = serde_xml::deserialize(result_string.as_bytes())?;
+        let deserialized: ListBucketResult = serde_xml::deserialize(result_string.as_bytes()).context(XmlError)?;
         Ok((deserialized, result.1))
     }
+
+    fn _list_async(&self,
+                   prefix: &str,
+                   delimiter: Option<&str>,
+                   continuation_token: Option<&str>)
+                   -> impl Future<Item=(ListBucketResult, u16)> {
+        let command = Command::ListBucket {
+            prefix,
+            delimiter,
+            continuation_token,
+        };
+        let request = Request::new(self, "/", command);
+        let result = request.response_data_future();
+        result.and_then(|(response, status_code)|
+            match serde_xml::deserialize(response.as_slice()) {
+                Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
+                Err(e) => {
+                    panic!("Could not deserialize list bucket result: {}", e);
+                }
+            }
+        )
+    }
+
 
     /// List the contents of an S3 bucket.
     ///
@@ -424,6 +462,45 @@ impl Bucket {
 
         Ok(results)
     }
+
+//    pub fn list_async(&self, prefix: &str, delimiter: Option<&str>) {
+//        let mut done = false;
+//        let list_entire_bucket_future = loop_fn((None, Vec::new()), |(continuation_token, results): (Option<String>, Vec<ListBucketResult>)|{
+//            let mut inner_results = results;
+//            let mut token: Option<String> = None;
+//            let ct = if continuation_token.is_some() {
+//                Some(continuation_token.unwrap().as_str())
+//            } else {
+//                None
+//            };
+//            let result_future = self._list_async(prefix, delimiter, ct);
+//            result_future.map(|item_future| {
+//                item_future.map(|s3_result| {
+//                    match s3_result {
+//                        Ok((list_bucket_result, status_code)) => {
+//                            inner_results.push(list_bucket_result.clone());
+//                            if let Some(tkn) = list_bucket_result.next_continuation_token {
+//                                token = Some(tkn.to_string());
+//                                done = false
+//                            } else {
+//                               done = true
+//                            }
+//                        },
+//                        Err(e) => panic!(e)
+//                    }
+//                })
+//            });
+//            if done {
+//                Ok(Loop::Break((None, inner_results)))
+//            } else {
+//                Ok(Loop::Continue((token, inner_results)))
+//            }
+//
+//        });
+//
+//
+////        Ok(results);
+//    }
 
     /// Get a reference to the name of the S3 bucket.
     pub fn name(&self) -> String {

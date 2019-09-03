@@ -1,7 +1,5 @@
 //! Simple access to Amazon Web Service's (AWS) Simple Storage Service (S3)
 extern crate chrono;
-#[macro_use]
-extern crate error_chain;
 extern crate hex;
 extern crate hmac;
 extern crate reqwest;
@@ -14,11 +12,12 @@ extern crate url;
 extern crate ini;
 extern crate dirs;
 extern crate futures;
+extern crate snafu;
+extern crate core;
 
 pub mod bucket;
 pub mod credentials;
 pub mod command;
-pub mod error;
 pub mod region;
 pub mod request;
 pub mod serde_types;
