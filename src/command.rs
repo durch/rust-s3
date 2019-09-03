@@ -16,7 +16,7 @@ pub enum Command<'a> {
     ListBucket {
         prefix: &'a str,
         delimiter: Option<&'a str>,
-        continuation_token: Option<&'a str>
+        continuation_token: Option<String>
     },
     GetBucketLocation
 }
