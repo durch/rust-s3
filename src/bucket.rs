@@ -24,7 +24,7 @@ pub enum Error {
     },
     ParseError {
         source: ::region::Error
-    }
+    },
 }
 
 type S3Result<T, E = Error> = std::result::Result<T, E>;
@@ -386,10 +386,10 @@ impl Bucket {
         Ok((tagging, result.1))
     }
 
-    fn _list(&self,
+    fn list_page(&self,
              prefix: &str,
              delimiter: Option<&str>,
-             continuation_token: Option<&str>)
+             continuation_token: Option<String>)
              -> S3Result<(ListBucketResult, u16)> {
         let command = Command::ListBucket {
             prefix,
@@ -403,10 +403,10 @@ impl Bucket {
         Ok((deserialized, result.1))
     }
 
-    fn _list_async(&self,
+    pub fn list_page_async(&self,
                    prefix: &str,
                    delimiter: Option<&str>,
-                   continuation_token: Option<&str>)
+                   continuation_token: Option<String>)
                    -> impl Future<Item=(ListBucketResult, u16)> {
         let command = Command::ListBucket {
             prefix,
@@ -443,19 +443,19 @@ impl Bucket {
     /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    /// let results = bucket.list("/", Some("/")).unwrap();
+    /// let results = bucket.list_all("/", Some("/")).unwrap();
     /// for (list, code) in results {
     ///     assert_eq!(200, code);
     ///     println!("{:?}", list);
     /// }
     /// ```
-    pub fn list(&self, prefix: &str, delimiter: Option<&str>) -> S3Result<Vec<(ListBucketResult, u16)>> {
+    pub fn list_all(&self, prefix: &str, delimiter: Option<&str>) -> S3Result<Vec<(ListBucketResult, u16)>> {
         let mut results = Vec::new();
-        let mut result = self._list(prefix, delimiter, None)?;
+        let mut result = self.list_page(prefix, delimiter, None)?;
         loop {
             results.push(result.clone());
             match result.0.next_continuation_token {
-                Some(token) => result = self._list(prefix, delimiter, Some(&token))?,
+                Some(token) => result = self.list_page(prefix, delimiter, Some(token))?,
                 None => break,
             }
         }
@@ -463,44 +463,45 @@ impl Bucket {
         Ok(results)
     }
 
-//    pub fn list_async(&self, prefix: &str, delimiter: Option<&str>) {
-//        let mut done = false;
-//        let list_entire_bucket_future = loop_fn((None, Vec::new()), |(continuation_token, results): (Option<String>, Vec<ListBucketResult>)|{
-//            let mut inner_results = results;
-//            let mut token: Option<String> = None;
-//            let ct = if continuation_token.is_some() {
-//                Some(continuation_token.unwrap().as_str())
-//            } else {
-//                None
-//            };
-//            let result_future = self._list_async(prefix, delimiter, ct);
-//            result_future.map(|item_future| {
-//                item_future.map(|s3_result| {
-//                    match s3_result {
-//                        Ok((list_bucket_result, status_code)) => {
-//                            inner_results.push(list_bucket_result.clone());
-//                            if let Some(tkn) = list_bucket_result.next_continuation_token {
-//                                token = Some(tkn.to_string());
-//                                done = false
-//                            } else {
-//                               done = true
-//                            }
-//                        },
-//                        Err(e) => panic!(e)
-//                    }
-//                })
-//            });
-//            if done {
-//                Ok(Loop::Break((None, inner_results)))
-//            } else {
-//                Ok(Loop::Continue((token, inner_results)))
-//            }
-//
-//        });
-//
-//
-////        Ok(results);
-//    }
+
+    /// List the contents of an S3 bucket.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// extern crate futures;
+    /// use std::str;
+    /// use s3::bucket::Bucket;
+    /// use s3::credentials::Credentials;
+    /// use futures::future::Future;
+    /// let bucket_name = &"rust-s3-test";
+    /// let aws_access = &"access_key";
+    /// let aws_secret = &"secret_key";
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// let results = bucket.list_all_async("/", Some("/")).and_then(|list| {
+    ///     println!("{:?}", list);
+    ///     Ok(())
+    /// });
+    /// ```
+    pub fn list_all_async<'a>(&'a self, prefix: &'a str, delimiter: Option<&'a str>) -> impl Future<Item=Vec<ListBucketResult>> + 'a {
+        let list_entire_bucket = loop_fn((None, Vec::new()), move |(continuation_token, results): (Option<String>, Vec<ListBucketResult>)| {
+            let mut inner_results = results;
+            self.list_page_async(prefix, delimiter, continuation_token).and_then(|(result, _status_code)| {
+                inner_results.push(result.clone());
+                match result.next_continuation_token {
+                    Some(token) => Ok(Loop::Continue((Some(token), inner_results))),
+                    None => Ok(Loop::Break((None, inner_results)))
+                }
+            })
+        });
+        list_entire_bucket.and_then(|(_token, results): (Option<&str>, Vec<ListBucketResult>)| Ok(results))
+    }
+
 
     /// Get a reference to the name of the S3 bucket.
     pub fn name(&self) -> String {
