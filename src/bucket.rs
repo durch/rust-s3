@@ -7,7 +7,7 @@ use std::io::Write;
 use credentials::Credentials;
 use command::Command;
 use region::Region;
-use request::{Request, Headers, Query};
+use request::{Request, Headers, Query, S3Error};
 use serde_types::{ListBucketResult, BucketLocationResult};
 use serde_types::Tagging;
 use futures::Future;
@@ -25,6 +25,7 @@ pub enum Error {
     ParseError {
         source: ::region::Error
     },
+    ResponseError
 }
 
 type S3Result<T, E = Error> = std::result::Result<T, E>;
@@ -407,7 +408,7 @@ impl Bucket {
                    prefix: &str,
                    delimiter: Option<&str>,
                    continuation_token: Option<String>)
-                   -> impl Future<Item=(ListBucketResult, u16)> {
+                   -> impl Future<Item=(ListBucketResult, u16), Error=S3Error> + Send {
         let command = Command::ListBucket {
             prefix,
             delimiter,
@@ -488,7 +489,7 @@ impl Bucket {
     ///     Ok(())
     /// });
     /// ```
-    pub fn list_all_async<'a>(&'a self, prefix: &'a str, delimiter: Option<&'a str>) -> impl Future<Item=Vec<ListBucketResult>> + 'a {
+    pub fn list_all_async<'a>(&'a self, prefix: &'a str, delimiter: Option<&'a str>) -> impl Future<Item=Vec<ListBucketResult>, Error=S3Error> + 'a + Send {
         let list_entire_bucket = loop_fn((None, Vec::new()), move |(continuation_token, results): (Option<String>, Vec<ListBucketResult>)| {
             let mut inner_results = results;
             self.list_page_async(prefix, delimiter, continuation_token).and_then(|(result, _status_code)| {
@@ -499,7 +500,7 @@ impl Bucket {
                 }
             })
         });
-        list_entire_bucket.and_then(|(_token, results): (Option<&str>, Vec<ListBucketResult>)| Ok(results))
+        list_entire_bucket.and_then(|(_token, results): (Option<&str>, Vec<ListBucketResult>)| Ok(results)).map_err(|_| S3Error {})
     }
 
 
