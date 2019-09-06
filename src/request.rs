@@ -24,6 +24,27 @@ use signing;
 use EMPTY_PAYLOAD_SHA;
 use LONG_DATE;
 use reqwest::async::Response;
+use core::fmt;
+use std::error;
+
+#[derive(Debug, Default)]
+pub struct S3Error {}
+
+impl fmt::Display for S3Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "S3Error!")
+    }
+}
+
+impl error::Error for S3Error {
+    fn description(&self) -> &str {
+        "Description for ErrorB"
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        None
+    }
+}
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -34,6 +55,7 @@ pub enum Error {
         source: reqwest::header::InvalidHeaderValue
     },
     ReqwestFuture,
+    ResponseError,
     ParseError {
         source: std::string::ParseError
     }
@@ -265,7 +287,7 @@ impl<'a> Request<'a> {
         }
     }
 
-    pub fn response_future(&self) -> impl Future<Item=Response, Error=reqwest::Error> {
+    pub fn response_future(&self) -> impl Future<Item=Response, Error=S3Error> {
         let client = if cfg!(feature = "no-verify-ssl") {
             async::Client::builder()
                 .danger_accept_invalid_certs(true)
@@ -292,7 +314,7 @@ impl<'a> Request<'a> {
             .headers(headers.to_owned())
             .body(content.to_owned());
 
-        request.send()
+        request.send().map_err(|_| S3Error {})
     }
 
 //    pub fn response_data_future2(&self) -> impl Future<Item=S3Result<(impl Future<Item=Vec<u8>>, u16)>> {
@@ -304,11 +326,11 @@ impl<'a> Request<'a> {
 //        })
 //    }
 
-    pub fn response_data_future(&self) -> impl Future<Item=(Vec<u8>, u16)> {
+    pub fn response_data_future(&self) -> impl Future<Item=(Vec<u8>, u16), Error=S3Error> {
         self.response_future()
-            .and_then(|mut response| Ok((response.text(), response.status().as_u16())))
+            .and_then(|mut response| Ok((response.text(), response.status().as_u16()))).map_err(|_| S3Error {})
             .and_then(|(body_future, status_code)| {
-                body_future.and_then(move |body| Ok((body.as_bytes().to_vec(), status_code)))
+                body_future.and_then(move |body| Ok((body.as_bytes().to_vec(), status_code))).map_err(|_| S3Error {})
             })
     }
 
