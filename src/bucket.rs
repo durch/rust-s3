@@ -388,8 +388,8 @@ impl Bucket {
     }
 
     fn list_page(&self,
-             prefix: &str,
-             delimiter: Option<&str>,
+             prefix: String,
+             delimiter: Option<String>,
              continuation_token: Option<String>)
              -> S3Result<(ListBucketResult, u16)> {
         let command = Command::ListBucket {
@@ -405,8 +405,8 @@ impl Bucket {
     }
 
     pub fn list_page_async(&self,
-                   prefix: &str,
-                   delimiter: Option<&str>,
+                   prefix: String,
+                   delimiter: Option<String>,
                    continuation_token: Option<String>)
                    -> impl Future<Item=(ListBucketResult, u16), Error=S3Error> + Send {
         let command = Command::ListBucket {
@@ -450,13 +450,13 @@ impl Bucket {
     ///     println!("{:?}", list);
     /// }
     /// ```
-    pub fn list_all(&self, prefix: &str, delimiter: Option<&str>) -> S3Result<Vec<(ListBucketResult, u16)>> {
+    pub fn list_all(&self, prefix: String, delimiter: Option<String>) -> S3Result<Vec<(ListBucketResult, u16)>> {
         let mut results = Vec::new();
-        let mut result = self.list_page(prefix, delimiter, None)?;
+        let mut result = self.list_page(prefix.clone(), delimiter.clone(), None)?;
         loop {
             results.push(result.clone());
             match result.0.next_continuation_token {
-                Some(token) => result = self.list_page(prefix, delimiter, Some(token))?,
+                Some(token) => result = self.list_page(prefix.clone(), delimiter.clone(), Some(token))?,
                 None => break,
             }
         }
@@ -489,10 +489,10 @@ impl Bucket {
     ///     Ok(())
     /// });
     /// ```
-    pub fn list_all_async<'a>(&'a self, prefix: &'a str, delimiter: Option<&'a str>) -> impl Future<Item=Vec<ListBucketResult>, Error=S3Error> + 'a + Send {
+    pub fn list_all_async(&self, prefix: String, delimiter: Option<String>) -> impl Future<Item=Vec<ListBucketResult>, Error=S3Error> + Send + '_ {
         let list_entire_bucket = loop_fn((None, Vec::new()), move |(continuation_token, results): (Option<String>, Vec<ListBucketResult>)| {
             let mut inner_results = results;
-            self.list_page_async(prefix, delimiter, continuation_token).and_then(|(result, _status_code)| {
+            self.list_page_async(prefix.clone(), delimiter.clone(), continuation_token).and_then(|(result, _status_code)| {
                 inner_results.push(result.clone());
                 match result.next_continuation_token {
                     Some(token) => Ok(Loop::Continue((Some(token), inner_results))),

@@ -1,5 +1,6 @@
 use reqwest::Method;
 
+#[derive(Clone)]
 pub enum Command<'a> {
     DeleteObject,
     DeleteObjectTagging,
@@ -14,8 +15,8 @@ pub enum Command<'a> {
     },
 
     ListBucket {
-        prefix: &'a str,
-        delimiter: Option<&'a str>,
+        prefix: String,
+        delimiter: Option<String>,
         continuation_token: Option<String>
     },
     GetBucketLocation

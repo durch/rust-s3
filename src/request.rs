@@ -38,7 +38,7 @@ impl fmt::Display for S3Error {
 
 impl error::Error for S3Error {
     fn description(&self) -> &str {
-        "Description for ErrorB"
+        "Description for S3Error"
     }
 
     fn cause(&self) -> Option<&error::Error> {
@@ -130,10 +130,10 @@ impl<'a> Request<'a> {
             url.query_pairs_mut().append_pair(key, value);
         }
 
-        if let Command::ListBucket { prefix, delimiter, continuation_token } = &self.command {
+        if let Command::ListBucket { prefix, delimiter, continuation_token } = self.command.clone() {
             let mut query_pairs = url.query_pairs_mut();
-            delimiter.map(|d| query_pairs.append_pair("delimiter", d));
-            query_pairs.append_pair("prefix", prefix);
+            delimiter.map(|d| query_pairs.append_pair("delimiter", &d.clone()));
+            query_pairs.append_pair("prefix", &prefix);
             query_pairs.append_pair("list-type", "2");
             if let Some(token) = continuation_token {
                 query_pairs.append_pair("continuation-token", &token);
@@ -317,15 +317,6 @@ impl<'a> Request<'a> {
         request.send().map_err(|_| S3Error {})
     }
 
-//    pub fn response_data_future2(&self) -> impl Future<Item=S3Result<(impl Future<Item=Vec<u8>>, u16)>> {
-//        let response_future = self.response_future();
-//        response_future.map(|mut response| {
-//            let response_code = response.status().as_u16();
-//            let response_data = response.text().map(|body| body.as_bytes().to_vec());
-//            Ok((response_data, response_code))
-//        })
-//    }
-
     pub fn response_data_future(&self) -> impl Future<Item=(Vec<u8>, u16), Error=S3Error> {
         self.response_future()
             .and_then(|mut response| Ok((response.text(), response.status().as_u16()))).map_err(|_| S3Error {})
@@ -342,18 +333,6 @@ impl<'a> Request<'a> {
         })
     }
 
-//    pub fn response_data_to_writer_future2<'b, T: Write>(&self, writer: &'b mut T) -> impl Future<Item=S3Result<(impl Future<Item=S3Result<()>> + 'b, u16)>> + 'b {
-//        let future_response = self.response_data_future();
-//        future_response.map(|response| {
-//            match response {
-//                Ok(success) => {
-//                    let to_writer_future = success.0.map(move |body| Ok(writer.write_all(body.as_slice())?));
-//                    Ok((to_writer_future, success.1))
-//                }
-//                Err(e) => Err(e)
-//            }
-//        })
-//    }
 }
 
 #[cfg(test)]
