@@ -444,7 +444,7 @@ impl Bucket {
     /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    /// let results = bucket.list_all("/", Some("/")).unwrap();
+    /// let results = bucket.list_all("/".to_string(), Some("/".to_string())).unwrap();
     /// for (list, code) in results {
     ///     assert_eq!(200, code);
     ///     println!("{:?}", list);
@@ -484,7 +484,7 @@ impl Bucket {
     /// let credentials = Credentials::default();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    /// let results = bucket.list_all_async("/", Some("/")).and_then(|list| {
+    /// let results = bucket.list_all_async("/".to_string(), Some("/".to_string())).and_then(|list| {
     ///     println!("{:?}", list);
     ///     Ok(())
     /// });
