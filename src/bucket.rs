@@ -489,10 +489,11 @@ impl Bucket {
     ///     Ok(())
     /// });
     /// ```
-    pub fn list_all_async(&self, prefix: String, delimiter: Option<String>) -> impl Future<Item=Vec<ListBucketResult>, Error=S3Error> + Send + '_ {
+    pub fn list_all_async(&self, prefix: String, delimiter: Option<String>) -> impl Future<Item=Vec<ListBucketResult>, Error=S3Error> + Send {
+        let the_bucket = self.to_owned();
         let list_entire_bucket = loop_fn((None, Vec::new()), move |(continuation_token, results): (Option<String>, Vec<ListBucketResult>)| {
             let mut inner_results = results;
-            self.list_page_async(prefix.clone(), delimiter.clone(), continuation_token).and_then(|(result, _status_code)| {
+            the_bucket.list_page_async(prefix.clone(), delimiter.clone(), continuation_token).and_then(|(result, _status_code)| {
                 inner_results.push(result.clone());
                 match result.next_continuation_token {
                     Some(token) => Ok(Loop::Continue((Some(token), inner_results))),
