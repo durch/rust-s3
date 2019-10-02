@@ -1,19 +1,6 @@
 use std::fmt;
 use std::str::{self, FromStr};
-use snafu::Snafu;
-
-#[derive(Debug, Snafu)]
-pub enum Error {
-    XmlError,
-    RequestError {
-        source: ::request::Error
-    },
-    ParseError {
-        source: std::string::ParseError
-    }
-}
-
-type S3Result<T, E = Error> = std::result::Result<T, E>;
+use error::{S3Result, S3Error};
 
 /// AWS S3 [region identifier](https://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region),
 /// passing in custom values is also possible, in that case it is up to you to pass a valid endpoint,
@@ -115,7 +102,7 @@ impl fmt::Display for Region {
 }
 
 impl FromStr for Region {
-    type Err = Error;
+    type Err = S3Error;
 
     fn from_str(s: &str) -> S3Result<Self> {
         use self::Region::*;
@@ -179,7 +166,7 @@ impl Region {
 
     pub fn scheme(&self) -> String {
         match *self {
-            Region::Custom{ region: _, ref endpoint } => {
+            Region::Custom{ ref endpoint, ..} => {
                 match endpoint.find("://") {
                     Some(pos) => endpoint[..pos].to_string(),
                     None => "https".to_string()
@@ -191,7 +178,7 @@ impl Region {
 
     pub fn host(&self) -> String {
         match *self {
-            Region::Custom{ region: _, ref endpoint } => {
+            Region::Custom{ ref endpoint, ..} => {
                 match endpoint.find("://") {
                     Some(pos) => endpoint[pos + 3..].to_string(),
                     None => endpoint.to_string()

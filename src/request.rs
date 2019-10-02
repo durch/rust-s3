@@ -1,8 +1,6 @@
 extern crate base64;
 extern crate md5;
 
-use snafu::{ResultExt, Snafu};
-
 use std::collections::HashMap;
 use std::io::{Read, Write};
 
@@ -18,61 +16,13 @@ use url::Url;
 
 use futures::prelude::*;
 
-use serde_types::AwsError;
+//use serde_types::AwsError;
 use signing;
 
 use EMPTY_PAYLOAD_SHA;
 use LONG_DATE;
 use reqwest::async::Response;
-use core::fmt;
-use std::error;
-
-#[derive(Debug, Default)]
-pub struct S3Error {}
-
-impl fmt::Display for S3Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "S3Error!")
-    }
-}
-
-impl error::Error for S3Error {
-    fn description(&self) -> &str {
-        "Description for S3Error"
-    }
-
-    fn cause(&self) -> Option<&error::Error> {
-        None
-    }
-}
-
-#[derive(Debug, Snafu)]
-pub enum Error {
-    InvalidHeaderName {
-        source: reqwest::header::InvalidHeaderName
-    },
-    InvalidHeaderValue {
-        source: reqwest::header::InvalidHeaderValue
-    },
-    ReqwestFuture,
-    ResponseError,
-    ParseError {
-        source: std::string::ParseError
-    }
-
-}
-
-type S3Result<T, E = Error> = std::result::Result<T, E>;
-
-#[derive(Debug, Snafu)]
-enum InternalError {
-    BucketError {
-        source: ::bucket::Error
-    },
-    RegionError {
-        source: ::region::Error
-    }
-}
+use error::{S3Error, S3Result, err};
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -234,33 +184,33 @@ impl<'a> Request<'a> {
             .bucket
             .extra_headers
             .iter()
-            .map(|(k, v)| Ok((k.parse::<HeaderName>().context(InvalidHeaderName)?, v.parse::<HeaderValue>().context(InvalidHeaderValue)?)))
-            .collect::<Result<HeaderMap, Error>>()?;
+            .map(|(k, v)| Ok((k.parse::<HeaderName>()?, v.parse::<HeaderValue>()?)))
+            .collect::<Result<HeaderMap, S3Error>>()?;
         match self.command {
-            Command::GetBucketLocation => headers.insert(header::HOST, self.bucket.self_host().parse().context(InvalidHeaderValue)?),
-            _ => headers.insert(header::HOST, self.bucket.host().parse().context(InvalidHeaderValue)?)
+            Command::GetBucketLocation => headers.insert(header::HOST, self.bucket.self_host().parse()?),
+            _ => headers.insert(header::HOST, self.bucket.host().parse()?)
         };
         headers.insert(
             header::CONTENT_LENGTH,
-            self.content_length().to_string().parse().context(InvalidHeaderValue)?,
+            self.content_length().to_string().parse()?,
         );
-        headers.insert(header::CONTENT_TYPE, self.content_type().parse().context(InvalidHeaderValue)?);
-        headers.insert("X-Amz-Content-Sha256", sha256.parse().context(InvalidHeaderValue)?);
-        headers.insert("X-Amz-Date", self.long_date().parse().context(InvalidHeaderValue)?);
+        headers.insert(header::CONTENT_TYPE, self.content_type().parse()?);
+        headers.insert("X-Amz-Content-Sha256", sha256.parse()?);
+        headers.insert("X-Amz-Date", self.long_date().parse()?);
 
         if let Some(token) = self.bucket.credentials().token.as_ref() {
-            headers.insert("X-Amz-Security-Token", token.parse().context(InvalidHeaderValue)?);
+            headers.insert("X-Amz-Security-Token", token.parse()?);
         }
 
         if let Command::PutObjectTagging { tags } = self.command {
             let digest = md5::compute(tags);
             let hash = base64::encode(digest.as_ref());
-            headers.insert("Content-MD5", hash.parse().context(InvalidHeaderValue)?);
+            headers.insert("Content-MD5", hash.parse()?);
         }
 
         // This must be last, as it signs the other headers
         let authorization = self.authorization(&headers);
-        headers.insert(header::AUTHORIZATION, authorization.parse().context(InvalidHeaderValue)?);
+        headers.insert(header::AUTHORIZATION, authorization.parse()?);
 
         // The format of RFC2822 is somewhat malleable, so including it in
         // signed headers can cause signature mismatches. We do include the
@@ -268,7 +218,7 @@ impl<'a> Request<'a> {
         // range and can't be used again e.g. reply attacks. Adding this header
         // after the generation of the Authorization header leaves it out of
         // the signed headers.
-        headers.insert(header::DATE, self.datetime.to_rfc2822().parse().context(InvalidHeaderValue)?);
+        headers.insert(header::DATE, self.datetime.to_rfc2822().parse()?);
 
         Ok(headers)
     }
@@ -276,14 +226,14 @@ impl<'a> Request<'a> {
     pub fn response_data(&self) -> S3Result<(Vec<u8>, u16)> {
         match self.response_data_future().wait() {
             Ok((response_data, status_code)) => Ok((response_data, status_code)),
-            Err(_) => Err(Error::ReqwestFuture)
+            Err(_) => Err(S3Error { src: Some("Error getting response".to_string())})
         }
     }
 
     pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> S3Result<u16> {
         match self.response_data_to_writer_future(writer).wait() {
             Ok(status_code) => Ok(status_code),
-            Err(_) => Err(Error::ReqwestFuture)
+            Err(_) => Err(err("ReqwestFuture"))
         }
     }
 
@@ -314,14 +264,14 @@ impl<'a> Request<'a> {
             .headers(headers.to_owned())
             .body(content.to_owned());
 
-        request.send().map_err(|_| S3Error {})
+        request.send().map_err(|_| S3Error {src: None})
     }
 
     pub fn response_data_future(&self) -> impl Future<Item=(Vec<u8>, u16), Error=S3Error> {
         self.response_future()
-            .and_then(|mut response| Ok((response.text(), response.status().as_u16()))).map_err(|_| S3Error {})
+            .and_then(|mut response| Ok((response.text(), response.status().as_u16()))).map_err(|_| S3Error {src: None})
             .and_then(|(body_future, status_code)| {
-                body_future.and_then(move |body| Ok((body.as_bytes().to_vec(), status_code))).map_err(|_| S3Error {})
+                body_future.and_then(move |body| Ok((body.as_bytes().to_vec(), status_code))).map_err(|_| S3Error {src: None})
             })
     }
 
@@ -340,11 +290,9 @@ mod tests {
     use bucket::Bucket;
     use command::Command;
     use credentials::Credentials;
-    use request::{Request, InternalError};
-    use request::S3Result;
-    use snafu::ResultExt;
+    use request::{Request};
     use url::form_urlencoded::Parse;
-    use request::{ParseError, BucketError, RegionError};
+    use error::S3Result;
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
@@ -355,9 +303,9 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_https_by_default() -> Result<(), InternalError> {
-        let region = "custom-region".parse().context(RegionError)?;
-        let bucket = Bucket::new("my-first-bucket", region, fake_credentials()).context(BucketError)?;
+    fn url_uses_https_by_default() -> S3Result<()> {
+        let region = "custom-region".parse()?;
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
         let request = Request::new(&bucket, path, Command::GetObject);
 
@@ -371,9 +319,9 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_scheme_from_custom_region_if_defined() -> Result<(), InternalError> {
-        let region = "http://custom-region".parse().context(RegionError)?;
-        let bucket = Bucket::new("my-second-bucket", region, fake_credentials()).context(BucketError)?;
+    fn url_uses_scheme_from_custom_region_if_defined() -> S3Result<()> {
+        let region = "http://custom-region".parse()?;
+        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
         let request = Request::new(&bucket, path, Command::GetObject);
 
