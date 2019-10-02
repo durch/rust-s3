@@ -1,30 +1,7 @@
 use std::env;
 use dirs;
 use ini::Ini;
-use snafu::{ResultExt, Snafu};
-
-#[derive(Debug, Snafu)]
-pub enum Error {
-    VarError {
-        source: std::env::VarError
-    },
-    HomeDir,
-    IniError {
-        source: ini::ini::Error
-    },
-    #[snafu(display("Section [{}] not found in {}", section, profile))]
-    AwsMissingSection {
-        section: String,
-        profile: String
-    },
-    #[snafu(display("Missing {} in {}", part, profile))]
-    AwsConfigError {
-        part: String,
-        profile: String
-    }
-}
-
-type S3Result<T, E = Error> = std::result::Result<T, E>;
+use error::{err, S3Result};
 
 /// AWS access credentials: access key, secret key, and optional token.
 ///
@@ -125,8 +102,8 @@ impl Credentials {
     }
 
     fn from_env() -> S3Result<Credentials> {
-        let access_key = env::var("AWS_ACCESS_KEY_ID").context(VarError)?;
-        let secret_key = env::var("AWS_SECRET_ACCESS_KEY").context(VarError)?;
+        let access_key = env::var("AWS_ACCESS_KEY_ID")?;
+        let secret_key = env::var("AWS_SECRET_ACCESS_KEY")?;
         let token = match env::var("AWS_SESSION_TOKEN") {
             Ok(x) => Some(x),
             Err(_) => None
@@ -137,29 +114,29 @@ impl Credentials {
     fn from_profile(section: Option<String>) -> S3Result<Credentials> {
         let home_dir = match dirs::home_dir() {
             Some(path) => Ok(path),
-            None => Err(Error::HomeDir),
+            None => Err(err("Invalid home dir")),
         };
         let profile = format!("{}/.aws/credentials", home_dir?.display());
-        let conf = Ini::load_from_file(&profile).context(IniError)?;
+        let conf = Ini::load_from_file(&profile)?;
         let section = match section {
             Some(s) => s,
             None => String::from("default")
         };
         let data1 = match conf.section(Some(section.clone())) {
             Some(d) => Ok(d),
-            None => Err(Error::AwsMissingSection {section: section.clone(), profile: profile.clone()})
+            None => Err(err("Missing aws section"))
         };
         let data2 = match conf.section(Some(section.clone())) {
             Some(d) => Ok(d),
-            None => Err(Error::AwsMissingSection {section, profile: profile.clone()})
+            None => Err(err("Missing aws section"))
         };
         let access_key = match data1?.get("aws_access_key_id") {
             Some(x) => Ok(x.to_owned()),
-            None => Err(Error::AwsConfigError {part: "aws_access_key_id".to_string(), profile: profile.clone()})
+            None => Err(err("Missing aws section"))
         };
         let secret_key = match data2?.get("aws_secret_access_key") {
             Some(x) => Ok(x.to_owned()),
-            None => Err(Error::AwsConfigError {part: "aws_secret_access_key".to_string(), profile})
+            None => Err(err("Missing aws section"))
         };
         Ok(Credentials { access_key: access_key?.to_owned(), secret_key: secret_key?.to_owned(), token: None, _private: () })
     }

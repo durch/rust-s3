@@ -12,7 +12,6 @@ extern crate url;
 extern crate ini;
 extern crate dirs;
 extern crate futures;
-extern crate snafu;
 extern crate core;
 
 pub mod bucket;
@@ -23,6 +22,8 @@ pub mod request;
 pub mod serde_types;
 pub mod signing;
 pub mod deserializer;
+#[macro_use]
+pub mod error;
 
 const LONG_DATE: &str = "%Y%m%dT%H%M%SZ";
 const EMPTY_PAYLOAD_SHA: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";

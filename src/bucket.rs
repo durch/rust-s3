@@ -7,28 +7,13 @@ use std::io::Write;
 use credentials::Credentials;
 use command::Command;
 use region::Region;
-use request::{Request, Headers, Query, S3Error};
+use request::{Request, Headers, Query};
 use serde_types::{ListBucketResult, BucketLocationResult};
 use serde_types::Tagging;
 use futures::Future;
-use futures::future::{loop_fn, Loop, ok, result, LoopFn};
-use snafu::{ResultExt, Snafu};
+use futures::future::{loop_fn, Loop};
+use error::{S3Error, S3Result};
 
-#[derive(Debug, Snafu)]
-pub enum Error {
-    XmlError {
-        source: serde_xml::Error
-    },
-    RequestError {
-        source: ::request::Error
-    },
-    ParseError {
-        source: ::region::Error
-    },
-    ResponseError
-}
-
-type S3Result<T, E = Error> = std::result::Result<T, E>;
 
 /// # Example
 /// ```
@@ -101,7 +86,7 @@ impl Bucket {
     pub fn get_object(&self, path: &str) -> S3Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
-        Ok(request.response_data().context(RequestError)?)
+        Ok(request.response_data()?)
     }
 
     /// Gets file from an S3 path.
@@ -153,7 +138,7 @@ impl Bucket {
     pub fn get_object_stream<T: Write>(&self, path: &str, writer: &mut T) -> S3Result<u16> {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
-        Ok(request.response_data_to_writer(writer).context(RequestError)?)
+        Ok(request.response_data_to_writer(writer)?)
     }
 
     /// Stream file from S3 path to a local file, generic over T: Write.
@@ -206,18 +191,18 @@ impl Bucket {
     /// ```
     pub fn location(&self) -> S3Result<(Region, u16)> {
         let request = Request::new(self, "?location", Command::GetBucketLocation);
-        let result = request.response_data().context(RequestError)?;
+        let result = request.response_data()?;
         let region_string = String::from_utf8_lossy(&result.0);
         let region = match serde_xml::deserialize(region_string.as_bytes()) {
             Ok(r) => {
                 let location_result: BucketLocationResult = r;
-                location_result.region.parse().context(ParseError)?
+                location_result.region.parse()?
             }
             Err(e) => {
                 if e.to_string() == "missing field `$value`" {
-                    "us-east-1".parse().context(ParseError)?
+                    "us-east-1".parse()?
                 } else {
-                    panic!("lala")
+                    panic!("How did we get here?")
                 }
             }
         };
@@ -243,7 +228,7 @@ impl Bucket {
     pub fn delete_object(&self, path: &str) -> S3Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObject;
         let request = Request::new(self, path, command);
-        request.response_data().context(RequestError)
+        request.response_data()
     }
 
     /// Put into an S3 bucket.
@@ -273,7 +258,7 @@ impl Bucket {
             content_type,
         };
         let request = Request::new(self, path, command);
-        Ok(request.response_data().context(RequestError)?)
+        Ok(request.response_data()?)
     }
 
     fn _tags_xml(&self, tags: &[(&str, &str)]) -> String {
@@ -317,7 +302,7 @@ impl Bucket {
             tags: &content.to_string()
         };
         let request = Request::new(self, path, command);
-        Ok(request.response_data().context(RequestError)?)
+        Ok(request.response_data()?)
     }
 
 
@@ -344,7 +329,7 @@ impl Bucket {
     pub fn delete_object_tagging(&self, path: &str) -> S3Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObjectTagging;
         let request = Request::new(self, path, command);
-        Ok(request.response_data().context(RequestError)?)
+        Ok(request.response_data()?)
     }
 
     /// Retrieve an S3 object list of tags.
@@ -374,12 +359,12 @@ impl Bucket {
     pub fn get_object_tagging(&self, path: &str) -> S3Result<(Option<Tagging>, u16)> {
         let command = Command::GetObjectTagging {};
         let request = Request::new(self, path, command);
-        let result = request.response_data().context(RequestError)?;
+        let result = request.response_data()?;
 
         let tagging = if result.1 == 200 {
             let result_string = String::from_utf8_lossy(&result.0);
             println!("{}", result_string);
-            Some(serde_xml::deserialize(result_string.as_bytes()).context(XmlError)?)
+            Some(serde_xml::deserialize(result_string.as_bytes())?)
         } else {
             None
         };
@@ -398,9 +383,9 @@ impl Bucket {
             continuation_token,
         };
         let request = Request::new(self, "/", command);
-        let result = request.response_data().context(RequestError)?;
+        let result = request.response_data()?;
         let result_string = String::from_utf8_lossy(&result.0);
-        let deserialized: ListBucketResult = serde_xml::deserialize(result_string.as_bytes()).context(XmlError)?;
+        let deserialized: ListBucketResult = serde_xml::deserialize(result_string.as_bytes())?;
         Ok((deserialized, result.1))
     }
 
@@ -501,7 +486,7 @@ impl Bucket {
                 }
             })
         });
-        list_entire_bucket.and_then(|(_token, results): (Option<&str>, Vec<ListBucketResult>)| Ok(results)).map_err(|_| S3Error {})
+        list_entire_bucket.and_then(|(_token, results): (Option<&str>, Vec<ListBucketResult>)| Ok(results)).map_err(|_| S3Error { src: None })
     }
 
 
