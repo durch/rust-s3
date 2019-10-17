@@ -7,11 +7,10 @@ use std::io::{Read, Write};
 use bucket::Bucket;
 use chrono::{DateTime, Utc};
 use command::Command;
-use hmac::{Hmac, Mac};
+use hmac::Mac;
 use reqwest::async as async;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use sha2::{Digest, Sha256};
-use hex::ToHex;
 use url::Url;
 
 use futures::prelude::*;
@@ -121,12 +120,12 @@ impl<'a> Request<'a> {
             Command::PutObject { content, .. } => {
                 let mut sha = Sha256::default();
                 sha.input(content);
-                sha.result().as_slice().to_hex()
+                hex::encode(sha.result().as_slice())
             }
             Command::PutObjectTagging { tags } => {
                 let mut sha = Sha256::default();
                 sha.input(tags.as_bytes());
-                sha.result().as_slice().to_hex()
+                hex::encode(sha.result().as_slice())
             }
             _ => EMPTY_PAYLOAD_SHA.into(),
         }
@@ -149,29 +148,29 @@ impl<'a> Request<'a> {
         signing::string_to_sign(&self.datetime, &self.bucket.region(), request)
     }
 
-    fn signing_key(&self) -> Vec<u8> {
-        signing::signing_key(
+    fn signing_key(&self) -> S3Result<Vec<u8>> {
+        Ok(signing::signing_key(
             &self.datetime,
             &self.bucket.secret_key(),
             &self.bucket.region(),
             "s3",
-        )
+        )?)
     }
 
-    fn authorization(&self, headers: &HeaderMap) -> String {
+    fn authorization(&self, headers: &HeaderMap) -> S3Result<String> {
         let canonical_request = self.canonical_request(headers);
         let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac = Hmac::<Sha256>::new(&self.signing_key());
+        let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
         hmac.input(string_to_sign.as_bytes());
-        let signature = hmac.result().code().to_hex();
+        let signature = hex::encode(hmac.result().code());
         let signed_header = signing::signed_header_string(headers);
-        signing::authorization_header(
+        Ok(signing::authorization_header(
             &self.bucket.access_key(),
             &self.datetime,
             &self.bucket.region(),
             &signed_header,
             &signature,
-        )
+        ))
     }
 
     fn headers(&self) -> S3Result<HeaderMap> {
@@ -209,7 +208,7 @@ impl<'a> Request<'a> {
         }
 
         // This must be last, as it signs the other headers
-        let authorization = self.authorization(&headers);
+        let authorization = self.authorization(&headers)?;
         headers.insert(header::AUTHORIZATION, authorization.parse()?);
 
         // The format of RFC2822 is somewhat malleable, so including it in
@@ -260,7 +259,7 @@ impl<'a> Request<'a> {
         };
 
         let request = client
-            .request(self.command.http_verb(), self.url())
+            .request(self.command.http_verb(), self.url().as_str())
             .headers(headers.to_owned())
             .body(content.to_owned());
 
@@ -291,7 +290,6 @@ mod tests {
     use command::Command;
     use credentials::Credentials;
     use request::{Request};
-    use url::form_urlencoded::Parse;
     use error::S3Result;
 
     // Fake keys - otherwise using Credentials::default will use actual user

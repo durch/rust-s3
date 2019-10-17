@@ -6,18 +6,19 @@
 [![Join the chat at https://gitter.im/durch/rust-s3](https://badges.gitter.im/durch/rust-s3.svg)](https://gitter.im/durch/rust-s3?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 ## rust-s3 [[docs](https://durch.github.io/rust-s3/)]
 
-Tiny Rust library for working with Amazon S3 or arbitrary S3 compatible APIs
+Tiny Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with *async* usage
 
 ### Intro
-Very modest interface towards Amazon S3.
-Supports `put`, `get`, `list`, and `delete`.
+Very modest interface towards Amazon S3, as well as S3 compatible APIs.
+Supports `put`, `get`, `list`, and `delete`, operations on `tags` and `location`.
+
+Supports streaming S3 contents generic over `T: Write` as of `0.15.0`.
 
 ### What is cool
 
 The main cool feature is that `put` commands return a presigned link to the file you uploaded.
 This means you can upload to s3, and give the link to select people without having to worry about publicly accessible files on S3.
 
-Also supports streaming S3 contents generic over `T: Write` as of `0.15.0`.
 
 ### Configuration
 
@@ -30,13 +31,13 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```
 [dependencies]
-rust-s3 = "0.15.0"
+rust-s3 = "0.18.0"
 ```
 
 #### Disable SSL verification for endpoints
 ```
 [dependencies]
-rust-s3 = {version = "0.15.0", features = ["no-verify-ssl"]}
+rust-s3 = {version = "0.18.0", features = ["no-verify-ssl"]}
 ```
 
 #### Example
