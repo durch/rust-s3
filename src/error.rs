@@ -20,6 +20,7 @@ impl_from!(reqwest::header::InvalidHeaderName);
 impl_from!(reqwest::header::InvalidHeaderValue);
 impl_from!(std::env::VarError);
 impl_from!(ini::ini::Error);
+impl_from!(hmac::crypto_mac::InvalidKeyLength);
 
 #[derive(Debug)]
 pub struct S3Error {

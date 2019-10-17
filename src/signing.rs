@@ -5,15 +5,17 @@
 use std::str;
 
 use chrono::{DateTime, Utc};
-use hex::ToHex;
 use hmac::{Hmac, Mac};
 use url::Url;
 use region::Region;
 use reqwest::header::HeaderMap;
 use sha2::{Digest, Sha256};
+use error::S3Result;
 
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
+
+pub type HmacSha256 = Hmac<Sha256>;
 
 /// Encode a URI following the specific requirements of the AWS service.
 pub fn uri_encode(string: &str, encode_slash: bool) -> String {
@@ -102,7 +104,7 @@ pub fn string_to_sign(datetime: &DateTime<Utc>, region: &Region, canonical_req: 
     format!("AWS4-HMAC-SHA256\n{timestamp}\n{scope}\n{hash}",
             timestamp = datetime.format(LONG_DATETIME),
             scope = scope_string(datetime, region),
-            hash = hasher.result().as_slice().to_hex())
+            hash = hex::encode(hasher.result().as_slice()))
 }
 
 /// Generate the AWS signing key, derived from the secret key, date, region,
@@ -111,17 +113,17 @@ pub fn signing_key(datetime: &DateTime<Utc>,
                    secret_key: &str,
                    region: &Region,
                    service: &str)
-                   -> Vec<u8> {
+                   -> S3Result<Vec<u8>> {
     let secret = String::from("AWS4") + secret_key;
-    let mut date_hmac = Hmac::<Sha256>::new(secret.as_bytes());
+    let mut date_hmac = HmacSha256::new_varkey(secret.as_bytes())?;
     date_hmac.input(datetime.format(SHORT_DATE).to_string().as_bytes());
-    let mut region_hmac = Hmac::<Sha256>::new(date_hmac.result().code());
+    let mut region_hmac = HmacSha256::new_varkey(&date_hmac.result().code())?;
     region_hmac.input(region.to_string().as_bytes());
-    let mut service_hmac = Hmac::<Sha256>::new(region_hmac.result().code());
+    let mut service_hmac = HmacSha256::new_varkey(&region_hmac.result().code())?;
     service_hmac.input(service.as_bytes());
-    let mut signing_hmac = Hmac::<Sha256>::new(service_hmac.result().code());
+    let mut signing_hmac = HmacSha256::new_varkey(&service_hmac.result().code())?;
     signing_hmac.input(b"aws4_request");
-    signing_hmac.result().code().into()
+    Ok(signing_hmac.result().code().to_vec())
 }
 
 /// Generate the AWS authorization header.
@@ -144,7 +146,6 @@ mod tests {
     use std::str;
 
     use chrono::{TimeZone, Utc};
-    use hex::ToHex;
     use reqwest::header::{HeaderMap, HeaderValue};
     use url::Url;
 
@@ -200,8 +201,8 @@ mod tests {
         let key = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
         let expected = "c4afb1cc5771d871763a393e44b703571b55cc28424d1a5e86da6ed3c154a4b9";
         let datetime = Utc.ymd(2015, 8, 30).and_hms(0, 0, 0);
-        let signature = signing_key(&datetime, key, &"us-east-1".parse().unwrap(), "iam");
-        assert_eq!(expected, signature.to_hex());
+        let signature = signing_key(&datetime, key, &"us-east-1".parse().unwrap(), "iam").unwrap();
+        assert_eq!(expected, hex::encode(signature));
     }
 
     const EXPECTED_SHA: &'static str = "e3b0c44298fc1c149afbf4c8996fb924\
@@ -251,9 +252,9 @@ mod tests {
         let expected = "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41";
         let secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
         let signing_key = signing_key(&datetime, secret, &"us-east-1".parse().unwrap(), "s3");
-        let mut hmac = Hmac::<Sha256>::new(&signing_key);
+        let mut hmac = Hmac::<Sha256>::new_varkey(&signing_key.unwrap()).unwrap();
         hmac.input(string_to_sign.as_bytes());
-        assert_eq!(expected, hmac.result().code().to_hex());
+        assert_eq!(expected, hex::encode(hmac.result().code()));
     }
 
     #[test]
@@ -269,7 +270,7 @@ mod tests {
                 <IsTruncated>true</IsTruncated>
             </ListBucketResult>
         "###;
-        let deserialized: ListBucketResult = serde_xml::deserialize(result_string.as_bytes()).expect("Parse error!");
+        let deserialized: ListBucketResult = serde_xml::from_reader(result_string.as_bytes()).expect("Parse error!");
         assert!(deserialized.is_truncated);
     }
 }

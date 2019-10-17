@@ -193,7 +193,7 @@ impl Bucket {
         let request = Request::new(self, "?location", Command::GetBucketLocation);
         let result = request.response_data()?;
         let region_string = String::from_utf8_lossy(&result.0);
-        let region = match serde_xml::deserialize(region_string.as_bytes()) {
+        let region = match serde_xml::from_reader(region_string.as_bytes()) {
             Ok(r) => {
                 let location_result: BucketLocationResult = r;
                 location_result.region.parse()?
@@ -364,7 +364,7 @@ impl Bucket {
         let tagging = if result.1 == 200 {
             let result_string = String::from_utf8_lossy(&result.0);
             println!("{}", result_string);
-            Some(serde_xml::deserialize(result_string.as_bytes())?)
+            Some(serde_xml::from_reader(result_string.as_bytes())?)
         } else {
             None
         };
@@ -385,7 +385,7 @@ impl Bucket {
         let request = Request::new(self, "/", command);
         let result = request.response_data()?;
         let result_string = String::from_utf8_lossy(&result.0);
-        let deserialized: ListBucketResult = serde_xml::deserialize(result_string.as_bytes())?;
+        let deserialized: ListBucketResult = serde_xml::from_reader(result_string.as_bytes())?;
         Ok((deserialized, result.1))
     }
 
@@ -402,7 +402,7 @@ impl Bucket {
         let request = Request::new(self, "/", command);
         let result = request.response_data_future();
         result.and_then(|(response, status_code)|
-            match serde_xml::deserialize(response.as_slice()) {
+            match serde_xml::from_reader(response.as_slice()) {
                 Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
                 Err(e) => {
                     panic!("Could not deserialize list bucket result: {}", e);
