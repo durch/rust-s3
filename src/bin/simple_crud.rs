@@ -17,11 +17,11 @@ pub fn main() -> Result<(), S3Error> {
     let bucket = Bucket::new(BUCKET, region, credentials)?;
 
     // List out contents of directory
-//    let results = bucket.list("", None).unwrap();
-//    for (list, code) in results {
-//        assert_eq!(200, code);
-//        println!("{:?}", list.contents.len());
-//    }
+    let results = bucket.list_all("".to_string(), None).unwrap();
+    for (list, code) in results {
+        assert_eq!(200, code);
+        println!("{:?}", list.contents.len());
+    }
 
 
     // Make sure that our "test_file" doesn't exist, delete it if it does. Note

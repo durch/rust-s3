@@ -2,6 +2,7 @@ use std::env;
 use dirs;
 use ini::Ini;
 use error::{err, S3Result};
+use std::collections::HashMap;
 
 /// AWS access credentials: access key, secret key, and optional token.
 ///
@@ -95,7 +96,10 @@ impl Credentials {
                 Ok(c) => c,
                 Err(_) => match Credentials::from_profile(profile) {
                     Ok(c) => c,
-                    Err(e) => panic!("No credentials provided as arguments, in the environment or in the profile file. \n {}", e)
+                    Err(_) => match Credentials::from_instance_metadata() {
+                        Ok(c) => c,
+                        Err(e) => panic!("No credentials provided as arguments, in the environment or in the profile file. \n {}", e)
+                    }
                 }
             }
         }
@@ -109,6 +113,27 @@ impl Credentials {
             Err(_) => None
         };
         Ok(Credentials { access_key, secret_key, token, _private: () })
+    }
+
+    fn from_instance_metadata() -> S3Result<Credentials> {
+        let resp: HashMap<String, String> = reqwest::get("http://169.254.169.254/latest/meta-data/iam/info")?
+            .json()?;
+        let credentials = if let Some(arn) = resp.get("InstanceProfileArn") {
+            if let Some(role) = arn.split('/').last() {
+                let resp: HashMap<String, String> = reqwest::get(&format!("http://169.254.169.254/latest/meta-data/iam/security-credentials/{}", role))?
+                    .json()?;
+                let access_key = resp.get("AccessKeyId").unwrap().clone();
+                let secret_key = resp.get("SecretAccessKey").unwrap().clone();
+                let token = Some(resp.get("Token").unwrap().clone());
+                Some(Credentials { access_key, secret_key, token, _private: ()})
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Ok(credentials.unwrap())
     }
 
     fn from_profile(section: Option<String>) -> S3Result<Credentials> {
