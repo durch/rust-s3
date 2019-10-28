@@ -372,7 +372,7 @@ impl Bucket {
         Ok((tagging, result.1))
     }
 
-    fn list_page(&self,
+    pub fn list_page(&self,
              prefix: String,
              delimiter: Option<String>,
              continuation_token: Option<String>)
