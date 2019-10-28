@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 use futures::prelude::*;
+use tokio::runtime::current_thread::Runtime;
 
 //use serde_types::AwsError;
 use signing;
@@ -22,6 +23,7 @@ use EMPTY_PAYLOAD_SHA;
 use LONG_DATE;
 use reqwest::async::Response;
 use error::{S3Error, S3Result, err};
+use std::error::Error;
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -223,17 +225,24 @@ impl<'a> Request<'a> {
     }
 
     pub fn response_data(&self) -> S3Result<(Vec<u8>, u16)> {
-        match self.response_data_future().wait() {
-            Ok((response_data, status_code)) => Ok((response_data, status_code)),
-            Err(_) => Err(S3Error { src: Some("Error getting response".to_string())})
-        }
+        let response_data = self.response_data_future().then(|result|
+            match result {
+                Ok((response_data, status_code)) => Ok((response_data, status_code)),
+                Err(e) => Err(e)
+            });
+        let mut runtime = Runtime::new().unwrap();
+        runtime.block_on(response_data)
     }
 
     pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> S3Result<u16> {
-        match self.response_data_to_writer_future(writer).wait() {
-            Ok(status_code) => Ok(status_code),
-            Err(_) => Err(err("ReqwestFuture"))
-        }
+        let status_code_future = self.response_data_to_writer_future(writer).then(|result| {
+            match result {
+                Ok(status_code) => Ok(status_code),
+                Err(_) => Err(err("ReqwestFuture"))
+            }
+        });
+        let mut runtime = Runtime::new().unwrap();
+        runtime.block_on(status_code_future)
     }
 
     pub fn response_future(&self) -> impl Future<Item=Response, Error=S3Error> {
@@ -263,14 +272,14 @@ impl<'a> Request<'a> {
             .headers(headers.to_owned())
             .body(content.to_owned());
 
-        request.send().map_err(|_| S3Error {src: None})
+        request.send().map_err(|e| S3Error { src: Some(e.description().to_string()) })
     }
 
     pub fn response_data_future(&self) -> impl Future<Item=(Vec<u8>, u16), Error=S3Error> {
         self.response_future()
-            .and_then(|mut response| Ok((response.text(), response.status().as_u16()))).map_err(|_| S3Error {src: None})
+            .and_then(|mut response| Ok((response.text(), response.status().as_u16())))
             .and_then(|(body_future, status_code)| {
-                body_future.and_then(move |body| Ok((body.as_bytes().to_vec(), status_code))).map_err(|_| S3Error {src: None})
+                body_future.and_then(move |body| Ok((body.as_bytes().to_vec(), status_code))).map_err(|e| S3Error { src: Some(e.description().to_string()) })
             })
     }
 
@@ -281,7 +290,6 @@ impl<'a> Request<'a> {
             Ok(status_code)
         })
     }
-
 }
 
 #[cfg(test)]
@@ -289,7 +297,7 @@ mod tests {
     use bucket::Bucket;
     use command::Command;
     use credentials::Credentials;
-    use request::{Request};
+    use request::Request;
     use error::S3Result;
 
     // Fake keys - otherwise using Credentials::default will use actual user
