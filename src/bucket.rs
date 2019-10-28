@@ -199,11 +199,12 @@ impl Bucket {
                 location_result.region.parse()?
             }
             Err(e) => {
-                if e.to_string() == "missing field `$value`" {
-                    "us-east-1".parse()?
+                if result.1 == 200 {
+                    Region::Custom { region: "Custom".to_string(), endpoint: "".to_string() }
                 } else {
-                    panic!("How did we get here?")
+                    Region::Custom {region: format!("Error encountered : {}", e), endpoint: "".to_string()}
                 }
+
             }
         };
         Ok((region, result.1))
@@ -373,10 +374,10 @@ impl Bucket {
     }
 
     pub fn list_page(&self,
-             prefix: String,
-             delimiter: Option<String>,
-             continuation_token: Option<String>)
-             -> S3Result<(ListBucketResult, u16)> {
+                     prefix: String,
+                     delimiter: Option<String>,
+                     continuation_token: Option<String>)
+                     -> S3Result<(ListBucketResult, u16)> {
         let command = Command::ListBucket {
             prefix,
             delimiter,
@@ -390,10 +391,10 @@ impl Bucket {
     }
 
     pub fn list_page_async(&self,
-                   prefix: String,
-                   delimiter: Option<String>,
-                   continuation_token: Option<String>)
-                   -> impl Future<Item=(ListBucketResult, u16), Error=S3Error> + Send {
+                           prefix: String,
+                           delimiter: Option<String>,
+                           continuation_token: Option<String>)
+                           -> impl Future<Item=(ListBucketResult, u16), Error=S3Error> + Send {
         let command = Command::ListBucket {
             prefix,
             delimiter,

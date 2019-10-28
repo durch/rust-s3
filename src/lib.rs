@@ -13,6 +13,7 @@ extern crate ini;
 extern crate dirs;
 extern crate futures;
 extern crate core;
+extern crate tokio;
 
 pub mod bucket;
 pub mod credentials;

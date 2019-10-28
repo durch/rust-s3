@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.18.2-beta"
+version = "0.18.3"
 authors = ["Drazen Urch", "Nick Stevens"]
 description = "Tiny Rust library for working with Amazon S3 and compatible APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -28,6 +28,7 @@ url = "^2.1.0"
 rust-ini = "^0.13"
 dirs = "^2.0.2"
 futures = "^0.1.28"
+tokio = "^0.1.22"
 
 [features]
 no-verify-ssl = []
