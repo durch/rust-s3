@@ -487,7 +487,7 @@ impl Bucket {
                 }
             })
         });
-        list_entire_bucket.and_then(|(_token, results): (Option<&str>, Vec<ListBucketResult>)| Ok(results)).map_err(|_| S3Error { src: None })
+        list_entire_bucket.and_then(|(_token, results): (Option<&str>, Vec<ListBucketResult>)| Ok(results))
     }
 
 

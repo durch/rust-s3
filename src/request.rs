@@ -16,14 +16,12 @@ use url::Url;
 use futures::prelude::*;
 use tokio::runtime::current_thread::Runtime;
 
-//use serde_types::AwsError;
 use signing;
 
 use EMPTY_PAYLOAD_SHA;
 use LONG_DATE;
 use reqwest::async::Response;
-use error::{S3Error, S3Result, err};
-use std::error::Error;
+use error::{S3Error, S3Result};
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -238,7 +236,7 @@ impl<'a> Request<'a> {
         let status_code_future = self.response_data_to_writer_future(writer).then(|result| {
             match result {
                 Ok(status_code) => Ok(status_code),
-                Err(_) => Err(err("ReqwestFuture"))
+                Err(_) => Err(S3Error::from("ReqwestFuture"))
             }
         });
         let mut runtime = Runtime::new().unwrap();
@@ -272,14 +270,14 @@ impl<'a> Request<'a> {
             .headers(headers.to_owned())
             .body(content.to_owned());
 
-        request.send().map_err(|e| S3Error { src: Some(e.description().to_string()) })
+        request.send().map_err(S3Error::from)
     }
 
     pub fn response_data_future(&self) -> impl Future<Item=(Vec<u8>, u16), Error=S3Error> {
         self.response_future()
             .and_then(|mut response| Ok((response.text(), response.status().as_u16())))
             .and_then(|(body_future, status_code)| {
-                body_future.and_then(move |body| Ok((body.as_bytes().to_vec(), status_code))).map_err(|e| S3Error { src: Some(e.description().to_string()) })
+                body_future.and_then(move |body| Ok((body.as_bytes().to_vec(), status_code))).map_err(S3Error::from)
             })
     }
 

@@ -1,7 +1,7 @@
 use std::env;
 use dirs;
 use ini::Ini;
-use error::{err, S3Result};
+use error::{S3Result, S3Error};
 use std::collections::HashMap;
 
 /// AWS access credentials: access key, secret key, and optional token.
@@ -139,7 +139,7 @@ impl Credentials {
     fn from_profile(section: Option<String>) -> S3Result<Credentials> {
         let home_dir = match dirs::home_dir() {
             Some(path) => Ok(path),
-            None => Err(err("Invalid home dir")),
+            None => Err(S3Error::from("Invalid home dir")),
         };
         let profile = format!("{}/.aws/credentials", home_dir?.display());
         let conf = Ini::load_from_file(&profile)?;
@@ -149,19 +149,19 @@ impl Credentials {
         };
         let data1 = match conf.section(Some(section.clone())) {
             Some(d) => Ok(d),
-            None => Err(err("Missing aws section"))
+            None => Err(S3Error::from("Missing aws section"))
         };
         let data2 = match conf.section(Some(section.clone())) {
             Some(d) => Ok(d),
-            None => Err(err("Missing aws section"))
+            None => Err(S3Error::from("Missing aws section"))
         };
         let access_key = match data1?.get("aws_access_key_id") {
             Some(x) => Ok(x.to_owned()),
-            None => Err(err("Missing aws section"))
+            None => Err(S3Error::from("Missing aws_access_key_id section"))
         };
         let secret_key = match data2?.get("aws_secret_access_key") {
             Some(x) => Ok(x.to_owned()),
-            None => Err(err("Missing aws section"))
+            None => Err(S3Error::from("Missing aws_secret_access_key section"))
         };
         Ok(Credentials { access_key: access_key?.to_owned(), secret_key: secret_key?.to_owned(), token: None, _private: () })
     }
