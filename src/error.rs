@@ -5,36 +5,37 @@ use core::fmt;
 
 // crate should be called simpl, than we have simpl::from and simpl:err
 
-macro_rules! from {
-    ($t: ty) => {
-        impl From<$t> for S3Error {
-            fn from(e: $t) -> S3Error {
-                S3Error { description: Some(String::from(format!("{}",e))) }
-            }
-        }
-    }
-}
-
 macro_rules! err {
     ($i: ident) => {
         #[derive(Debug)]
         pub struct $i {
-            pub description: Option<String>
+            pub description: Option<String>,
+            pub data: Option<String>
         }
 
         impl From<&str> for $i {
             fn from(str: &str) -> Self {
-                $i { description: Some(str.to_string())}
+                $i { description: Some(str.to_string()), data: None}
             }
         }
 
-        impl fmt::Display for S3Error {
+        impl fmt::Display for $i {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 match self.description.as_ref() {
                     Some(err) => write!(f, "{}", err),
                     None => write!(f, "An unknown error has occurred!")
                 }
 
+            }
+        }
+
+        macro_rules! from {
+            ($t: ty) => {
+                impl From<$t> for $i {
+                    fn from(e: $t) -> $i {
+                        $i { description: Some(String::from(format!("{}",e))), data: None }
+                    }
+                }
             }
         }
     }

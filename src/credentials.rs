@@ -136,7 +136,7 @@ impl Credentials {
         Ok(credentials.unwrap())
     }
 
-    fn from_profile(section: Option<String>) -> S3Result<Credentials> {
+    pub fn from_profile(section: Option<String>) -> S3Result<Credentials> {
         let home_dir = match dirs::home_dir() {
             Some(path) => Ok(path),
             None => Err(S3Error::from("Invalid home dir")),
