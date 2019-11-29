@@ -50,6 +50,7 @@ impl<'a> Request<'a> {
         }
     }
 
+    // TODO allow for using path style for non dns compliant bucket names
     fn url(&self) -> Url {
         // let mut url_str = match self.command {
         //     Command::ListBucket { .. } => {
