@@ -147,23 +147,25 @@ impl Credentials {
             Some(s) => s,
             None => String::from("default")
         };
-        let data1 = match conf.section(Some(section.clone())) {
-            Some(d) => Ok(d),
-            None => Err(S3Error::from("Missing aws section"))
-        };
-        let data2 = match conf.section(Some(section.clone())) {
-            Some(d) => Ok(d),
-            None => Err(S3Error::from("Missing aws section"))
-        };
-        let access_key = match data1?.get("aws_access_key_id") {
-            Some(x) => Ok(x.to_owned()),
-            None => Err(S3Error::from("Missing aws_access_key_id section"))
-        };
-        let secret_key = match data2?.get("aws_secret_access_key") {
-            Some(x) => Ok(x.to_owned()),
-            None => Err(S3Error::from("Missing aws_secret_access_key section"))
-        };
-        Ok(Credentials { access_key: access_key?.to_owned(), secret_key: secret_key?.to_owned(), token: None, _private: () })
+        let mut access_key = Err(S3Error::from("Missing aws_access_key_id section"));
+        let mut secret_key = Err(S3Error::from("Missing aws_secret_access_key section"));
+        let mut token = None;
+        if let Some(data) = conf.section(Some(section)) {
+            access_key = match data.get("aws_access_key_id") {
+                Some(x) => Ok(x.to_owned()),
+                None => Err(S3Error::from("Missing aws_access_key_id section"))
+            };
+            secret_key = match data.get("aws_secret_access_key") {
+                Some(x) => Ok(x.to_owned()),
+                None => Err(S3Error::from("Missing aws_secret_access_key section"))
+            };
+            token = match data.get("aws_security_token") {
+                Some(x) => Some(x.to_owned()),
+                None => None
+            }
+        } 
+        
+        Ok(Credentials { access_key: access_key?.to_owned(), secret_key: secret_key?.to_owned(), token, _private: () })
     }
 }
 
