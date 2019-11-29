@@ -21,7 +21,7 @@ use signing;
 use EMPTY_PAYLOAD_SHA;
 use LONG_DATE;
 use reqwest::async::Response;
-use error::{S3Error, S3Result};
+use error::{S3Error, Result};
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -148,7 +148,7 @@ impl<'a> Request<'a> {
         signing::string_to_sign(&self.datetime, &self.bucket.region(), request)
     }
 
-    fn signing_key(&self) -> S3Result<Vec<u8>> {
+    fn signing_key(&self) -> Result<Vec<u8>> {
         Ok(signing::signing_key(
             &self.datetime,
             &self.bucket.secret_key(),
@@ -157,7 +157,7 @@ impl<'a> Request<'a> {
         )?)
     }
 
-    fn authorization(&self, headers: &HeaderMap) -> S3Result<String> {
+    fn authorization(&self, headers: &HeaderMap) -> Result<String> {
         let canonical_request = self.canonical_request(headers);
         let string_to_sign = self.string_to_sign(&canonical_request);
         let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
@@ -173,7 +173,7 @@ impl<'a> Request<'a> {
         ))
     }
 
-    fn headers(&self) -> S3Result<HeaderMap> {
+    fn headers(&self) -> Result<HeaderMap> {
         // Generate this once, but it's used in more than one place.
         let sha256 = self.sha256();
 
@@ -222,7 +222,7 @@ impl<'a> Request<'a> {
         Ok(headers)
     }
 
-    pub fn response_data(&self) -> S3Result<(Vec<u8>, u16)> {
+    pub fn response_data(&self) -> Result<(Vec<u8>, u16)> {
         let response_data = self.response_data_future().then(|result|
             match result {
                 Ok((response_data, status_code)) => Ok((response_data, status_code)),
@@ -232,7 +232,7 @@ impl<'a> Request<'a> {
         runtime.block_on(response_data)
     }
 
-    pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> S3Result<u16> {
+    pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16> {
         let status_code_future = self.response_data_to_writer_future(writer).then(|result| {
             match result {
                 Ok(status_code) => Ok(status_code),
@@ -296,7 +296,7 @@ mod tests {
     use command::Command;
     use credentials::Credentials;
     use request::Request;
-    use error::S3Result;
+    use error::Result;
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_https_by_default() -> S3Result<()> {
+    fn url_uses_https_by_default() -> Result<()> {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
@@ -323,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_scheme_from_custom_region_if_defined() -> S3Result<()> {
+    fn url_uses_scheme_from_custom_region_if_defined() -> Result<()> {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
