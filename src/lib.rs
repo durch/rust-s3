@@ -29,20 +29,3 @@ pub mod error;
 
 const LONG_DATE: &str = "%Y%m%dT%H%M%SZ";
 const EMPTY_PAYLOAD_SHA: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-
-#[allow(dead_code)]
-mod test {
-    use super::error::S3Result;
-    err!(S3Error);
-
-    #[cfg(test)]
-    fn test_error() {
-        fn is_error(_e: &dyn std::error::Error) -> S3Result<()> {
-            Ok(())
-        }
-
-        let err: S3Error = "test error".into();
-
-        is_error(&err).unwrap();
-    }
-}
