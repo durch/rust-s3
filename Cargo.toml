@@ -29,8 +29,8 @@ rust-ini = "^0.13"
 dirs = "^2.0.2"
 futures = "^0.1.28"
 tokio = "^0.1.22"
-simpl = {git = "https://github.com/durch/simplerr"}
-# simpl = {path = "/home/drazen/playground/simplerr"}
+# simpl = {git = "https://github.com/durch/simplerr"}
+simpl = {path = "/home/drazen/playground/simplerr"}
 
 [features]
 no-verify-ssl = []

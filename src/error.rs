@@ -1,10 +1,12 @@
 use simpl::err;
 
-err!(S3Error);
-from!(serde_xml::Error);
-from!(reqwest::Error);
-from!(reqwest::header::InvalidHeaderName);
-from!(reqwest::header::InvalidHeaderValue);
-from!(std::env::VarError);
-from!(ini::ini::Error);
-from!(hmac::crypto_mac::InvalidKeyLength);
+err!(S3Error, 
+    {
+        Xml@serde_xml::Error;
+        Req@reqwest::Error;
+        ReqHN@reqwest::header::InvalidHeaderName;
+        ReqHV@reqwest::header::InvalidHeaderValue;
+        Var@std::env::VarError;
+        Ini@ini::ini::Error;
+        Hmac@hmac::crypto_mac::InvalidKeyLength;
+});
