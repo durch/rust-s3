@@ -6,14 +6,14 @@ use s3::bucket::Bucket;
 use s3::credentials::Credentials;
 use s3::error::S3Error;
 
-const BUCKET: &str = "drazen-test-bucket-2";
+const BUCKET: &str = "rust-s3-test";
 const MESSAGE: &str = "I want to go to S3";
-const REGION: &str = "us-east-1";
+const REGION: &str = "eu-central-1";
 
 pub fn main() -> Result<(), S3Error> {
     let region = REGION.parse()?;
 //     Create Bucket in REGION for BUCKET
-    let credentials = Credentials::default();
+    let credentials = Credentials::from_profile(Some("rust-s3".into()))?;
     let bucket = Bucket::new(BUCKET, region, credentials)?;
 
     // List out contents of directory
@@ -33,7 +33,8 @@ pub fn main() -> Result<(), S3Error> {
 
     // Put a "test_file" with the contents of MESSAGE at the root of the
     // bucket.
-    let (_, code) = bucket.put_object("test_file", MESSAGE.as_bytes(), "text/plain")?;
+    let (response, code) = bucket.put_object("test_file", MESSAGE.as_bytes(), "text/plain")?;
+    println!("{}", str::from_utf8(response.as_slice()).unwrap());
     assert_eq!(200, code);
 
     // Get the "test_file" contents and make sure that the returned message

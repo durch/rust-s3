@@ -1,7 +1,7 @@
 use std::env;
 use dirs;
 use ini::Ini;
-use error::{S3Result, S3Error};
+use error::{Result, S3Error};
 use std::collections::HashMap;
 
 /// AWS access credentials: access key, secret key, and optional token.
@@ -105,7 +105,7 @@ impl Credentials {
         }
     }
 
-    fn from_env() -> S3Result<Credentials> {
+    fn from_env() -> Result<Credentials> {
         let access_key = env::var("AWS_ACCESS_KEY_ID")?;
         let secret_key = env::var("AWS_SECRET_ACCESS_KEY")?;
         let token = match env::var("AWS_SESSION_TOKEN") {
@@ -115,7 +115,7 @@ impl Credentials {
         Ok(Credentials { access_key, secret_key, token, _private: () })
     }
 
-    fn from_instance_metadata() -> S3Result<Credentials> {
+    fn from_instance_metadata() -> Result<Credentials> {
         let resp: HashMap<String, String> = reqwest::get("http://169.254.169.254/latest/meta-data/iam/info")?
             .json()?;
         let credentials = if let Some(arn) = resp.get("InstanceProfileArn") {
@@ -136,7 +136,7 @@ impl Credentials {
         Ok(credentials.unwrap())
     }
 
-    pub fn from_profile(section: Option<String>) -> S3Result<Credentials> {
+    pub fn from_profile(section: Option<String>) -> Result<Credentials> {
         let home_dir = match dirs::home_dir() {
             Some(path) => Ok(path),
             None => Err(S3Error::from("Invalid home dir")),
