@@ -3,8 +3,6 @@ use serde_xml;
 use reqwest;
 use core::fmt;
 
-// crate should be called simpl, than we have simpl::from and simpl:err
-
 macro_rules! err {
     ($i: ident) => {
         #[derive(Debug)]
@@ -13,14 +11,16 @@ macro_rules! err {
             pub data: Option<String>
         }
 
-        impl From<&str> for $i {
+        impl std::convert::From<&str> for $i {
             fn from(str: &str) -> Self {
                 $i { description: Some(str.to_string()), data: None}
             }
         }
 
-        impl fmt::Display for $i {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        impl std::error::Error for $i {}
+
+        impl core::fmt::Display for $i {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 match self.description.as_ref() {
                     Some(err) => write!(f, "{}", err),
                     None => write!(f, "An unknown error has occurred!")
@@ -31,7 +31,7 @@ macro_rules! err {
 
         macro_rules! from {
             ($t: ty) => {
-                impl From<$t> for $i {
+                impl std::convert::From<$t> for $i {
                     fn from(e: $t) -> $i {
                         $i { description: Some(String::from(format!("{}",e))), data: None }
                     }

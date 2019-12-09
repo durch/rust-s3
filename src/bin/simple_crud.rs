@@ -17,7 +17,7 @@ pub fn main() -> Result<(), S3Error> {
     let bucket = Bucket::new(BUCKET, region, credentials)?;
 
     // List out contents of directory
-    let results = bucket.list_all("".to_string(), None).unwrap();
+    let results = bucket.list_all("".to_string(), None)?;
     for (list, code) in results {
         assert_eq!(200, code);
         println!("{:?}", list.contents.len());
