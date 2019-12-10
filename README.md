@@ -9,14 +9,16 @@
 Tiny Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with *async* usage
 
 ### Intro
-Very modest interface towards Amazon S3, as well as S3 compatible APIs.
+Modest interface towards Amazon S3, as well as S3 compatible APIs.
 Supports `put`, `get`, `list`, and `delete`, operations on `tags` and `location`.
 
-Supports streaming S3 contents generic over `T: Write` as of `0.15.0`.
+Supports streaming S3 contents, generic over `T: Write` as of `0.15.0`.
+
+[`0.19.0`](https://github.com/durch/rust-s3/pulls) will be promoted to `master` as dependencies mature. It will bring a slew of breaking changes including futures 0.3 and async/.await support. `0.19.0` is a possible candidate for stabilization to `1.0.0` eventually. Alpha version of `0.19.0` is available at crates.io.
 
 ### What is cool
 
-The main cool feature is that `put` commands return a presigned link to the file you uploaded.
+The main cool feature is that `put` commands return a presigned link to the file you uploaded - THIS ONE IS CURRENTLY BROKEN, FIX IN PROGRESS.
 This means you can upload to s3, and give the link to select people without having to worry about publicly accessible files on S3.
 
 
@@ -31,13 +33,13 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```
 [dependencies]
-rust-s3 = "0.18.3"
+rust-s3 = "0.18.6"
 ```
 
 #### Disable SSL verification for endpoints
 ```
 [dependencies]
-rust-s3 = {version = "0.18.3", features = ["no-verify-ssl"]}
+rust-s3 = {version = "0.18.6", features = ["no-verify-ssl"]}
 ```
 
 #### Example
