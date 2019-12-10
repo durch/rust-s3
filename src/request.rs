@@ -233,7 +233,7 @@ impl<'a> Request<'a> {
     }
 
     pub fn response_data(&self) -> Result<(Vec<u8>, u16)> {
-        let response_data = self.response_data_future().then(|result| match result {
+        let response_data = self.response_data_future().map(|result| match result {
             Ok((response_data, status_code)) => Ok((response_data, status_code)),
             Err(e) => Err(e),
         });
@@ -244,7 +244,7 @@ impl<'a> Request<'a> {
     pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16> {
         let status_code_future =
             self.response_data_to_writer_future(writer)
-                .then(|result| match result {
+                .map(|result| match result {
                     Ok(status_code) => Ok(status_code),
                     Err(_) => Err(S3Error::from("ReqwestFuture")),
                 });
@@ -252,7 +252,7 @@ impl<'a> Request<'a> {
         runtime.block_on(status_code_future)
     }
 
-    pub fn response_future(&self) -> impl Future<Item = Response, Error = S3Error> {
+    pub fn response_future(&self) -> impl Future<Output = Result<Response>> {
         let client = if cfg!(feature = "no-verify-ssl") {
             async::Client::builder()
                 .danger_accept_invalid_certs(true)
@@ -283,12 +283,12 @@ impl<'a> Request<'a> {
         request.send().map_err(S3Error::from)
     }
 
-    pub fn response_data_future(&self) -> impl Future<Item = (Vec<u8>, u16), Error = S3Error> {
+    pub fn response_data_future(&self) -> impl Future<Output = Result<(Vec<u8>, u16)>> {
         self.response_future()
-            .and_then(|mut response| Ok((response.text(), response.status().as_u16())))
+            .map(|mut response| Ok((response?.text(), response?.status().as_u16())))
             .and_then(|(body_future, status_code)| {
                 body_future
-                    .and_then(move |body| Ok((body.as_bytes().to_vec(), status_code)))
+                    .map(move |body| Ok((body?.as_bytes().to_vec(), status_code)))
                     .map_err(S3Error::from)
             })
     }
@@ -296,13 +296,13 @@ impl<'a> Request<'a> {
     pub fn response_data_to_writer_future<'b, T: Write>(
         &self,
         writer: &'b mut T,
-    ) -> impl Future<Item = u16> + 'b {
+    ) -> impl Future<Output = Result<u16>> + 'b {
         let future_response = self.response_data_future();
-        future_response.and_then(move |(body, status_code)| {
+        future_response.map(move |response| {
             writer
-                .write_all(body.as_slice())
+                .write_all(response?.0.as_slice())
                 .expect("Could not write to writer");
-            Ok(status_code)
+            Ok(response?.1)
         })
     }
 }

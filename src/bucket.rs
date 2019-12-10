@@ -110,7 +110,7 @@ impl Bucket {
     ///         println!("{:?}", data);
     /// });
     /// ```
-    pub fn get_object_async(&self, path: &str) -> impl Future<Item = (Vec<u8>, u16)> {
+    pub fn get_object_async(&self, path: &str) -> impl Future<Output = Result<(Vec<u8>, u16)>> {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
         request.response_data_future()
@@ -167,7 +167,7 @@ impl Bucket {
         &self,
         path: &str,
         writer: &'b mut T,
-    ) -> impl Future<Item = u16> + 'b {
+    ) -> impl Future<Output = Result<u16>> + 'b {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
         request.response_data_to_writer_future(writer)
@@ -417,7 +417,7 @@ impl Bucket {
         prefix: String,
         delimiter: Option<String>,
         continuation_token: Option<String>,
-    ) -> impl Future<Item = (ListBucketResult, u16), Error = S3Error> + Send {
+    ) -> impl Future<Output = Result<(ListBucketResult, u16)>> + Send {
         let command = Command::ListBucket {
             prefix,
             delimiter,
@@ -425,7 +425,7 @@ impl Bucket {
         };
         let request = Request::new(self, "/", command);
         let result = request.response_data_future();
-        result.and_then(|(response, status_code)| {
+        result.then(|(response, status_code)| {
             match serde_xml::from_reader(response.as_slice()) {
                 Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
                 Err(_) => {
@@ -508,7 +508,7 @@ impl Bucket {
         &self,
         prefix: String,
         delimiter: Option<String>,
-    ) -> impl Future<Item = Vec<ListBucketResult>, Error = S3Error> + Send {
+    ) -> impl Future<Output = Result<Vec<ListBucketResult>>> + Send {
         let the_bucket = self.to_owned();
         let list_entire_bucket = loop_fn(
             (None, Vec::new()),

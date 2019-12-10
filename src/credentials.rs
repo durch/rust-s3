@@ -3,6 +3,8 @@ use dirs;
 use ini::Ini;
 use error::{Result, S3Error};
 use std::collections::HashMap;
+use futures::prelude::*;
+use tokio::runtime::current_thread::Runtime;
 
 /// AWS access credentials: access key, secret key, and optional token.
 ///
@@ -116,12 +118,13 @@ impl Credentials {
     }
 
     fn from_instance_metadata() -> Result<Credentials> {
-        let resp: HashMap<String, String> = reqwest::get("http://169.254.169.254/latest/meta-data/iam/info")?
+        let resp: HashMap<String, String> = reqwest::get("http://169.254.169.254/latest/meta-data/iam/info").await?
             .json()?;
         let credentials = if let Some(arn) = resp.get("InstanceProfileArn") {
             if let Some(role) = arn.split('/').last() {
-                let resp: HashMap<String, String> = reqwest::get(&format!("http://169.254.169.254/latest/meta-data/iam/security-credentials/{}", role))?
-                    .json()?;
+                let resp = reqwest::get(&format!("http://169.254.169.254/latest/meta-data/iam/security-credentials/{}", role)).map(|response| Ok(response?.json()?));
+                let mut runtime = Runtime::new().unwrap();
+                runtime.block_on(resp)
                 let access_key = resp.get("AccessKeyId").unwrap().clone();
                 let secret_key = resp.get("SecretAccessKey").unwrap().clone();
                 let token = Some(resp.get("Token").unwrap().clone());
