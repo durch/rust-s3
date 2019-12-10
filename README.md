@@ -16,9 +16,9 @@ Supports streaming S3 contents, generic over `T: Write` as of `0.15.0`.
 
 [`0.19.0`](https://github.com/durch/rust-s3/pulls) will be promoted to `master` as dependencies mature. It will bring a slew of breaking changes including futures 0.3 and async/.await support. `0.19.0` is a possible candidate for stabilization to `1.0.0` eventually. Alpha version of `0.19.0` is available at crates.io.
 
-### What is cool
+### What is cool -> Broken and tracked at [#54](https://github.com/durch/rust-s3/issues/54)
 
-The main cool feature is that `put` commands return a presigned link to the file you uploaded - THIS ONE IS CURRENTLY BROKEN, FIX IN PROGRESS.
+The main cool feature is that `put` commands return a presigned link to the file you uploaded
 This means you can upload to s3, and give the link to select people without having to worry about publicly accessible files on S3.
 
 
@@ -36,7 +36,7 @@ it is configured for one week which is the maximum Amazon allows ATM.
 rust-s3 = "0.18.6"
 ```
 
-#### Disable SSL verification for endpoints
+#### Disable SSL verification for endpoints, useful for custom regions
 ```
 [dependencies]
 rust-s3 = {version = "0.18.6", features = ["no-verify-ssl"]}
