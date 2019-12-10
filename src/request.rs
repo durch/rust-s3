@@ -9,7 +9,7 @@ use crate::command::Command;
 use chrono::{DateTime, Utc};
 use hmac::Mac;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
-use reqwest::r#async;
+use reqwest::{Client, Response};
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -21,7 +21,6 @@ use crate::signing;
 use crate::error::{Result, S3Error};
 use crate::EMPTY_PAYLOAD_SHA;
 use crate::LONG_DATE;
-use reqwest::r#async::Response;
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -254,13 +253,13 @@ impl<'a> Request<'a> {
 
     pub fn response_future(&self) -> impl Future<Output = Result<Response>> {
         let client = if cfg!(feature = "no-verify-ssl") {
-            r#async::Client::builder()
+            Client::builder()
                 .danger_accept_invalid_certs(true)
                 .danger_accept_invalid_hostnames(true)
                 .build()
                 .expect("Could not build dangereous client!")
         } else {
-            r#async::Client::new()
+            Client::new()
         };
 
         // Build headers
