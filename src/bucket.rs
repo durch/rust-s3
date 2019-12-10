@@ -3,15 +3,12 @@ use std::mem;
 
 use serde_xml;
 
-use command::Command;
-use credentials::Credentials;
-use error::{S3Error, Result};
-use futures::future::{loop_fn, Loop};
-use futures::Future;
-use region::Region;
-use request::{Headers, Query, Request};
-use serde_types::Tagging;
-use serde_types::{BucketLocationResult, ListBucketResult};
+use crate::command::Command;
+use crate::credentials::Credentials;
+use crate::error::{S3Error, Result};
+use crate::region::Region;
+use crate::request::{Headers, Query, Request};
+use crate::serde_types::{BucketLocationResult, ListBucketResult, Tagging};
 use std::io::Write;
 
 /// # Example
@@ -110,10 +107,10 @@ impl Bucket {
     ///         println!("{:?}", data);
     /// });
     /// ```
-    pub fn get_object_async(&self, path: &str) -> impl Future<Output = Result<(Vec<u8>, u16)>> {
+    pub async fn get_object_async(&self, path: &str) -> Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
-        request.response_data_future()
+        Ok(request.response_data_future().await?)
     }
 
     /// Stream file from S3 path to a local file, generic over T: Write.
@@ -163,14 +160,14 @@ impl Bucket {
     ///     .map(|status_code| println!("Code: {}", status_code));
     ///
     /// ```
-    pub fn get_object_stream_async<'b, T: Write>(
+    pub async fn get_object_stream_async<T: Write>(
         &self,
         path: &str,
-        writer: &'b mut T,
-    ) -> impl Future<Output = Result<u16>> + 'b {
+        writer: &mut T,
+    ) -> Result<u16> {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
-        request.response_data_to_writer_future(writer)
+        Ok(request.response_data_to_writer_future(writer).await?)
     }
 
     //// Get bucket location from S3
@@ -412,29 +409,27 @@ impl Bucket {
         }
     }
 
-    pub fn list_page_async(
+    pub async fn list_page_async(
         &self,
         prefix: String,
         delimiter: Option<String>,
         continuation_token: Option<String>,
-    ) -> impl Future<Output = Result<(ListBucketResult, u16)>> + Send {
+    ) -> Result<(ListBucketResult, u16)> {
         let command = Command::ListBucket {
             prefix,
             delimiter,
             continuation_token,
         };
         let request = Request::new(self, "/", command);
-        let result = request.response_data_future();
-        result.then(|(response, status_code)| {
-            match serde_xml::from_reader(response.as_slice()) {
-                Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
-                Err(_) => {
-                    let mut err = S3Error::from("Could not deserialize result");
-                    err.data = Some(String::from_utf8_lossy(response.as_slice()).to_string());
-                    Err(err)
-                }
+        let (response, status_code) = request.response_data_future().await?;
+        match serde_xml::from_reader(response.as_slice()) {
+            Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
+            Err(_) => {
+                let mut err = S3Error::from("Could not deserialize result");
+                err.data = Some(String::from_utf8_lossy(response.as_slice()).to_string());
+                Err(err)
             }
-        })
+        }
     }
 
     /// List the contents of an S3 bucket.
@@ -504,29 +499,23 @@ impl Bucket {
     ///     Ok(())
     /// });
     /// ```
-    pub fn list_all_async(
+    pub async fn list_all_async(
         &self,
         prefix: String,
         delimiter: Option<String>,
-    ) -> impl Future<Output = Result<Vec<ListBucketResult>>> + Send {
+    ) ->    Result<Vec<ListBucketResult>> {
         let the_bucket = self.to_owned();
-        let list_entire_bucket = loop_fn(
-            (None, Vec::new()),
-            move |(continuation_token, results): (Option<String>, Vec<ListBucketResult>)| {
-                let mut inner_results = results;
-                the_bucket
-                    .list_page_async(prefix.clone(), delimiter.clone(), continuation_token)
-                    .and_then(|(result, _status_code)| {
-                        inner_results.push(result.clone());
-                        match result.next_continuation_token {
-                            Some(token) => Ok(Loop::Continue((Some(token), inner_results))),
-                            None => Ok(Loop::Break((None, inner_results))),
-                        }
-                    })
-            },
-        );
-        list_entire_bucket
-            .and_then(|(_token, results): (Option<&str>, Vec<ListBucketResult>)| Ok(results))
+        let mut continuation_token = None;
+        let mut results = Vec::new();
+        loop {
+            let (page_result, _status_code) = the_bucket.list_page_async(prefix.clone(), delimiter.clone(), continuation_token).await?;
+            results.push(page_result.clone());
+            continuation_token = page_result.next_continuation_token;
+            if continuation_token.is_none() {
+                break
+            }
+        }
+        Ok(results)
     }
 
     /// Get a reference to the name of the S3 bucket.

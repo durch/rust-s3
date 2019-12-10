@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.19.0-beta"
+version = "0.19.0-alpha.1"
 authors = ["Drazen Urch", "Nick Stevens"]
 description = "Tiny Rust library for working with Amazon S3 and compatible APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -8,6 +8,8 @@ readme = "README.md"
 keywords = ["Amazon", "AWS", "S3"]
 license = "MIT"
 documentation = "https://durch.github.io/rust-s3/"
+edition = "2018"
+
 
 [lib]
 name = "s3"
@@ -18,7 +20,7 @@ base64 = "0.10.1"
 chrono = "^0.4.0"
 hex = "^0.4.0"
 hmac = "^0.7.1"
-reqwest = "^0.9.1"
+reqwest = {version = "^0.10.0-alpha.2", features = ["json"]}
 serde_derive = "^1.0.101"
 serde = "^1.0.101"
 serde-xml-rs = "^0.3.1"
@@ -27,8 +29,8 @@ md5 = "0.7.0"
 url = "^2.1.0"
 rust-ini = "^0.13"
 dirs = "^2.0.2"
-futures = "^0.1.28"
-tokio = "^0.1.22"
+futures = "0.3.1"
+tokio = "0.2.0-alpha.6"
 # simpl = {git = "https://github.com/durch/simplerr"}
 simpl = {path = "/home/drazen/playground/simplerr"}
 
