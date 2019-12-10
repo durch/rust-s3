@@ -304,11 +304,11 @@ impl<'a> Request<'a> {
 
 #[cfg(test)]
 mod tests {
-    use bucket::Bucket;
-    use command::Command;
-    use credentials::Credentials;
-    use error::Result;
-    use request::Request;
+    use crate::bucket::Bucket;
+    use crate::command::Command;
+    use crate::credentials::Credentials;
+    use crate::error::Result;
+    use crate::request::Request;
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.

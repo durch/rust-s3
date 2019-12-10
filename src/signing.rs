@@ -152,7 +152,7 @@ mod tests {
     use super::*;
 
     use serde_xml;
-    use serde_types::ListBucketResult;
+    use crate::serde_types::ListBucketResult;
 
     #[test]
     fn test_base_url_encode() {
