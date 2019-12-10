@@ -14,7 +14,7 @@ Supports `put`, `get`, `list`, and `delete`, operations on `tags` and `location`
 
 Supports streaming S3 contents, generic over `T: Write` as of `0.15.0`.
 
-[`0.19.0`](https://github.com/durch/rust-s3/pulls) will be promoted to `master` as dependencies mature. It will bring a slew of breaking changes including futures 0.3 and async/.await support. `0.19.0` is a possible candidate for stabilization to `1.0.0` eventually. Alpha version of `0.19.0` is available at crates.io.
+[`0.19.0`](https://github.com/durch/rust-s3/pulls) will be promoted to `master` as dependencies mature. It will bring a slew of breaking changes including futures 0.3 and async/.await support. `0.19.0` is a possible candidate for stabilization to `1.0.0` eventually. Alpha version of `0.19.0` is available at [crates.io](https://crates.io/crates/rust-s3/0.19.0-alpha.1).
 
 ### What is cool -> Broken and tracked at [#54](https://github.com/durch/rust-s3/issues/54)
 
