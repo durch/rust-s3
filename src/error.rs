@@ -49,5 +49,6 @@ from!(reqwest::header::InvalidHeaderValue);
 from!(std::env::VarError);
 from!(ini::ini::Error);
 from!(hmac::crypto_mac::InvalidKeyLength);
+from!(std::str::Utf8Error);
 
 pub type S3Result<T, E = S3Error> = std::result::Result<T, E>;

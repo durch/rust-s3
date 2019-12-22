@@ -1,8 +1,9 @@
-use std::env;
 use dirs;
+use error::{S3Error, S3Result};
 use ini::Ini;
-use error::{S3Result, S3Error};
 use std::collections::HashMap;
+use std::env;
+use std::process::Command;
 
 /// AWS access credentials: access key, secret key, and optional token.
 ///
@@ -63,32 +64,31 @@ pub struct Credentials {
 impl Credentials {
     /// Initialize Credentials directly with key ID, secret key, and optional
     /// token.
-    pub fn new(access_key: Option<String>, secret_key: Option<String>, token: Option<String>, profile: Option<String>) -> Credentials {
+    pub fn new(
+        access_key: Option<String>,
+        secret_key: Option<String>,
+        token: Option<String>,
+        profile: Option<String>,
+    ) -> Credentials {
         let credentials = match access_key {
             Some(key) => match secret_key {
-                Some(secret) => {
-                    match token {
-                        Some(t) => {
-                            Some(Credentials {
-                                access_key: key,
-                                secret_key: secret,
-                                token: Some(t),
-                                _private: (),
-                            })
-                        }
-                        None => {
-                            Some(Credentials {
-                                access_key: key,
-                                secret_key: secret,
-                                token: None,
-                                _private: (),
-                            })
-                        }
-                    }
-                }
-                None => None
-            }
-            None => None
+                Some(secret) => match token {
+                    Some(t) => Some(Credentials {
+                        access_key: key,
+                        secret_key: secret,
+                        token: Some(t),
+                        _private: (),
+                    }),
+                    None => Some(Credentials {
+                        access_key: key,
+                        secret_key: secret,
+                        token: None,
+                        _private: (),
+                    }),
+                },
+                None => None,
+            },
+            None => None,
         };
         match credentials {
             Some(c) => c,
@@ -110,22 +110,44 @@ impl Credentials {
         let secret_key = env::var("AWS_SECRET_ACCESS_KEY")?;
         let token = match env::var("AWS_SESSION_TOKEN") {
             Ok(x) => Some(x),
-            Err(_) => None
+            Err(_) => None,
         };
-        Ok(Credentials { access_key, secret_key, token, _private: () })
+        Ok(Credentials {
+            access_key,
+            secret_key,
+            token,
+            _private: (),
+        })
     }
 
     fn from_instance_metadata() -> S3Result<Credentials> {
-        let resp: HashMap<String, String> = reqwest::get("http://169.254.169.254/latest/meta-data/iam/info")?
-            .json()?;
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg("head -c 3 /sys/hypervisor/uuid")
+            .output()
+            .expect("failed to execute process");
+        let is_ec2 = std::str::from_utf8(output.stdout.as_slice())? == "ec2";
+        if !is_ec2 {
+            return Err(S3Error::from("Not an EC2 instance"))
+        }
+        let resp: HashMap<String, String> =
+            reqwest::get("http://169.254.169.254/latest/meta-data/iam/info")?.json()?;
         let credentials = if let Some(arn) = resp.get("InstanceProfileArn") {
             if let Some(role) = arn.split('/').last() {
-                let resp: HashMap<String, String> = reqwest::get(&format!("http://169.254.169.254/latest/meta-data/iam/security-credentials/{}", role))?
-                    .json()?;
+                let resp: HashMap<String, String> = reqwest::get(&format!(
+                    "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
+                    role
+                ))?
+                .json()?;
                 let access_key = resp.get("AccessKeyId").unwrap().clone();
                 let secret_key = resp.get("SecretAccessKey").unwrap().clone();
                 let token = Some(resp.get("Token").unwrap().clone());
-                Some(Credentials { access_key, secret_key, token, _private: ()})
+                Some(Credentials {
+                    access_key,
+                    secret_key,
+                    token,
+                    _private: (),
+                })
             } else {
                 None
             }
@@ -145,7 +167,7 @@ impl Credentials {
         let conf = Ini::load_from_file(&profile)?;
         let section = match section {
             Some(s) => s,
-            None => String::from("default")
+            None => String::from("default"),
         };
         let mut access_key = Err(S3Error::from("Missing aws_access_key_id section"));
         let mut secret_key = Err(S3Error::from("Missing aws_secret_access_key section"));
@@ -153,19 +175,24 @@ impl Credentials {
         if let Some(data) = conf.section(Some(section)) {
             access_key = match data.get("aws_access_key_id") {
                 Some(x) => Ok(x.to_owned()),
-                None => Err(S3Error::from("Missing aws_access_key_id section"))
+                None => Err(S3Error::from("Missing aws_access_key_id section")),
             };
             secret_key = match data.get("aws_secret_access_key") {
                 Some(x) => Ok(x.to_owned()),
-                None => Err(S3Error::from("Missing aws_secret_access_key section"))
+                None => Err(S3Error::from("Missing aws_secret_access_key section")),
             };
             token = match data.get("aws_security_token") {
                 Some(x) => Some(x.to_owned()),
-                None => None
+                None => None,
             }
-        } 
-        
-        Ok(Credentials { access_key: access_key?.to_owned(), secret_key: secret_key?.to_owned(), token, _private: () })
+        }
+
+        Ok(Credentials {
+            access_key: access_key?.to_owned(),
+            secret_key: secret_key?.to_owned(),
+            token,
+            _private: (),
+        })
     }
 }
 
