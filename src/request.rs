@@ -8,7 +8,7 @@ use bucket::Bucket;
 use chrono::{DateTime, Utc};
 use command::Command;
 use hmac::Mac;
-use reqwest::async as async;
+use reqwest::async;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use sha2::{Digest, Sha256};
 use url::Url;
@@ -18,10 +18,10 @@ use tokio::runtime::current_thread::Runtime;
 
 use signing;
 
+use error::{S3Error, S3Result};
+use reqwest::async::Response;
 use EMPTY_PAYLOAD_SHA;
 use LONG_DATE;
-use reqwest::async::Response;
-use error::{S3Error, S3Result};
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -29,7 +29,6 @@ pub type Headers = HashMap<String, String>;
 /// Collection of HTTP query parameters sent to S3 service, in key/value
 /// format.
 pub type Query = HashMap<String, String>;
-
 
 // Temporary structure for making a request
 pub struct Request<'a> {
@@ -53,8 +52,10 @@ impl<'a> Request<'a> {
 
     fn url(&self) -> Url {
         let mut url_str = match self.command {
-            Command::GetBucketLocation => format!("{}://{}", self.bucket.scheme(), self.bucket.self_host()),
-            _ => format!("{}://{}", self.bucket.scheme(), self.bucket.host())
+            Command::GetBucketLocation => {
+                format!("{}://{}", self.bucket.scheme(), self.bucket.self_host())
+            }
+            _ => format!("{}://{}", self.bucket.scheme(), self.bucket.host()),
         };
         match self.command {
             Command::GetBucketLocation => {}
@@ -68,7 +69,7 @@ impl<'a> Request<'a> {
         }
         match self.command {
             Command::GetBucketLocation => url_str.push_str(self.path),
-            _ => url_str.push_str(&signing::uri_encode(self.path, false))
+            _ => url_str.push_str(&signing::uri_encode(self.path, false)),
         };
 
         // Since every part of this URL is either pre-encoded or statically
@@ -79,7 +80,12 @@ impl<'a> Request<'a> {
             url.query_pairs_mut().append_pair(key, value);
         }
 
-        if let Command::ListBucket { prefix, delimiter, continuation_token } = self.command.clone() {
+        if let Command::ListBucket {
+            prefix,
+            delimiter,
+            continuation_token,
+        } = self.command.clone()
+        {
             let mut query_pairs = url.query_pairs_mut();
             delimiter.map(|d| query_pairs.append_pair("delimiter", &d.clone()));
             query_pairs.append_pair("prefix", &prefix);
@@ -90,13 +96,15 @@ impl<'a> Request<'a> {
         }
 
         match self.command {
-            Command::PutObjectTagging { .. } | Command::GetObjectTagging | Command::DeleteObjectTagging => {
+            Command::PutObjectTagging { .. }
+            | Command::GetObjectTagging
+            | Command::DeleteObjectTagging => {
                 url.query_pairs_mut().append_pair("tagging", "");
             }
             _ => {}
         }
 
-//        println!("{}", url);
+        //        println!("{}", url);
         url
     }
 
@@ -186,8 +194,10 @@ impl<'a> Request<'a> {
             .map(|(k, v)| Ok((k.parse::<HeaderName>()?, v.parse::<HeaderValue>()?)))
             .collect::<Result<HeaderMap, S3Error>>()?;
         match self.command {
-            Command::GetBucketLocation => headers.insert(header::HOST, self.bucket.self_host().parse()?),
-            _ => headers.insert(header::HOST, self.bucket.host().parse()?)
+            Command::GetBucketLocation => {
+                headers.insert(header::HOST, self.bucket.self_host().parse()?)
+            }
+            _ => headers.insert(header::HOST, self.bucket.host().parse()?),
         };
         headers.insert(
             header::CONTENT_LENGTH,
@@ -205,6 +215,16 @@ impl<'a> Request<'a> {
             let digest = md5::compute(tags);
             let hash = base64::encode(digest.as_ref());
             headers.insert("Content-MD5", hash.parse()?);
+        } else if let Command::PutObject { content, .. } = self.command {
+            let digest = md5::compute(content);
+            let hash = base64::encode(digest.as_ref());
+            headers.insert("Content-MD5", hash.parse()?);
+        } else if let Command::GetObject {} = self.command {
+            headers.insert(
+                header::ACCEPT,
+                HeaderValue::from_str("application/octet-stream")?,
+            );
+            // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
         }
 
         // This must be last, as it signs the other headers
@@ -223,32 +243,32 @@ impl<'a> Request<'a> {
     }
 
     pub fn response_data(&self) -> S3Result<(Vec<u8>, u16)> {
-        let response_data = self.response_data_future().then(|result|
-            match result {
-                Ok((response_data, status_code)) => Ok((response_data, status_code)),
-                Err(e) => Err(e)
-            });
+        let response_data = self.response_data_future().then(|result| match result {
+            Ok((response_data, status_code)) => Ok((response_data, status_code)),
+            Err(e) => Err(e),
+        });
         let mut runtime = Runtime::new().unwrap();
         runtime.block_on(response_data)
     }
 
     pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> S3Result<u16> {
-        let status_code_future = self.response_data_to_writer_future(writer).then(|result| {
-            match result {
-                Ok(status_code) => Ok(status_code),
-                Err(_) => Err(S3Error::from("ReqwestFuture"))
-            }
-        });
+        let status_code_future =
+            self.response_data_to_writer_future(writer)
+                .then(|result| match result {
+                    Ok(status_code) => Ok(status_code),
+                    Err(_) => Err(S3Error::from("ReqwestFuture")),
+                });
         let mut runtime = Runtime::new().unwrap();
         runtime.block_on(status_code_future)
     }
 
-    pub fn response_future(&self) -> impl Future<Item=Response, Error=S3Error> {
+    pub fn response_future(&self) -> impl Future<Item = Response, Error = S3Error> {
         let client = if cfg!(feature = "no-verify-ssl") {
             async::Client::builder()
                 .danger_accept_invalid_certs(true)
                 .danger_accept_invalid_hostnames(true)
-                .build().expect("Could not build dangereous client!")
+                .build()
+                .expect("Could not build dangereous client!")
         } else {
             async::Client::new()
         };
@@ -273,18 +293,35 @@ impl<'a> Request<'a> {
         request.send().map_err(S3Error::from)
     }
 
-    pub fn response_data_future(&self) -> impl Future<Item=(Vec<u8>, u16), Error=S3Error> {
+    pub fn response_data_future(&self) -> impl Future<Item = (Vec<u8>, u16), Error = S3Error> {
         self.response_future()
-            .and_then(|mut response| Ok((response.text(), response.status().as_u16())))
+            .and_then(|response| {
+                // println!("{:?}", response.headers());
+                let status_code = response.status().as_u16();
+                Ok((response.into_body().collect(), status_code))
+            })
             .and_then(|(body_future, status_code)| {
-                body_future.and_then(move |body| Ok((body.as_bytes().to_vec(), status_code))).map_err(S3Error::from)
+                body_future
+                    .and_then(move |body| {
+                        let mut entire_body = body
+                            .iter()
+                            .fold(vec![], |mut acc, slice| {acc.extend_from_slice(slice); acc});
+                        entire_body.shrink_to_fit();
+                        Ok((entire_body, status_code))
+                    })
+                    .map_err(S3Error::from)
             })
     }
 
-    pub fn response_data_to_writer_future<'b, T: Write>(&self, writer: &'b mut T) -> impl Future<Item=u16> + 'b {
+    pub fn response_data_to_writer_future<'b, T: Write>(
+        &self,
+        writer: &'b mut T,
+    ) -> impl Future<Item = u16> + 'b {
         let future_response = self.response_data_future();
         future_response.and_then(move |(body, status_code)| {
-            writer.write_all(body.as_slice()).expect("Could not write to writer");
+            writer
+                .write_all(body.as_slice())
+                .expect("Could not write to writer");
             Ok(status_code)
         })
     }
@@ -295,8 +332,8 @@ mod tests {
     use bucket::Bucket;
     use command::Command;
     use credentials::Credentials;
-    use request::Request;
     use error::S3Result;
+    use request::Request;
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
