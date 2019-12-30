@@ -154,12 +154,12 @@ impl Credentials {
 
     fn is_ec2() -> bool {
         if let Ok(uuid) = std::fs::read_to_string("/sys/hypervisor/uuid") {
-            if &uuid[..3] == "ec2" {
+            if uuid.len() >= 3 && &uuid[..3] == "ec2" {
                 return true;
             }
         }
         if let Ok(uuid) = std::fs::read_to_string("/sys/class/dmi/id/board_vendor") {
-            if &uuid[..10] == "Amazon EC2" {
+            if uuid.len() >= 10 && &uuid[..10] == "Amazon EC2" {
                 return true;
             }
         }
