@@ -121,14 +121,8 @@ impl Credentials {
     }
 
     fn from_instance_metadata() -> S3Result<Credentials> {
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg("head -c 3 /sys/hypervisor/uuid")
-            .output()
-            .expect("failed to execute process");
-        let is_ec2 = std::str::from_utf8(output.stdout.as_slice())? == "ec2";
-        if !is_ec2 {
-            return Err(S3Error::from("Not an EC2 instance"))
+        if !Credentials::is_ec2() {
+            return Err(S3Error::from("Not an EC2 instance"));
         }
         let resp: HashMap<String, String> =
             reqwest::get("http://169.254.169.254/latest/meta-data/iam/info")?.json()?;
@@ -156,6 +150,20 @@ impl Credentials {
         };
 
         Ok(credentials.unwrap())
+    }
+
+    fn is_ec2() -> bool {
+        if let Ok(uuid) = std::fs::read_to_string("/sys/hypervisor/uuid") {
+            if &uuid[..3] == "ec2" {
+                return true;
+            }
+        }
+        if let Ok(uuid) = std::fs::read_to_string("/sys/class/dmi/id/board_vendor") {
+            if &uuid[..10] == "Amazon EC2" {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn from_profile(section: Option<String>) -> S3Result<Credentials> {
