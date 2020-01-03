@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 use futures::prelude::*;
-use tokio::runtime::current_thread::Runtime;
+use tokio::runtime::Runtime;
 
 use crate::signing;
 
@@ -236,6 +236,7 @@ impl<'a> Request<'a> {
             Ok((response_data, status_code)) => Ok((response_data, status_code)),
             Err(e) => Err(e),
         });
+
         let mut runtime = Runtime::new().unwrap();
         runtime.block_on(response_data)
     }
