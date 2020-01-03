@@ -540,7 +540,7 @@ impl Bucket {
     }
 
     pub fn self_host(&self) -> String {
-        format!("{}.s3.amazonaws.com", self.name)
+        format!("{}.{}", self.name, self.region.host())
     }
 
     pub fn scheme(&self) -> String {
