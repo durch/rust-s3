@@ -9,7 +9,7 @@
 Tiny Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with *async* usage
 
 ### Intro
-Modest interface towards Amazon S3, as well as S3 compatible APIs.
+Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Wasabi or Minio.
 Supports `put`, `get`, `list`, and `delete`, operations on `tags` and `location`.
 
 Supports streaming S3 contents, generic over `T: Write` as of `0.15.0`.
@@ -33,16 +33,16 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```
 [dependencies]
-rust-s3 = "0.18.6"
+rust-s3 = "0.18.10"
 ```
 
 #### Disable SSL verification for endpoints, useful for custom regions
 ```
 [dependencies]
-rust-s3 = {version = "0.18.6", features = ["no-verify-ssl"]}
+rust-s3 = {version = "0.18.10", features = ["no-verify-ssl"]}
 ```
 
-#### Example
+#### AWS and Custom (Minio) Example
 
 + [Simple S3 CRUD](https://github.com/durch/rust-s3/blob/master/src/bin/simple_crud.rs)
 

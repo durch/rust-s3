@@ -5,7 +5,7 @@ authors = ["Drazen Urch", "Nick Stevens"]
 description = "Tiny Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
 readme = "README.md"
-keywords = ["Amazon", "AWS", "S3", "Wasabi"]
+keywords = ["Amazon", "AWS", "S3", "Wasabi", "Minio"]
 license = "MIT"
 documentation = "https://durch.github.io/rust-s3/"
 
