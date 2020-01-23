@@ -3,7 +3,6 @@ use error::{S3Error, S3Result};
 use ini::Ini;
 use std::collections::HashMap;
 use std::env;
-use std::process::Command;
 
 /// AWS access credentials: access key, secret key, and optional token.
 ///
