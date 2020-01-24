@@ -330,7 +330,7 @@ mod tests {
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
 
-        assert_eq!(*host, "custom-region".to_string());
+        assert_eq!(*host, "my-first-bucket.custom-region".to_string());
         Ok(())
     }
 
@@ -346,7 +346,7 @@ mod tests {
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
 
-        assert_eq!(*host, "custom-region".to_string());
+        assert_eq!(*host, "my-second-bucket.custom-region".to_string());
         Ok(())
     }
 }
