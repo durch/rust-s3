@@ -51,6 +51,8 @@ pub enum Region {
     CnNorth1,
     /// cn-northwest-1
     CnNorthwest1,
+    /// eu-north-1
+    EuNorth1,
     /// eu-central-1
     EuCentral1,
     /// eu-west-1
@@ -59,6 +61,8 @@ pub enum Region {
     EuWest2,
     /// eu-west-3
     EuWest3,
+    /// me-south-1
+    MeSouth1,
     /// sa-east-1
     SaEast1,
     /// Digital Ocean nyc3
@@ -88,11 +92,13 @@ impl fmt::Display for Region {
             ApSoutheast2 => write!(f, "ap-southeast-2"),
             CnNorth1 => write!(f, "cn-north-1"),
             CnNorthwest1 => write!(f, "cn-northwest-1"),
+            EuNorth1 => write!(f, "eu-north-1"),
             EuCentral1 => write!(f, "eu-central-1"),
             EuWest1 => write!(f, "eu-west-1"),
             EuWest2 => write!(f, "eu-west-2"),
             EuWest3 => write!(f, "eu-west-3"),
             SaEast1 => write!(f, "sa-east-1"),
+            MeSouth1 => write!(f, "me-south-1"),
             DoNyc3 => write!(f, "nyc3"),
             DoAms3 => write!(f, "ams3"),
             DoSgp1 => write!(f, "sgp1"),
@@ -120,11 +126,13 @@ impl FromStr for Region {
             "ap-southeast-2" => Ok(ApSoutheast2),
             "cn-north-1" => Ok(CnNorth1),
             "cn-northwest-1" => Ok(CnNorthwest1),
+            "eu-north-1" => Ok(EuNorth1),
             "eu-central-1" => Ok(EuCentral1),
             "eu-west-1" => Ok(EuWest1),
             "eu-west-2" => Ok(EuWest2),
             "eu-west-3" => Ok(EuWest3),
             "sa-east-1" => Ok(SaEast1),
+            "me-south-1" => Ok(MeSouth1),
             "nyc3" => Ok(DoNyc3),
             "ams3" => Ok(DoAms3),
             "sgp1" => Ok(DoSgp1),
@@ -152,11 +160,13 @@ impl Region {
             ApSoutheast2 => String::from("s3-ap-southeast-2.amazonaws.com"),
             CnNorth1 => String::from("s3.cn-north-1.amazonaws.com.cn"),
             CnNorthwest1 => String::from("s3.cn-northwest-1.amazonaws.com.cn"),
+            EuNorth1 => String::from("s3-eu-north-1.amazonaws.com"),
             EuCentral1 => String::from("s3-eu-central-1.amazonaws.com"),
             EuWest1 => String::from("s3-eu-west-1.amazonaws.com"),
             EuWest2 => String::from("s3-eu-west-2.amazonaws.com"),
             EuWest3 => String::from("s3-eu-west-3.amazonaws.com"),
             SaEast1 => String::from("s3-sa-east-1.amazonaws.com"),
+            MeSouth1 => String::from("s3-me-south-1.amazonaws.com"),
             DoNyc3 => String::from("nyc3.digitaloceanspaces.com"),
             DoAms3 => String::from("ams3.digitaloceanspaces.com"),
             DoSgp1 => String::from("sgp1.digitaloceanspaces.com"),
