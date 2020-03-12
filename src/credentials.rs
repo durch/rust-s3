@@ -127,7 +127,7 @@ impl Credentials {
         let credentials = match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
             Ok(credentials_path) => {
                 let resp: HashMap<String, String> =
-                    reqwest::get(&format!("http://169.254.169.254{}",credentials_path))?.json()?;
+                    reqwest::get(&format!("http://169.254.170.2{}",credentials_path))?.json()?;
                 let access_key = resp.get("AccessKeyId").unwrap().clone();
                 let secret_key = resp.get("SecretAccessKey").unwrap().clone();
                 let token = Some(resp.get("Token").unwrap().clone());
