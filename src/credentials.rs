@@ -123,13 +123,19 @@ impl Credentials {
         if !Credentials::is_ec2() {
             return Err(S3Error::from("Not an EC2 instance"));
         }
+        
+        let iam_path = match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
+            Ok(fargate_path) => fargate_path,
+            Err(_) => "/latest/meta-data/iam".to_owned()
+        };
+
         let resp: HashMap<String, String> =
-            reqwest::get("http://169.254.169.254/latest/meta-data/iam/info")?.json()?;
+            reqwest::get(&format!("http://169.254.169.254{}/info",iam_path))?.json()?;
         let credentials = if let Some(arn) = resp.get("InstanceProfileArn") {
             if let Some(role) = arn.split('/').last() {
                 let resp: HashMap<String, String> = reqwest::get(&format!(
-                    "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
-                    role
+                    "http://169.254.169.254{}/security-credentials/{}",
+                    iam_path, role
                 ))?
                 .json()?;
                 let access_key = resp.get("AccessKeyId").unwrap().clone();
