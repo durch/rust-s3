@@ -3,24 +3,21 @@
 [![](http://meritbadge.herokuapp.com/rust-s3)](https://crates.io/crates/rust-s3)
 ![](https://img.shields.io/crates/d/rust-s3.svg)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/durch/rust-s3/blob/master/LICENSE.md)
-[![Join the chat at https://gitter.im/durch/rust-s3](https://badges.gitter.im/durch/rust-s3.svg)](https://gitter.im/durch/rust-s3?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+<!-- [![Join the chat at https://gitter.im/durch/rust-s3](https://badges.gitter.im/durch/rust-s3.svg)](https://gitter.im/durch/rust-s3?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) -->
 ## rust-s3 [[docs](https://durch.github.io/rust-s3/)]
 
-Tiny Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with *async* usage
+Tiny Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with **async/await** and `futures ^0.3`
 
 ### Intro
 Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Wasabi or Minio.
 Supports `put`, `get`, `list`, and `delete`, operations on `tags` and `location`.
 
-Supports streaming S3 contents, generic over `T: Write` as of `0.15.0`.
-
-[`0.19.0`](https://github.com/durch/rust-s3/pulls) will be promoted to `master` as dependencies mature. It will bring a slew of breaking changes including futures 0.3 and async/.await support. `0.19.0` is a possible candidate for stabilization to `1.0.0` eventually. Alpha version of `0.19.0` is available at [crates.io](https://crates.io/crates/rust-s3/0.19.0-alpha.1).
+Supports streaming S3 contents, generic over `T: Write`, as well as streaming local paths to S3.
 
 ### What is cool -> Broken and tracked at [#54](https://github.com/durch/rust-s3/issues/54)
 
 The main cool feature is that `put` commands return a presigned link to the file you uploaded
 This means you can upload to s3, and give the link to select people without having to worry about publicly accessible files on S3.
-
 
 ### Configuration
 
@@ -33,13 +30,13 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```
 [dependencies]
-rust-s3 = "0.18.11"
+rust-s3 = "0.19.0"
 ```
 
 #### Disable SSL verification for endpoints, useful for custom regions
 ```
 [dependencies]
-rust-s3 = {version = "0.18.11", features = ["no-verify-ssl"]}
+rust-s3 = {version = "0.19.0", features = ["no-verify-ssl"]}
 ```
 
 #### AWS and Custom (Minio) Example
