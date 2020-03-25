@@ -238,13 +238,13 @@ impl<'a> Request<'a> {
         Ok(headers)
     }
 
-    pub fn response_data(&self) -> Result<(Vec<u8>, u16)> {
-        Ok(futures::executor::block_on(self.response_data_future())?)
-    }
+    // pub fn response_data(&self) -> Result<(Vec<u8>, u16)> {
+    //     Ok(futures::executor::block_on(self.response_data_future())?)
+    // }
 
-    pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16> {
-        Ok(futures::executor::block_on(self.response_data_to_writer_future(writer))?)
-    }
+    // pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16> {
+    //     Ok(futures::executor::block_on(self.response_data_to_writer_future(writer))?)
+    // }
 
     pub async fn response_future(&self) -> Result<Response> {
         let client = if cfg!(feature = "no-verify-ssl") {

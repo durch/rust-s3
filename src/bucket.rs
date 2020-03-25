@@ -169,6 +169,62 @@ impl Bucket {
         Ok(request.response_data_to_writer_future(writer).await?)
     }
 
+    /// Stream file from local path to s3, async.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    ///
+    /// use s3::bucket::Bucket;
+    /// use s3::credentials::Credentials;
+    /// use s3::error::S3Error;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), S3Error> {
+    /// 
+    ///     let bucket_name = "rust-s3-test";
+    ///     let region = "us-east-1".parse().unwrap();
+    ///     let credentials = Credentials::default();
+    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    ///     let status_code = bucket.put_object_stream("input_file", "/test_file").await?;
+    ///     println!("Code: {}", status_code);
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn put_object_stream(&self, local_path: &str, s3_path: &str) -> Result<u16> {
+        let bytes = tokio::fs::read(local_path).await?;
+        let command = Command::PutObject { content: &bytes[..], content_type: "application/octet-stream" };
+        let request = Request::new(self, s3_path, command);
+        Ok(request.response_data_future().await?.1)
+    }
+
+    /// Stream file from local path to s3, blockIng.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    ///
+    /// use s3::bucket::Bucket;
+    /// use s3::credentials::Credentials;
+    /// use s3::error::S3Error;
+    ///
+    /// fn main() -> Result<(), S3Error> {
+    /// 
+    ///     let bucket_name = "rust-s3-test";
+    ///     let region = "us-east-1".parse().unwrap();
+    ///     let credentials = Credentials::default();
+    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    ///     let status_code = bucket.put_object_stream_blocking("input_file", "/test_file")?;
+    ///     println!("Code: {}", status_code);
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn put_object_stream_blocking(&self, local_path: &str, s3_path: &str) -> Result<u16> {
+        Ok(block_on(self.put_object_stream(local_path, s3_path))?)
+    }
+
     //// Get bucket location from S3, async
     ////
     /// # Example

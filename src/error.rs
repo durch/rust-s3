@@ -9,4 +9,5 @@ simpl::err!(S3Error, {
     Ini@ini::ini::Error;
     Hmac@hmac::crypto_mac::InvalidKeyLength;
     Utf8@std::str::Utf8Error;
+    Io@std::io::Error;
 });

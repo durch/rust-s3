@@ -29,7 +29,7 @@ url = "^2.1.0"
 rust-ini = "0.15.2"
 dirs = "^2.0.2"
 futures = "0.3.4"
-tokio = {version="0.2.13", features=["macros"]}
+tokio = {version="0.2.13", features=["macros", "fs"]}
 rand = "0.7.3"
 simpl = "0.1.0-alpha"
 
