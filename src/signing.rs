@@ -7,10 +7,11 @@ use std::str;
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use url::Url;
-use region::Region;
 use reqwest::header::HeaderMap;
 use sha2::{Digest, Sha256};
-use error::Result;
+
+use crate::region::Region;
+use crate::error::Result;
 
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
@@ -152,7 +153,7 @@ mod tests {
     use super::*;
 
     use serde_xml;
-    use serde_types::ListBucketResult;
+    use crate::serde_types::ListBucketResult;
 
     #[test]
     fn test_base_url_encode() {

@@ -4,24 +4,20 @@ extern crate md5;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 
-use bucket::Bucket;
+use super::bucket::Bucket;
 use chrono::{DateTime, Utc};
-use command::Command;
+use super::command::Command;
 use hmac::Mac;
-use reqwest::async;
+use reqwest::{Client, Response};
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use futures::prelude::*;
-use tokio::runtime::current_thread::Runtime;
+use super::signing;
 
-use signing;
-
-use error::{S3Error, Result};
-use reqwest::async::Response;
-use EMPTY_PAYLOAD_SHA;
-use LONG_DATE;
+use super::error::{S3Error, Result};
+use super::EMPTY_PAYLOAD_SHA;
+use super::LONG_DATE;
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -36,7 +32,7 @@ pub struct Request<'a> {
     pub path: &'a str,
     pub command: Command<'a>,
     pub datetime: DateTime<Utc>,
-    pub async: bool,
+    pub sync: bool,
 }
 
 impl<'a> Request<'a> {
@@ -46,7 +42,7 @@ impl<'a> Request<'a> {
             path,
             command,
             datetime: Utc::now(),
-            async: false,
+            sync: false,
         }
     }
 
@@ -243,34 +239,22 @@ impl<'a> Request<'a> {
     }
 
     pub fn response_data(&self) -> Result<(Vec<u8>, u16)> {
-        let response_data = self.response_data_future().then(|result| match result {
-            Ok((response_data, status_code)) => Ok((response_data, status_code)),
-            Err(e) => Err(e),
-        });
-        let mut runtime = Runtime::new().unwrap();
-        runtime.block_on(response_data)
+        Ok(futures::executor::block_on(self.response_data_future())?)
     }
 
     pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16> {
-        let status_code_future =
-            self.response_data_to_writer_future(writer)
-                .then(|result| match result {
-                    Ok(status_code) => Ok(status_code),
-                    Err(_) => Err(S3Error::from("ReqwestFuture")),
-                });
-        let mut runtime = Runtime::new().unwrap();
-        runtime.block_on(status_code_future)
+        Ok(futures::executor::block_on(self.response_data_to_writer_future(writer))?)
     }
 
-    pub fn response_future(&self) -> impl Future<Item = Response, Error = S3Error> {
+    pub async fn response_future(&self) -> Result<Response> {
         let client = if cfg!(feature = "no-verify-ssl") {
-            async::Client::builder()
+            Client::builder()
                 .danger_accept_invalid_certs(true)
                 .danger_accept_invalid_hostnames(true)
                 .build()
-                .expect("Could not build dangereous client!")
+                .expect("Could not build dangerous client!")
         } else {
-            async::Client::new()
+            Client::new()
         };
 
         // Build headers
@@ -287,53 +271,38 @@ impl<'a> Request<'a> {
 
         let request = client
             .request(self.command.http_verb(), self.url().as_str())
-            .headers(headers)
-            .body(content);
+            .headers(headers.to_owned())
+            .body(content.to_owned());
 
-        request.send().map_err(S3Error::from)
+        Ok(request.send().await?)
     }
 
-    pub fn response_data_future(&self) -> impl Future<Item = (Vec<u8>, u16), Error = S3Error> {
-        self.response_future()
-            .and_then(|response| {
-                // println!("{:?}", response.headers());
-                let status_code = response.status().as_u16();
-                Ok((response.into_body().collect(), status_code))
-            })
-            .and_then(|(body_future, status_code)| {
-                body_future
-                    .and_then(move |body| {
-                        let mut entire_body = body
-                            .iter()
-                            .fold(vec![], |mut acc, slice| {acc.extend_from_slice(slice); acc});
-                        entire_body.shrink_to_fit();
-                        Ok((entire_body, status_code))
-                    })
-                    .map_err(S3Error::from)
-            })
+    pub async fn response_data_future(&self) -> Result<(Vec<u8>, u16)> {
+        let response = self.response_future().await?;
+        let status_code = response.status().as_u16();
+        let body = response.bytes().await?;
+        let mut body_vec = Vec::new();
+        body_vec.extend_from_slice(&body[..]);
+        Ok((body_vec, status_code))
     }
 
-    pub fn response_data_to_writer_future<'b, T: Write>(
+    pub async fn response_data_to_writer_future<'b, T: Write>(
         &self,
         writer: &'b mut T,
-    ) -> impl Future<Item = u16> + 'b {
-        let future_response = self.response_data_future();
-        future_response.and_then(move |(body, status_code)| {
-            writer
-                .write_all(body.as_slice())
-                .expect("Could not write to writer");
-            Ok(status_code)
-        })
+    ) -> Result<u16> {
+        let (body, status_code) = self.response_data_future().await?;
+        writer.write_all(&body[..]).expect("Could not write to writer");
+        Ok(status_code)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bucket::Bucket;
-    use command::Command;
-    use credentials::Credentials;
-    use error::Result;
-    use request::Request;
+    use crate::bucket::Bucket;
+    use crate::command::Command;
+    use crate::credentials::Credentials;
+    use crate::error::Result;
+    use crate::request::Request;
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.

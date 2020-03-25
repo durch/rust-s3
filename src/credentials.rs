@@ -1,5 +1,5 @@
 use dirs;
-use error::{S3Error, Result};
+use super::error::{S3Error, Result};
 use ini::Ini;
 use std::collections::HashMap;
 use std::env;
@@ -95,7 +95,7 @@ impl Credentials {
                 Ok(c) => c,
                 Err(_) => match Credentials::from_profile(profile) {
                     Ok(c) => c,
-                    Err(_) => match Credentials::from_instance_metadata() {
+                    Err(_) => match futures::executor::block_on(Credentials::from_instance_metadata()) {
                         Ok(c) => c,
                         Err(e) => panic!("No credentials provided as arguments, in the environment or in the profile file. \n {}", e)
                     }
@@ -119,19 +119,20 @@ impl Credentials {
         })
     }
 
-    fn from_instance_metadata() -> Result<Credentials> {
+    async fn from_instance_metadata() -> Result<Credentials> {
         if !Credentials::is_ec2() {
             return Err(S3Error::from("Not an EC2 instance"));
         }
+        
         let resp: HashMap<String, String> =
-            reqwest::get("http://169.254.169.254/latest/meta-data/iam/info")?.json()?;
+            reqwest::get("http://169.254.169.254/latest/meta-data/iam/info").await?.json().await?;
         let credentials = if let Some(arn) = resp.get("InstanceProfileArn") {
             if let Some(role) = arn.split('/').last() {
                 let resp: HashMap<String, String> = reqwest::get(&format!(
                     "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
                     role
-                ))?
-                .json()?;
+                )).await?
+                .json().await?;
                 let access_key = resp.get("AccessKeyId").unwrap().clone();
                 let secret_key = resp.get("SecretAccessKey").unwrap().clone();
                 let token = Some(resp.get("Token").unwrap().clone());
