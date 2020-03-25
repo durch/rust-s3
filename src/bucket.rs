@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::mem;
 use std::io::Write;
 use serde_xml;
-use futures::executor::block_on;
+use tokio::runtime::Runtime;
 
 use crate::command::Command;
 use crate::credentials::Credentials;
@@ -80,7 +80,8 @@ impl Bucket {
     /// println!("Code: {}\nData: {:?}", code, data);
     /// ```
     pub fn get_object_blocking(&self, path: &str) -> Result<(Vec<u8>, u16)> {
-        Ok(block_on(self.get_object(path))?)
+        let mut rt = Runtime::new()?;
+        Ok(rt.block_on(self.get_object(path))?)
     }
 
     /// Gets file from an S3 path, async.
@@ -131,7 +132,8 @@ impl Bucket {
     /// println!("Code: {}", code);
     /// ```
     pub fn get_object_stream_blocking<T: Write>(&self, path: &str, writer: &mut T) -> Result<u16> {
-        Ok(block_on(self.get_object_stream(path, writer))?)
+        let mut rt = Runtime::new()?;
+        Ok(rt.block_on(self.get_object_stream(path, writer))?)
     }
 
     /// Stream file from S3 path to a local file, generic over T: Write, async.
@@ -222,7 +224,8 @@ impl Bucket {
     /// }
     /// ```
     pub fn put_object_stream_blocking(&self, local_path: &str, s3_path: &str) -> Result<u16> {
-        Ok(block_on(self.put_object_stream(local_path, s3_path))?)
+        let mut rt = Runtime::new()?;
+        Ok(rt.block_on(self.put_object_stream(local_path, s3_path))?)
     }
 
     //// Get bucket location from S3, async
@@ -291,7 +294,8 @@ impl Bucket {
     /// println!("{}", bucket.location_blocking().unwrap().0)
     /// ```
     pub fn location_blocking(&self) -> Result<(Region, u16)> {
-        Ok(block_on(self.location())?)
+        let mut rt = Runtime::new()?;
+        Ok(rt.block_on(self.location())?)
     }
 
     /// Delete file from an S3 path, async.
@@ -341,7 +345,8 @@ impl Bucket {
     /// assert_eq!(204, code);
     /// ```
     pub fn delete_object_blocking(&self, path: &str) -> Result<(Vec<u8>, u16)> {
-        Ok(block_on(self.delete_object(path))?)
+        let mut rt = Runtime::new()?;
+        Ok(rt.block_on(self.delete_object(path))?)
     }
 
     /// Put into an S3 bucket, async.
@@ -412,7 +417,8 @@ impl Bucket {
         content: &[u8],
         content_type: &str,
     ) -> Result<(Vec<u8>, u16)> {
-        Ok(block_on(self.put_object(path, content, content_type))?)
+        let mut rt = Runtime::new()?;
+        Ok(rt.block_on(self.put_object(path, content, content_type))?)
     }
 
     fn _tags_xml(&self, tags: &[(&str, &str)]) -> String {
@@ -484,7 +490,8 @@ impl Bucket {
     /// assert_eq!(201, code);
     /// ```
     pub fn put_object_tagging_blocking(&self, path: &str, tags: &[(&str, &str)]) -> Result<(Vec<u8>, u16)> {
-        Ok(block_on(self.put_object_tagging(path, tags))?)
+        let mut rt = Runtime::new()?;
+        Ok(rt.block_on(self.put_object_tagging(path, tags))?)
     }
 
     /// Delete tags from an S3 object, async.
@@ -540,7 +547,8 @@ impl Bucket {
     /// assert_eq!(201, code);
     /// ```
     pub fn delete_object_tagging_blocking(&self, path: &str) -> Result<(Vec<u8>, u16)> {
-        Ok(block_on(self.delete_object_tagging(path))?)
+        let mut rt = Runtime::new()?;
+        Ok(rt.block_on(self.delete_object_tagging(path))?)
     }
 
     /// Retrieve an S3 object list of tags, async.
@@ -614,7 +622,8 @@ impl Bucket {
     /// }
     /// ```
     pub fn get_object_tagging_blocking(&self, path: &str) -> Result<(Option<Tagging>, u16)> {
-        Ok(block_on(self.get_object_tagging(path))?)
+        let mut rt = Runtime::new()?;
+        Ok(rt.block_on(self.get_object_tagging(path))?)
     }
 
     pub fn list_page_blocking(
@@ -623,7 +632,8 @@ impl Bucket {
         delimiter: Option<String>,
         continuation_token: Option<String>,
     ) -> Result<(ListBucketResult, u16)> {
-        Ok(block_on(self.list_page(prefix, delimiter, continuation_token))?)
+        let mut rt = Runtime::new()?;
+        Ok(rt.block_on(self.list_page(prefix, delimiter, continuation_token))?)
     }
 
     pub async fn list_page(
