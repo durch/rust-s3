@@ -5,7 +5,7 @@ use serde_xml;
 
 use command::Command;
 use credentials::Credentials;
-use error::{S3Error, S3Result};
+use error::{S3Error, Result};
 use futures::future::{loop_fn, Loop};
 use futures::Future;
 use region::Region;
@@ -56,7 +56,7 @@ impl Bucket {
     ///
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// ```
-    pub fn new(name: &str, region: Region, credentials: Credentials) -> S3Result<Bucket> {
+    pub fn new(name: &str, region: Region, credentials: Credentials) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
             region,
@@ -82,7 +82,7 @@ impl Bucket {
     /// let (data, code) = bucket.get_object("/test.file").unwrap();
     /// println!("Code: {}\nData: {:?}", code, data);
     /// ```
-    pub fn get_object(&self, path: &str) -> S3Result<(Vec<u8>, u16)> {
+    pub fn get_object(&self, path: &str) -> Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
         Ok(request.response_data()?)
@@ -134,7 +134,7 @@ impl Bucket {
     /// let code = bucket.get_object_stream("/test.file", &mut output_file).unwrap();
     /// println!("Code: {}", code);
     /// ```
-    pub fn get_object_stream<T: Write>(&self, path: &str, writer: &mut T) -> S3Result<u16> {
+    pub fn get_object_stream<T: Write>(&self, path: &str, writer: &mut T) -> Result<u16> {
         let command = Command::GetObject;
         let request = Request::new(self, path, command);
         Ok(request.response_data_to_writer(writer)?)
@@ -191,7 +191,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// println!("{}", bucket.location().unwrap().0)
     /// ```
-    pub fn location(&self) -> S3Result<(Region, u16)> {
+    pub fn location(&self) -> Result<(Region, u16)> {
         let request = Request::new(self, "?location", Command::GetBucketLocation);
         let result = request.response_data()?;
         let region_string = String::from_utf8_lossy(&result.0);
@@ -233,7 +233,7 @@ impl Bucket {
     /// let (_, code) = bucket.delete_object("/test.file").unwrap();
     /// assert_eq!(204, code);
     /// ```
-    pub fn delete_object(&self, path: &str) -> S3Result<(Vec<u8>, u16)> {
+    pub fn delete_object(&self, path: &str) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObject;
         let request = Request::new(self, path, command);
         request.response_data()
@@ -265,7 +265,7 @@ impl Bucket {
         path: &str,
         content: &[u8],
         content_type: &str,
-    ) -> S3Result<(Vec<u8>, u16)> {
+    ) -> Result<(Vec<u8>, u16)> {
         let command = Command::PutObject {
             content,
             content_type,
@@ -313,10 +313,10 @@ impl Bucket {
         &self,
         path: &str,
         tags: &[(&str, &str)],
-    ) -> S3Result<(Vec<u8>, u16)> {
+    ) -> Result<(Vec<u8>, u16)> {
         let content = self._tags_xml(&tags);
         let command = Command::PutObjectTagging {
-            tags: &content.to_string(),
+            tags: &content,
         };
         let request = Request::new(self, path, command);
         Ok(request.response_data()?)
@@ -342,7 +342,7 @@ impl Bucket {
     /// let (_, code) = bucket.delete_object_tagging("/test.file").unwrap();
     /// assert_eq!(201, code);
     /// ```
-    pub fn delete_object_tagging(&self, path: &str) -> S3Result<(Vec<u8>, u16)> {
+    pub fn delete_object_tagging(&self, path: &str) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObjectTagging;
         let request = Request::new(self, path, command);
         Ok(request.response_data()?)
@@ -372,7 +372,7 @@ impl Bucket {
     ///     }
     /// }
     /// ```
-    pub fn get_object_tagging(&self, path: &str) -> S3Result<(Option<Tagging>, u16)> {
+    pub fn get_object_tagging(&self, path: &str) -> Result<(Option<Tagging>, u16)> {
         let command = Command::GetObjectTagging {};
         let request = Request::new(self, path, command);
         let result = request.response_data()?;
@@ -393,7 +393,7 @@ impl Bucket {
         prefix: String,
         delimiter: Option<String>,
         continuation_token: Option<String>,
-    ) -> S3Result<(ListBucketResult, u16)> {
+    ) -> Result<(ListBucketResult, u16)> {
         let command = Command::ListBucket {
             prefix,
             delimiter,
@@ -464,7 +464,7 @@ impl Bucket {
         &self,
         prefix: String,
         delimiter: Option<String>,
-    ) -> S3Result<Vec<(ListBucketResult, u16)>> {
+    ) -> Result<Vec<(ListBucketResult, u16)>> {
         let mut results = Vec::new();
         let mut result = self.list_page(prefix.clone(), delimiter.clone(), None)?;
         loop {

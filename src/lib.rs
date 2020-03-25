@@ -31,12 +31,11 @@ const EMPTY_PAYLOAD_SHA: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934
 
 #[allow(dead_code)]
 mod test {
-    use super::error::S3Result;
-    err!(S3Error);
+    use super::error::{S3Error, Result};
 
     #[cfg(test)]
     fn test_error() {
-        fn is_error(_e: &dyn std::error::Error) -> S3Result<()> {
+        fn is_error(_e: &dyn std::error::Error) -> Result<()> {
             Ok(())
         }
 

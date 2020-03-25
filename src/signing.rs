@@ -10,7 +10,7 @@ use url::Url;
 use region::Region;
 use reqwest::header::HeaderMap;
 use sha2::{Digest, Sha256};
-use error::S3Result;
+use error::Result;
 
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
@@ -113,7 +113,7 @@ pub fn signing_key(datetime: &DateTime<Utc>,
                    secret_key: &str,
                    region: &Region,
                    service: &str)
-                   -> S3Result<Vec<u8>> {
+                   -> Result<Vec<u8>> {
     let secret = String::from("AWS4") + secret_key;
     let mut date_hmac = HmacSha256::new_varkey(secret.as_bytes())?;
     date_hmac.input(datetime.format(SHORT_DATE).to_string().as_bytes());

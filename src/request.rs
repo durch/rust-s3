@@ -18,7 +18,7 @@ use tokio::runtime::current_thread::Runtime;
 
 use signing;
 
-use error::{S3Error, S3Result};
+use error::{S3Error, Result};
 use reqwest::async::Response;
 use EMPTY_PAYLOAD_SHA;
 use LONG_DATE;
@@ -87,7 +87,7 @@ impl<'a> Request<'a> {
         } = self.command.clone()
         {
             let mut query_pairs = url.query_pairs_mut();
-            delimiter.map(|d| query_pairs.append_pair("delimiter", &d.clone()));
+            delimiter.map(|d| query_pairs.append_pair("delimiter", &d));
             query_pairs.append_pair("prefix", &prefix);
             query_pairs.append_pair("list-type", "2");
             if let Some(token) = continuation_token {
@@ -156,7 +156,7 @@ impl<'a> Request<'a> {
         signing::string_to_sign(&self.datetime, &self.bucket.region(), request)
     }
 
-    fn signing_key(&self) -> S3Result<Vec<u8>> {
+    fn signing_key(&self) -> Result<Vec<u8>> {
         Ok(signing::signing_key(
             &self.datetime,
             &self.bucket.secret_key(),
@@ -165,7 +165,7 @@ impl<'a> Request<'a> {
         )?)
     }
 
-    fn authorization(&self, headers: &HeaderMap) -> S3Result<String> {
+    fn authorization(&self, headers: &HeaderMap) -> Result<String> {
         let canonical_request = self.canonical_request(headers);
         let string_to_sign = self.string_to_sign(&canonical_request);
         let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
@@ -181,7 +181,7 @@ impl<'a> Request<'a> {
         ))
     }
 
-    fn headers(&self) -> S3Result<HeaderMap> {
+    fn headers(&self) -> Result<HeaderMap> {
         // Generate this once, but it's used in more than one place.
         let sha256 = self.sha256();
 
@@ -242,7 +242,7 @@ impl<'a> Request<'a> {
         Ok(headers)
     }
 
-    pub fn response_data(&self) -> S3Result<(Vec<u8>, u16)> {
+    pub fn response_data(&self) -> Result<(Vec<u8>, u16)> {
         let response_data = self.response_data_future().then(|result| match result {
             Ok((response_data, status_code)) => Ok((response_data, status_code)),
             Err(e) => Err(e),
@@ -251,7 +251,7 @@ impl<'a> Request<'a> {
         runtime.block_on(response_data)
     }
 
-    pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> S3Result<u16> {
+    pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16> {
         let status_code_future =
             self.response_data_to_writer_future(writer)
                 .then(|result| match result {
@@ -287,8 +287,8 @@ impl<'a> Request<'a> {
 
         let request = client
             .request(self.command.http_verb(), self.url().as_str())
-            .headers(headers.to_owned())
-            .body(content.to_owned());
+            .headers(headers)
+            .body(content);
 
         request.send().map_err(S3Error::from)
     }
@@ -332,7 +332,7 @@ mod tests {
     use bucket::Bucket;
     use command::Command;
     use credentials::Credentials;
-    use error::S3Result;
+    use error::Result;
     use request::Request;
 
     // Fake keys - otherwise using Credentials::default will use actual user
@@ -344,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_https_by_default() -> S3Result<()> {
+    fn url_uses_https_by_default() -> Result<()> {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
@@ -360,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_scheme_from_custom_region_if_defined() -> S3Result<()> {
+    fn url_uses_scheme_from_custom_region_if_defined() -> Result<()> {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";

@@ -1,5 +1,5 @@
 use dirs;
-use error::{S3Error, S3Result};
+use error::{S3Error, Result};
 use ini::Ini;
 use std::collections::HashMap;
 use std::env;
@@ -104,7 +104,7 @@ impl Credentials {
         }
     }
 
-    fn from_env() -> S3Result<Credentials> {
+    fn from_env() -> Result<Credentials> {
         let access_key = env::var("AWS_ACCESS_KEY_ID")?;
         let secret_key = env::var("AWS_SECRET_ACCESS_KEY")?;
         let token = match env::var("AWS_SESSION_TOKEN") {
@@ -119,7 +119,7 @@ impl Credentials {
         })
     }
 
-    fn from_instance_metadata() -> S3Result<Credentials> {
+    fn from_instance_metadata() -> Result<Credentials> {
         if !Credentials::is_ec2() {
             return Err(S3Error::from("Not an EC2 instance"));
         }
@@ -165,7 +165,7 @@ impl Credentials {
         false
     }
 
-    pub fn from_profile(section: Option<String>) -> S3Result<Credentials> {
+    pub fn from_profile(section: Option<String>) -> Result<Credentials> {
         let home_dir = match dirs::home_dir() {
             Some(path) => Ok(path),
             None => Err(S3Error::from("Invalid home dir")),
@@ -195,8 +195,8 @@ impl Credentials {
         }
 
         Ok(Credentials {
-            access_key: access_key?.to_owned(),
-            secret_key: secret_key?.to_owned(),
+            access_key: access_key?,
+            secret_key: secret_key?,
             token,
             _private: (),
         })
