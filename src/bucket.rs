@@ -79,7 +79,7 @@ impl Bucket {
     /// let (data, code) = bucket.get_object_blocking("/test.file").unwrap();
     /// println!("Code: {}\nData: {:?}", code, data);
     /// ```
-    pub fn get_object_blocking(&self, path: &str) -> Result<(Vec<u8>, u16)> {
+    pub fn get_object_blocking<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.get_object(path))?)
     }
@@ -107,9 +107,9 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn get_object(&self, path: &str) -> Result<(Vec<u8>, u16)> {
+    pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
-        let request = Request::new(self, path, command);
+        let request = Request::new(self, path.as_ref(), command);
         Ok(request.response_data_future().await?)
     }
 
@@ -161,13 +161,13 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn get_object_stream<T: Write>(
+    pub async fn get_object_stream<T: Write, S: AsRef<str>>(
         &self,
-        path: &str,
+        path: S,
         writer: &mut T,
     ) -> Result<u16> {
         let command = Command::GetObject;
-        let request = Request::new(self, path, command);
+        let request = Request::new(self, path.as_ref(), command);
         Ok(request.response_data_to_writer_future(writer).await?)
     }
 
@@ -194,10 +194,10 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn put_object_stream(&self, local_path: &str, s3_path: &str) -> Result<u16> {
-        let bytes = tokio::fs::read(local_path).await?;
+    pub async fn put_object_stream<S: AsRef<str>>(&self, local_path: S, s3_path: S) -> Result<u16> {
+        let bytes = tokio::fs::read(local_path.as_ref()).await?;
         let command = Command::PutObject { content: &bytes[..], content_type: "application/octet-stream" };
-        let request = Request::new(self, s3_path, command);
+        let request = Request::new(self, s3_path.as_ref(), command);
         Ok(request.response_data_future().await?.1)
     }
 
@@ -223,7 +223,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub fn put_object_stream_blocking(&self, local_path: &str, s3_path: &str) -> Result<u16> {
+    pub fn put_object_stream_blocking<S: AsRef<str>>(&self, local_path: S, s3_path: S) -> Result<u16> {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.put_object_stream(local_path, s3_path))?)
     }
@@ -321,9 +321,9 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn delete_object(&self, path: &str) -> Result<(Vec<u8>, u16)> {
+    pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObject;
-        let request = Request::new(self, path, command);
+        let request = Request::new(self, path.as_ref(), command);
         Ok(request.response_data_future().await?)
     }
 
@@ -344,7 +344,7 @@ impl Bucket {
     /// let (_, code) = bucket.delete_object_blocking("/test.file").unwrap();
     /// assert_eq!(204, code);
     /// ```
-    pub fn delete_object_blocking(&self, path: &str) -> Result<(Vec<u8>, u16)> {
+    pub fn delete_object_blocking<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.delete_object(path))?)
     }
@@ -376,9 +376,9 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn put_object(
+    pub async fn put_object<S: AsRef<str>>(
         &self,
-        path: &str,
+        path: S,
         content: &[u8],
         content_type: &str,
     ) -> Result<(Vec<u8>, u16)> {
@@ -386,7 +386,7 @@ impl Bucket {
             content,
             content_type,
         };
-        let request = Request::new(self, path, command);
+        let request = Request::new(self, path.as_ref(), command);
         Ok(request.response_data_future().await?)
     }
 
@@ -411,9 +411,9 @@ impl Bucket {
     /// let (_, code) = bucket.put_object_blocking("/test.file", content, "text/plain").unwrap();
     /// assert_eq!(201, code);
     /// ```
-    pub fn put_object_blocking(
+    pub fn put_object_blocking<S: AsRef<str>>(
         &self,
-        path: &str,
+        path: S,
         content: &[u8],
         content_type: &str,
     ) -> Result<(Vec<u8>, u16)> {
@@ -421,11 +421,11 @@ impl Bucket {
         Ok(rt.block_on(self.put_object(path, content, content_type))?)
     }
 
-    fn _tags_xml(&self, tags: &[(&str, &str)]) -> String {
+    fn _tags_xml<S: AsRef<str>>(&self, tags: &[(S, S)]) -> String {
         let mut s = String::new();
         let content = tags
             .iter()
-            .map(|&(name, value)| format!("<Tag><Key>{}</Key><Value>{}</Value></Tag>", name, value))
+            .map(|&(ref name, ref value)| format!("<Tag><Key>{}</Key><Value>{}</Value></Tag>", name.as_ref(), value.as_ref()))
             .fold(String::new(), |mut a, b| {
                 a.push_str(b.as_str());
                 a
@@ -462,7 +462,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn put_object_tagging(&self, path: &str, tags: &[(&str, &str)]) -> Result<(Vec<u8>, u16)> {
+    pub async fn put_object_tagging<S: AsRef<str>>(&self, path: &str, tags: &[(S, S)]) -> Result<(Vec<u8>, u16)> {
         let content = self._tags_xml(&tags);
         let command = Command::PutObjectTagging { tags: &content };
         let request = Request::new(self, path, command);
@@ -489,7 +489,7 @@ impl Bucket {
     /// let (_, code) = bucket.put_object_tagging_blocking("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).unwrap();
     /// assert_eq!(201, code);
     /// ```
-    pub fn put_object_tagging_blocking(&self, path: &str, tags: &[(&str, &str)]) -> Result<(Vec<u8>, u16)> {
+    pub fn put_object_tagging_blocking<S: AsRef<str>>(&self, path: &str, tags: &[(S, S)]) -> Result<(Vec<u8>, u16)> {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.put_object_tagging(path, tags))?)
     }
@@ -520,9 +520,9 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn delete_object_tagging(&self, path: &str) -> Result<(Vec<u8>, u16)> {
+    pub async fn delete_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObjectTagging;
-        let request = Request::new(self, path, command);
+        let request = Request::new(self, path.as_ref(), command);
         Ok(request.response_data_future().await?)
     }
 
@@ -546,7 +546,7 @@ impl Bucket {
     /// let (_, code) = bucket.delete_object_tagging_blocking("/test.file").unwrap();
     /// assert_eq!(201, code);
     /// ```
-    pub fn delete_object_tagging_blocking(&self, path: &str) -> Result<(Vec<u8>, u16)> {
+    pub fn delete_object_tagging_blocking<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.delete_object_tagging(path))?)
     }
@@ -581,9 +581,9 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn get_object_tagging(&self, path: &str) -> Result<(Option<Tagging>, u16)> {
+    pub async fn get_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Option<Tagging>, u16)> {
         let command = Command::GetObjectTagging {};
-        let request = Request::new(self, path, command);
+        let request = Request::new(self, path.as_ref(), command);
         let result = request.response_data_future().await?;
 
         let tagging = if result.1 == 200 {
@@ -621,7 +621,7 @@ impl Bucket {
     ///     }
     /// }
     /// ```
-    pub fn get_object_tagging_blocking(&self, path: &str) -> Result<(Option<Tagging>, u16)> {
+    pub fn get_object_tagging_blocking<S: AsRef<str>>(&self, path: S) -> Result<(Option<Tagging>, u16)> {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.get_object_tagging(path))?)
     }
