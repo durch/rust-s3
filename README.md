@@ -6,7 +6,7 @@
 <!-- [![Join the chat at https://gitter.im/durch/rust-s3](https://badges.gitter.im/durch/rust-s3.svg)](https://gitter.im/durch/rust-s3?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) -->
 ## rust-s3 [[docs](https://durch.github.io/rust-s3/)]
 
-Tiny Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with **async/await** and `futures ^0.3`
+Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with **async/await** and `futures ^0.3`
 
 ### Intro
 Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Wasabi or Minio.
