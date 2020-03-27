@@ -125,18 +125,18 @@ impl Credentials {
         }
         let resp:HashMap<String, String> = match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
             Ok(credentials_path) => {
-                Some(reqwest::get(&format!("http://169.254.170.2{}",credentials_path))?.json()?)
+                Some(reqwest::get(&format!("http://169.254.170.2{}",credentials_path)).await?.json().await?)
             },
             Err(_) => {
                 let resp: HashMap<String, String> =
-                    reqwest::get("http://169.254.169.254/latest/meta-data/iam/info")?.json()?;
+                    reqwest::get("http://169.254.169.254/latest/meta-data/iam/info").await?.json().await?;
                 if let Some(arn) = resp.get("InstanceProfileArn") {
                     if let Some(role) = arn.split('/').last() {
                         Some(reqwest::get(&format!(
                             "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
                             role
-                        ))?
-                        .json()?)
+                        )).await?
+                        .json().await?)
                     } else {
                         None
                     }
