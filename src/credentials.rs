@@ -123,33 +123,39 @@ impl Credentials {
         if !Credentials::is_ec2() {
             return Err(S3Error::from("Not an EC2 instance"));
         }
-        
-        let resp: HashMap<String, String> =
-            reqwest::get("http://169.254.169.254/latest/meta-data/iam/info").await?.json().await?;
-        let credentials = if let Some(arn) = resp.get("InstanceProfileArn") {
-            if let Some(role) = arn.split('/').last() {
-                let resp: HashMap<String, String> = reqwest::get(&format!(
-                    "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
-                    role
-                )).await?
-                .json().await?;
-                let access_key = resp.get("AccessKeyId").unwrap().clone();
-                let secret_key = resp.get("SecretAccessKey").unwrap().clone();
-                let token = Some(resp.get("Token").unwrap().clone());
-                Some(Credentials {
-                    access_key,
-                    secret_key,
-                    token,
-                    _private: (),
-                })
-            } else {
-                None
+        let resp:HashMap<String, String> = match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
+            Ok(credentials_path) => {
+                Some(reqwest::get(&format!("http://169.254.170.2{}",credentials_path)).await?.json().await?)
+            },
+            Err(_) => {
+                let resp: HashMap<String, String> =
+                    reqwest::get("http://169.254.169.254/latest/meta-data/iam/info").await?.json().await?;
+                if let Some(arn) = resp.get("InstanceProfileArn") {
+                    if let Some(role) = arn.split('/').last() {
+                        Some(reqwest::get(&format!(
+                            "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
+                            role
+                        )).await?
+                        .json().await?)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             }
-        } else {
-            None
-        };
+        }.unwrap();
 
-        Ok(credentials.unwrap())
+        let access_key = resp.get("AccessKeyId").unwrap().clone();
+        let secret_key = resp.get("SecretAccessKey").unwrap().clone();
+        let token = Some(resp.get("Token").unwrap().clone());
+        Ok(Credentials {
+            access_key,
+            secret_key,
+            token,
+            _private: (),
+        })
+
     }
 
     fn is_ec2() -> bool {
