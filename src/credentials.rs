@@ -3,7 +3,6 @@ use super::error::{S3Error, Result};
 use ini::Ini;
 use std::collections::HashMap;
 use std::env;
-use tokio::runtime::Runtime;
 
 /// AWS access credentials: access key, secret key, and optional token.
 ///
@@ -90,14 +89,13 @@ impl Credentials {
             },
             None => None,
         };
-        let mut rt = Runtime::new().unwrap();
         match credentials {
             Some(c) => c,
             None => match Credentials::from_env() {
                 Ok(c) => c,
                 Err(_) => match Credentials::from_profile(profile) {
                     Ok(c) => c,
-                    Err(_) => match rt.block_on(Credentials::from_instance_metadata()) {
+                    Err(_) => match futures::executor::block_on(Credentials::from_instance_metadata()) {
                         Ok(c) => c,
                         Err(e) => panic!("No credentials provided as arguments, in the environment or in the profile file. \n {}", e)
                     }
