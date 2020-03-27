@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.18.11"
+version = "0.19.1"
 authors = ["Drazen Urch", "Nick Stevens"]
 description = "Tiny Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -8,28 +8,30 @@ readme = "README.md"
 keywords = ["Amazon", "AWS", "S3", "Wasabi", "Minio"]
 license = "MIT"
 documentation = "https://durch.github.io/rust-s3/"
+edition = "2018"
 
 [lib]
 name = "s3"
 path = "src/lib.rs"
 
 [dependencies]
-base64 = "0.10.1"
+base64 = "0.12.0"
 chrono = "^0.4.0"
 hex = "^0.4.0"
 hmac = "^0.7.1"
-reqwest = "^0.9.1"
+reqwest = {version = "0.10.4", features = ["native-tls", "json"]}
 serde_derive = "^1.0.101"
 serde = "^1.0.101"
-serde-xml-rs = "^0.3.1"
+serde-xml-rs = "0.4.0"
 sha2 = "^0.8.0"
-md5 = "^0.6.1"
+md5 = "0.7.0"
 url = "^2.1.0"
-rust-ini = "^0.13"
+rust-ini = "0.15.2"
 dirs = "^2.0.2"
-futures = "0.1.29"
-tokio = "^0.1.22"
-rand = "0.7.2"
+futures = "0.3.4"
+tokio = {version="0.2.13", features=["macros", "fs"]}
+rand = "0.7.3"
+simpl = "0.1.0-alpha"
 
 [features]
 no-verify-ssl = []

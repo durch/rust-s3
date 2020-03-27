@@ -44,7 +44,7 @@ pub fn main() -> Result<(), S3Error> {
         let bucket = Bucket::new(&backend.bucket, backend.region, backend.credentials)?;
 
         // List out contents of directory
-        let results = bucket.list_all("".to_string(), None)?;
+        let results = bucket.list_blocking("".to_string(), None)?;
         for (list, code) in results {
             assert_eq!(200, code);
             println!("{:?}", list.contents.len());
@@ -59,36 +59,36 @@ pub fn main() -> Result<(), S3Error> {
 
         // Put a "test_file" with the contents of MESSAGE at the root of the
         // bucket.
-        let (_, code) = bucket.put_object("test_file", MESSAGE.as_bytes(), "text/plain")?;
+        let (_, code) = bucket.put_object_blocking("test_file", MESSAGE.as_bytes(), "text/plain")?;
         assert_eq!(200, code);
 
         // Get the "test_file" contents and make sure that the returned message
         // matches what we sent.
-        let (data, code) = bucket.get_object("test_file")?;
+        let (data, code) = bucket.get_object_blocking("test_file")?;
         let string = str::from_utf8(&data)?;
         assert_eq!(200, code);
         assert_eq!(MESSAGE, string);
 
         if backend.location_supported {
             // Get bucket location
-            println!("{:?}", bucket.location()?);
+            println!("{:?}", bucket.location_blocking()?);
         }
 
-        bucket.put_object_tagging("test_file", &[("test", "tag")])?;
+        bucket.put_object_tagging_blocking("test_file", &[("test", "tag")])?;
         println!("Tags set");
-        let (tags, _status) = bucket.get_object_tagging("test_file")?;
+        let (tags, _status) = bucket.get_object_tagging_blocking("test_file")?;
         println!("{:?}", tags);
 
         // Test with random byte array
 
         let random_bytes: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
-        let (_, code) = bucket.put_object(
+        let (_, code) = bucket.put_object_blocking(
             "random.bin",
             random_bytes.as_slice(),
             "application/octet-stream",
         )?;
         assert_eq!(200, code);
-        let (data, code) = bucket.get_object("random.bin")?;
+        let (data, code) = bucket.get_object_blocking("random.bin")?;
         assert_eq!(code, 200);
         assert_eq!(data.len(), 3072);
         assert_eq!(data, random_bytes);
