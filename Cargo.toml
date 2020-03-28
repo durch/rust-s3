@@ -1,5 +1,6 @@
 [workspace]
 members = [
     "s3",
-    "aws-region"
+    "aws-region",
+    "aws-creds"
 ]

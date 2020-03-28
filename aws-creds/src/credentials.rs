@@ -1,4 +1,4 @@
-use crate::{Result, S3Error};
+use crate::{Result, AwsCredsError};
 use dirs;
 use ini::Ini;
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ use std::env;
 /// ```no_run
 /// # // Do not execute this as it would cause unit tests to attempt to access
 /// # // real user credentials.
-/// use s3::credentials::Credentials;
+/// use awscreds::Credentials;
 ///
 /// // Load credentials from `[default]` profile
 /// let credentials = Credentials::default();
@@ -36,7 +36,7 @@ use std::env;
 /// credentials file.
 ///
 /// ```
-/// use s3::credentials::Credentials;
+/// use awscreds::Credentials;
 ///
 /// // Load credentials directly
 /// let access_key = String::from("AKIAIOSFODNN7EXAMPLE");
@@ -140,7 +140,7 @@ impl Credentials {
 
     async fn from_instance_metadata() -> Result<Credentials> {
         if !Credentials::is_ec2() {
-            return Err(S3Error::from("Not an EC2 instance"));
+            return Err(AwsCredsError::from("Not an EC2 instance"));
         }
         let resp: HashMap<String, String> =
             match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
@@ -205,7 +205,7 @@ impl Credentials {
     pub fn from_profile(section: Option<String>) -> Result<Credentials> {
         let home_dir = match dirs::home_dir() {
             Some(path) => Ok(path),
-            None => Err(S3Error::from("Invalid home dir")),
+            None => Err(AwsCredsError::from("Invalid home dir")),
         };
         let profile = format!("{}/.aws/credentials", home_dir?.display());
         let conf = Ini::load_from_file(&profile)?;
@@ -213,17 +213,17 @@ impl Credentials {
             Some(s) => s,
             None => String::from("default"),
         };
-        let mut access_key = Err(S3Error::from("Missing aws_access_key_id section"));
-        let mut secret_key = Err(S3Error::from("Missing aws_secret_access_key section"));
+        let mut access_key = Err(AwsCredsError::from("Missing aws_access_key_id section"));
+        let mut secret_key = Err(AwsCredsError::from("Missing aws_secret_access_key section"));
         let mut token = None;
         if let Some(data) = conf.section(Some(section)) {
             access_key = match data.get("aws_access_key_id") {
                 Some(x) => Ok(x.to_owned()),
-                None => Err(S3Error::from("Missing aws_access_key_id section")),
+                None => Err(AwsCredsError::from("Missing aws_access_key_id section")),
             };
             secret_key = match data.get("aws_secret_access_key") {
                 Some(x) => Ok(x.to_owned()),
-                None => Err(S3Error::from("Missing aws_secret_access_key section")),
+                None => Err(AwsCredsError::from("Missing aws_secret_access_key section")),
             };
             token = match data.get("aws_security_token") {
                 Some(x) => Some(x.to_owned()),
