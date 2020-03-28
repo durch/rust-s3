@@ -10,8 +10,8 @@ use url::Url;
 use reqwest::header::HeaderMap;
 use sha2::{Digest, Sha256};
 
-use crate::region::Region;
-use crate::error::Result;
+use awsregion::Region;
+use crate::Result;
 
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";

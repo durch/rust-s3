@@ -6,8 +6,8 @@ use tokio::runtime::Runtime;
 
 use crate::command::Command;
 use crate::credentials::Credentials;
-use crate::error::{Result, S3Error};
-use crate::region::Region;
+use crate::{Result, S3Error};
+use awsregion::Region;
 use crate::request::{Headers, Query, Request};
 use crate::serde_types::{BucketLocationResult, ListBucketResult, Tagging};
 
@@ -91,7 +91,7 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::credentials::Credentials;
-    /// use s3::error::S3Error;
+    /// use s3::S3Error;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), S3Error> {
@@ -144,7 +144,7 @@ impl Bucket {
     ///
     /// use s3::bucket::Bucket;
     /// use s3::credentials::Credentials;
-    /// use s3::error::S3Error;
+    /// use s3::S3Error;
     /// use std::fs::File;
     ///
     /// #[tokio::main]
@@ -179,7 +179,7 @@ impl Bucket {
     ///
     /// use s3::bucket::Bucket;
     /// use s3::credentials::Credentials;
-    /// use s3::error::S3Error;
+    /// use s3::S3Error;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), S3Error> {
@@ -209,7 +209,7 @@ impl Bucket {
     ///
     /// use s3::bucket::Bucket;
     /// use s3::credentials::Credentials;
-    /// use s3::error::S3Error;
+    /// use s3::S3Error;
     ///
     /// fn main() -> Result<(), S3Error> {
     /// 
@@ -234,7 +234,7 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::credentials::Credentials;
-    /// use s3::error::S3Error;
+    /// use s3::S3Error;
     /// 
     /// #[tokio::main]
     /// async fn main() -> Result<(), S3Error> {
@@ -305,7 +305,7 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::credentials::Credentials;
-    /// use s3::error::S3Error;
+    /// use s3::S3Error;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), S3Error> {
@@ -356,7 +356,7 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::credentials::Credentials;
-    /// use s3::error::S3Error;
+    /// use s3::S3Error;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), S3Error> {
@@ -443,7 +443,7 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::credentials::Credentials;
-    /// use s3::error::S3Error;
+    /// use s3::S3Error;
     /// 
     /// #[tokio::main]
     /// async fn main() -> Result<(), S3Error> {
@@ -501,7 +501,7 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::credentials::Credentials;
-    /// use s3::error::S3Error;
+    /// use s3::S3Error;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), S3Error> {
@@ -558,7 +558,7 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::credentials::Credentials;
-    /// use s3::error::S3Error;
+    /// use s3::S3Error;
     /// 
     /// #[tokio::main] 
     /// async fn main() -> Result<(), S3Error> {
@@ -712,7 +712,7 @@ impl Bucket {
     /// use std::str;
     /// use s3::bucket::Bucket;
     /// use s3::credentials::Credentials;
-    /// use s3::error::S3Error;
+    /// use s3::S3Error;
     /// 
     /// #[tokio::main]
     /// async fn main() -> Result<(), S3Error> {

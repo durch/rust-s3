@@ -5,7 +5,7 @@ use std::str;
 
 use s3::bucket::Bucket;
 use s3::credentials::Credentials;
-use s3::error::S3Error;
+use s3::S3Error;
 use s3::region::Region;
 
 struct Storage {

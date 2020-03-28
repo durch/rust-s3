@@ -1,4 +1,4 @@
-use super::error::{Result, S3Error};
+use crate::{Result, S3Error};
 use dirs;
 use ini::Ini;
 use std::collections::HashMap;

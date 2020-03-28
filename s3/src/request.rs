@@ -13,11 +13,11 @@ use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use super::signing;
+use crate::signing;
 
-use super::error::{S3Error, Result};
-use super::EMPTY_PAYLOAD_SHA;
-use super::LONG_DATE;
+use crate::{S3Error, Result};
+use crate::EMPTY_PAYLOAD_SHA;
+use crate::LONG_DATE;
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -301,7 +301,7 @@ mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
     use crate::credentials::Credentials;
-    use crate::error::Result;
+    use crate::Result;
     use crate::request::Request;
 
     // Fake keys - otherwise using Credentials::default will use actual user
