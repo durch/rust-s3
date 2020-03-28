@@ -30,13 +30,13 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```
 [dependencies]
-rust-s3 = "0.19.0"
+rust-s3 = "0.19.4"
 ```
 
 #### Disable SSL verification for endpoints, useful for custom regions
 ```
 [dependencies]
-rust-s3 = {version = "0.19.0", features = ["no-verify-ssl"]}
+rust-s3 = {version = "0.19.4", features = ["no-verify-ssl"]}
 ```
 
 #### AWS and Custom (Minio) Example
