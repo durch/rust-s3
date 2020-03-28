@@ -22,7 +22,7 @@ use crate::serde_types::{BucketLocationResult, ListBucketResult, Tagging};
 ///
 /// let bucket_name = "rust-s3-test";
 /// let region = "us-east-1".parse().unwrap();
-/// let credentials = Credentials::default();
+/// let credentials = Credentials::default_blocking().unwrap();
 ///
 /// let bucket = Bucket::new(bucket_name, region, credentials);
 /// ```
@@ -49,7 +49,7 @@ impl Bucket {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default();
+    /// let credentials = Credentials::default_blocking().unwrap();
     ///
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// ```
@@ -73,7 +73,7 @@ impl Bucket {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default();
+    /// let credentials = Credentials::default_blocking().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (data, code) = bucket.get_object_blocking("/test.file").unwrap();
@@ -97,9 +97,9 @@ impl Bucket {
     /// async fn main() -> Result<(), S3Error> {
     /// 
     ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default();
-    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default().await?;
+    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let (data, code) = bucket.get_object("/test.file").await?;
     ///     println!("Code: {}", code);
@@ -124,7 +124,7 @@ impl Bucket {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default();
+    /// let credentials = Credentials::default_blocking().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// let mut output_file = File::create("output_file").expect("Unable to create file");
     ///
@@ -151,9 +151,9 @@ impl Bucket {
     /// async fn main() -> Result<(), S3Error> {
     /// 
     ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default();
-    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default().await?;
+    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     let mut output_file = File::create("output_file").expect("Unable to create file");
     ///
     ///     let status_code = bucket.get_object_stream("/test.file", &mut output_file).await?;
@@ -185,9 +185,9 @@ impl Bucket {
     /// async fn main() -> Result<(), S3Error> {
     /// 
     ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default();
-    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default().await?;
+    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let status_code = bucket.put_object_stream("input_file", "/test_file").await?;
     ///     println!("Code: {}", status_code);
@@ -214,9 +214,9 @@ impl Bucket {
     /// fn main() -> Result<(), S3Error> {
     /// 
     ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default();
-    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default_blocking()?;
+    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let status_code = bucket.put_object_stream_blocking("input_file", "/test_file")?;
     ///     println!("Code: {}", status_code);
@@ -240,8 +240,8 @@ impl Bucket {
     /// async fn main() -> Result<(), S3Error> {
     /// 
     ///     let bucket_name = "rust-s3-test";
-    ///     let region = "eu-central-1".parse().unwrap();
-    ///     let credentials = Credentials::default();
+    ///     let region = "eu-central-1".parse()?;
+    ///     let credentials = Credentials::default().await?;
     ///
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     println!("{}", bucket.location().await?.0);
@@ -288,7 +288,7 @@ impl Bucket {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "eu-central-1".parse().unwrap();
-    /// let credentials = Credentials::default();
+    /// let credentials = Credentials::default_blocking().unwrap();
     ///
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// println!("{}", bucket.location_blocking().unwrap().0)
@@ -311,8 +311,8 @@ impl Bucket {
     /// async fn main() -> Result<(), S3Error> {
     /// 
     ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default();
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default().await?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let (_, code) = bucket.delete_object("/test.file").await?;
@@ -338,7 +338,7 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default();
+    /// let credentials = Credentials::default_blocking().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (_, code) = bucket.delete_object_blocking("/test.file").unwrap();
@@ -367,7 +367,7 @@ impl Bucket {
     ///
     ///     let bucket_name = &"rust-s3-test";
     ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default();
+    ///     let credentials = Credentials::default_blocking().unwrap();
     ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     ///     let content = "I want to go to S3".as_bytes();
@@ -404,7 +404,7 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default();
+    /// let credentials = Credentials::default_blocking().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let content = "I want to go to S3".as_bytes();
@@ -453,9 +453,9 @@ impl Bucket {
     ///     let aws_secret = &"secret_key";
     ///
     ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default();
-    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default().await?;
+    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let (_, code) = bucket.put_object_tagging("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).await?;
     ///     assert_eq!(201, code);
@@ -483,7 +483,7 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default();
+    /// let credentials = Credentials::default_blocking().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (_, code) = bucket.put_object_tagging_blocking("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).unwrap();
@@ -511,8 +511,8 @@ impl Bucket {
     ///     let aws_secret = &"secret_key";
     ///
     ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default();
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default().await?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let (_, code) = bucket.delete_object_tagging("/test.file").await?;
@@ -540,7 +540,7 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default();
+    /// let credentials = Credentials::default_blocking().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (_, code) = bucket.delete_object_tagging_blocking("/test.file").unwrap();
@@ -568,8 +568,8 @@ impl Bucket {
     ///     let aws_secret = &"secret_key";
     ///
     ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default();
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default().await?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let (tags, code) = bucket.get_object_tagging("/test.file").await?;
@@ -611,7 +611,7 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default();
+    /// let credentials = Credentials::default_blocking().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (tags, code) = bucket.get_object_tagging_blocking("/test.file").unwrap();
@@ -674,7 +674,7 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default();
+    /// let credentials = Credentials::default_blocking().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let results = bucket.list_blocking("/".to_string(), Some("/".to_string())).unwrap();
@@ -722,9 +722,9 @@ impl Bucket {
     ///     let aws_secret = &"secret_key";
     ///
     ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default();
-    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default().await?;
+    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let results = bucket.list("/".to_string(), Some("/".to_string())).await?;
     ///     println!("{:?}", results);

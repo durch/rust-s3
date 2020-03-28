@@ -309,7 +309,7 @@ mod tests {
     fn fake_credentials() -> Credentials {
         const ACCESS_KEY: &'static str = "AKIAIOSFODNN7EXAMPLE";
         const SECRET_KEY: &'static str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-        Credentials::new(Some(ACCESS_KEY.into()), Some(SECRET_KEY.into()), None, None)
+        Credentials::new_blocking(Some(ACCESS_KEY.into()), Some(SECRET_KEY.into()), None, None).unwrap()
     }
 
     #[test]

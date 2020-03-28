@@ -1,5 +1,5 @@
+use super::error::{Result, S3Error};
 use dirs;
-use super::error::{S3Error, Result};
 use ini::Ini;
 use std::collections::HashMap;
 use std::env;
@@ -61,14 +61,33 @@ pub struct Credentials {
 }
 
 impl Credentials {
-    /// Initialize Credentials directly with key ID, secret key, and optional
-    /// token.
-    pub fn new(
+    pub fn new_blocking(
         access_key: Option<String>,
         secret_key: Option<String>,
         token: Option<String>,
         profile: Option<String>,
-    ) -> Credentials {
+    ) -> Result<Credentials> {
+        let mut rt = tokio::runtime::Runtime::new().unwrap();
+        Ok(rt.block_on(Credentials::new(access_key, secret_key, token, profile))?)
+    }
+
+    pub async fn default() -> Result<Credentials> {
+        Ok(Credentials::new(None, None, None, None).await?)
+    }
+
+    pub fn default_blocking() -> Result<Credentials> {
+        let mut rt = tokio::runtime::Runtime::new().unwrap();
+        Ok(rt.block_on(Credentials::default())?)
+    } 
+
+    /// Initialize Credentials directly with key ID, secret key, and optional
+    /// token.
+    pub async fn new(
+        access_key: Option<String>,
+        secret_key: Option<String>,
+        token: Option<String>,
+        profile: Option<String>,
+    ) -> Result<Credentials> {
         let credentials = match access_key {
             Some(key) => match secret_key {
                 Some(secret) => match token {
@@ -90,14 +109,14 @@ impl Credentials {
             None => None,
         };
         match credentials {
-            Some(c) => c,
+            Some(c) => Ok(c),
             None => match Credentials::from_env() {
-                Ok(c) => c,
+                Ok(c) => Ok(c),
                 Err(_) => match Credentials::from_profile(profile) {
-                    Ok(c) => c,
-                    Err(_) => match futures::executor::block_on(Credentials::from_instance_metadata()) {
-                        Ok(c) => c,
-                        Err(e) => panic!("No credentials provided as arguments, in the environment or in the profile file. \n {}", e)
+                    Ok(c) => Ok(c),
+                    Err(_) => match Credentials::from_instance_metadata().await {
+                        Ok(c) => Ok(c),
+                        Err(e) => Err(format!("No credentials provided as arguments, in the environment or in the profile file. \n {}", e).as_str().into())
                     }
                 }
             }
@@ -123,28 +142,40 @@ impl Credentials {
         if !Credentials::is_ec2() {
             return Err(S3Error::from("Not an EC2 instance"));
         }
-        let resp:HashMap<String, String> = match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
-            Ok(credentials_path) => {
-                Some(reqwest::get(&format!("http://169.254.170.2{}",credentials_path)).await?.json().await?)
-            },
-            Err(_) => {
-                let resp: HashMap<String, String> =
-                    reqwest::get("http://169.254.169.254/latest/meta-data/iam/info").await?.json().await?;
-                if let Some(arn) = resp.get("InstanceProfileArn") {
-                    if let Some(role) = arn.split('/').last() {
-                        Some(reqwest::get(&format!(
+        let resp: HashMap<String, String> =
+            match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
+                Ok(credentials_path) => Some(
+                    reqwest::get(&format!("http://169.254.170.2{}", credentials_path))
+                        .await?
+                        .json()
+                        .await?,
+                ),
+                Err(_) => {
+                    let resp: HashMap<String, String> =
+                        reqwest::get("http://169.254.169.254/latest/meta-data/iam/info")
+                            .await?
+                            .json()
+                            .await?;
+                    if let Some(arn) = resp.get("InstanceProfileArn") {
+                        if let Some(role) = arn.split('/').last() {
+                            Some(
+                                reqwest::get(&format!(
                             "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
                             role
-                        )).await?
-                        .json().await?)
+                        ))
+                                .await?
+                                .json()
+                                .await?,
+                            )
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
-                } else {
-                    None
                 }
             }
-        }.unwrap();
+            .unwrap();
 
         let access_key = resp.get("AccessKeyId").unwrap().clone();
         let secret_key = resp.get("SecretAccessKey").unwrap().clone();
@@ -155,7 +186,6 @@ impl Credentials {
             token,
             _private: (),
         })
-
     }
 
     fn is_ec2() -> bool {
@@ -207,11 +237,5 @@ impl Credentials {
             token,
             _private: (),
         })
-    }
-}
-
-impl Default for Credentials {
-    fn default() -> Self {
-        Credentials::new(None, None, None, None)
     }
 }
