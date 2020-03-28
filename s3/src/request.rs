@@ -2,7 +2,7 @@ extern crate base64;
 extern crate md5;
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Write;
 
 use super::bucket::Bucket;
 use chrono::{DateTime, Utc};
@@ -300,7 +300,7 @@ impl<'a> Request<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::credentials::Credentials;
+    use awscreds::Credentials;
     use crate::Result;
     use crate::request::Request;
 

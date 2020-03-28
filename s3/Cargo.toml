@@ -26,13 +26,12 @@ serde-xml-rs = "0.4.0"
 sha2 = "^0.8.0"
 md5 = "0.7.0"
 url = "^2.1.0"
-rust-ini = "0.15.2"
-dirs = "^2.0.2"
 futures = "0.3.4"
 tokio = {version="0.2.13", features=["macros", "fs"]}
 rand = "0.7.3"
 simpl = "0.1.0-alpha"
 aws-region = "0.20.0"
+aws-creds = "0.20.0"
 
 [features]
 no-verify-ssl = []
