@@ -41,5 +41,5 @@ rust-s3 = {version = "0.19.4", features = ["no-verify-ssl"]}
 
 #### AWS and Custom (Minio) Example
 
-+ [Simple S3 CRUD](https://github.com/durch/rust-s3/blob/master/src/bin/simple_crud.rs)
++ [Simple S3 CRUD](https://github.com/durch/rust-s3/blob/master/s3/bin/simple_crud.rs)
 
