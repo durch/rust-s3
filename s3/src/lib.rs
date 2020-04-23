@@ -3,8 +3,8 @@
 extern crate serde_derive;
 use serde_xml_rs as serde_xml;
 
-pub use awsregion;
-pub use awscreds;
+pub use awsregion as region;
+pub use awscreds as creds;
 
 pub mod bucket;
 pub mod command;
