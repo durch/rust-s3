@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::mem;
 use std::io::Write;
-use serde_xml;
+use serde_xml_rs as serde_xml;
 use tokio::runtime::Runtime;
 
 use crate::command::Command;

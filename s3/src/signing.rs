@@ -152,7 +152,7 @@ mod tests {
 
     use super::*;
 
-    use serde_xml;
+    use serde_xml_rs as serde_xml;
     use crate::serde_types::ListBucketResult;
 
     #[test]

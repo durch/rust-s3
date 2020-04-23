@@ -1,17 +1,10 @@
 //! Simple access to Amazon Web Service's (AWS) Simple Storage Service (S3)
-extern crate chrono;
-extern crate hex;
-extern crate hmac;
-extern crate reqwest;
-extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde_xml_rs as serde_xml;
-extern crate sha2;
-extern crate url;
-extern crate futures;
-extern crate core;
-extern crate tokio;
+use serde_xml_rs as serde_xml;
+
+pub use awsregion;
+pub use awscreds;
 
 pub mod bucket;
 pub mod command;
