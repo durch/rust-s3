@@ -1,6 +1,10 @@
 [package]
 name = "rust-s3"
+<<<<<<< HEAD
 version = "0.21.0"
+=======
+version = "0.20.2"
+>>>>>>> 33f9a6a8... Add Region::Yandex, closes #76
 authors = ["Drazen Urch", "Nick Stevens"]
 description = "Tiny Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"

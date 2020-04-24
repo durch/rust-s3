@@ -72,6 +72,8 @@ pub enum Region {
     DoAms3,
     /// Digital Ocean sgp1
     DoSgp1,
+    /// Yandex Object Storage
+    Yandex,
     /// Custom region
     Custom { region: String, endpoint: String },
 }
@@ -103,7 +105,8 @@ impl fmt::Display for Region {
             DoNyc3 => write!(f, "nyc3"),
             DoAms3 => write!(f, "ams3"),
             DoSgp1 => write!(f, "sgp1"),
-            Custom { ref region, .. } => write!(f, "{}", region.to_string())
+            Yandex => write!(f, "yandex"),
+            Custom { ref region, .. } => write!(f, "{}", region.to_string()),
         }
     }
 }
@@ -137,7 +140,11 @@ impl FromStr for Region {
             "nyc3" => Ok(DoNyc3),
             "ams3" => Ok(DoAms3),
             "sgp1" => Ok(DoSgp1),
-            x => Ok(Custom{ region: x.to_string(), endpoint: x.to_string() })
+            "yandex" => Ok(Yandex),
+            x => Ok(Custom {
+                region: x.to_string(),
+                endpoint: x.to_string(),
+            }),
         }
     }
 }
@@ -171,31 +178,48 @@ impl Region {
             DoNyc3 => String::from("nyc3.digitaloceanspaces.com"),
             DoAms3 => String::from("ams3.digitaloceanspaces.com"),
             DoSgp1 => String::from("sgp1.digitaloceanspaces.com"),
-            Custom { ref endpoint, .. } => endpoint.to_string()
+            Yandex => String::from("storage.yandexcloud.net"),
+            Custom { ref endpoint, .. } => endpoint.to_string(),
         }
     }
 
     pub fn scheme(&self) -> String {
         match *self {
-            Region::Custom{ ref endpoint, ..} => {
-                match endpoint.find("://") {
-                    Some(pos) => endpoint[..pos].to_string(),
-                    None => "https".to_string()
-                }
+            Region::Custom { ref endpoint, .. } => match endpoint.find("://") {
+                Some(pos) => endpoint[..pos].to_string(),
+                None => "https".to_string(),
             },
-            _ => "https".to_string()
+            _ => "https".to_string(),
         }
     }
 
     pub fn host(&self) -> String {
         match *self {
-            Region::Custom{ ref endpoint, ..} => {
-                match endpoint.find("://") {
-                    Some(pos) => endpoint[pos + 3..].to_string(),
-                    None => endpoint.to_string()
-                }
+            Region::Custom { ref endpoint, .. } => match endpoint.find("://") {
+                Some(pos) => endpoint[pos + 3..].to_string(),
+                None => endpoint.to_string(),
             },
-            _ => self.endpoint()
+            _ => self.endpoint(),
         }
     }
+}
+
+#[test]
+fn yandex_object_storage() {
+    let yandex = Region::Custom {
+        endpoint: "storage.yandexcloud.net".to_string(),
+        region: "yandex".to_string(),
+    };
+
+    let ru_central_1 = "yandex".parse::<Region>().unwrap();
+
+    assert_eq!(
+        yandex.endpoint(),
+        ru_central_1.endpoint()
+    );
+
+    assert_eq!(
+        yandex.to_string(),
+        ru_central_1.to_string()
+    );
 }
