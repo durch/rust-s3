@@ -1,5 +1,4 @@
 use crate::{Result, AwsCredsError};
-use dirs;
 use ini::Ini;
 use std::collections::HashMap;
 use std::env;
@@ -20,10 +19,10 @@ use std::env;
 /// let credentials = Credentials::default();
 ///
 /// // Also loads credentials from `[default]` profile
-/// let credentials = Credentials::new(None, None, None, None);
+/// let credentials = Credentials::new(None, None, None, None, None);
 ///
 /// // Load credentials from `[my-profile]` profile
-/// let credentials = Credentials::new(None, None, None, Some("my-profile".into()));
+/// let credentials = Credentials::new(None, None, None, None, Some("my-profile".into()));
 /// ```
 ///
 /// Credentials may also be initialized directly or by the following environment variables:
@@ -41,13 +40,13 @@ use std::env;
 /// // Load credentials directly
 /// let access_key = String::from("AKIAIOSFODNN7EXAMPLE");
 /// let secret_key = String::from("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
-/// let credentials = Credentials::new(Some(access_key), Some(secret_key), None, None);
+/// let credentials = Credentials::new(Some(access_key), Some(secret_key), None, None, None);
 ///
 /// // Load credentials from the environment
 /// use std::env;
 /// env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
 /// env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
-/// let credentials = Credentials::new(None, None, None, None);
+/// let credentials = Credentials::new(None, None, None, None, None);
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Credentials {
@@ -56,7 +55,8 @@ pub struct Credentials {
     /// AWS secret key.
     pub secret_key: String,
     /// Temporary token issued by AWS service.
-    pub token: Option<String>,
+    pub security_token: Option<String>,
+    pub session_token: Option<String>,
     _private: (),
 }
 
@@ -64,15 +64,16 @@ impl Credentials {
     pub fn new_blocking(
         access_key: Option<String>,
         secret_key: Option<String>,
-        token: Option<String>,
+        security_token: Option<String>,
+        session_token: Option<String>,
         profile: Option<String>,
     ) -> Result<Credentials> {
         let mut rt = tokio::runtime::Runtime::new().unwrap();
-        Ok(rt.block_on(Credentials::new(access_key, secret_key, token, profile))?)
+        Ok(rt.block_on(Credentials::new(access_key, secret_key, security_token, session_token, profile))?)
     }
 
     pub async fn default() -> Result<Credentials> {
-        Ok(Credentials::new(None, None, None, None).await?)
+        Ok(Credentials::new(None, None, None, None, None).await?)
     }
 
     pub fn default_blocking() -> Result<Credentials> {
@@ -85,29 +86,26 @@ impl Credentials {
     pub async fn new(
         access_key: Option<String>,
         secret_key: Option<String>,
-        token: Option<String>,
+        security_token: Option<String>,
+        session_token: Option<String>,
         profile: Option<String>,
     ) -> Result<Credentials> {
-        let credentials = match access_key {
-            Some(key) => match secret_key {
-                Some(secret) => match token {
-                    Some(t) => Some(Credentials {
-                        access_key: key,
-                        secret_key: secret,
-                        token: Some(t),
-                        _private: (),
-                    }),
-                    None => Some(Credentials {
-                        access_key: key,
-                        secret_key: secret,
-                        token: None,
-                        _private: (),
-                    }),
-                },
-                None => None,
-            },
-            None => None,
+        let credentials = if let Some(access_key) = access_key {
+            if let Some(secret_key) = secret_key {
+                Some(Credentials {
+                    access_key,
+                    secret_key,
+                    security_token,
+                    session_token,
+                    _private: ()
+                })
+            } else {
+                None
+            }
+        } else {
+            None
         };
+
         match credentials {
             Some(c) => Ok(c),
             None => match Credentials::from_env() {
@@ -126,14 +124,19 @@ impl Credentials {
     fn from_env() -> Result<Credentials> {
         let access_key = env::var("AWS_ACCESS_KEY_ID")?;
         let secret_key = env::var("AWS_SECRET_ACCESS_KEY")?;
-        let token = match env::var("AWS_SESSION_TOKEN") {
+        let security_token = match env::var("AWS_SECURITY_TOKEN") {
+            Ok(x) => Some(x),
+            Err(_) => None,
+        };
+        let session_token = match env::var("AWS_SESSION_TOKEN") {
             Ok(x) => Some(x),
             Err(_) => None,
         };
         Ok(Credentials {
             access_key,
             secret_key,
-            token,
+            security_token,
+            session_token,
             _private: (),
         })
     }
@@ -179,11 +182,12 @@ impl Credentials {
 
         let access_key = resp.get("AccessKeyId").unwrap().clone();
         let secret_key = resp.get("SecretAccessKey").unwrap().clone();
-        let token = Some(resp.get("Token").unwrap().clone());
+        let security_token = Some(resp.get("Token").unwrap().clone());
         Ok(Credentials {
             access_key,
             secret_key,
-            token,
+            security_token,
+            session_token: None,
             _private: (),
         })
     }
@@ -215,7 +219,8 @@ impl Credentials {
         };
         let mut access_key = Err(AwsCredsError::from("Missing aws_access_key_id section"));
         let mut secret_key = Err(AwsCredsError::from("Missing aws_secret_access_key section"));
-        let mut token = None;
+        let mut security_token = None;
+        let mut session_token = None;
         if let Some(data) = conf.section(Some(section)) {
             access_key = match data.get("aws_access_key_id") {
                 Some(x) => Ok(x.to_owned()),
@@ -225,7 +230,11 @@ impl Credentials {
                 Some(x) => Ok(x.to_owned()),
                 None => Err(AwsCredsError::from("Missing aws_secret_access_key section")),
             };
-            token = match data.get("aws_security_token") {
+            security_token = match data.get("aws_security_token") {
+                Some(x) => Some(x.to_owned()),
+                None => None,
+            };
+            session_token = match data.get("aws_session_token") {
                 Some(x) => Some(x.to_owned()),
                 None => None,
             }
@@ -234,7 +243,8 @@ impl Credentials {
         Ok(Credentials {
             access_key: access_key?,
             secret_key: secret_key?,
-            token,
+            security_token,
+            session_token,
             _private: (),
         })
     }
