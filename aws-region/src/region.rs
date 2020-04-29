@@ -105,7 +105,7 @@ impl fmt::Display for Region {
             DoNyc3 => write!(f, "nyc3"),
             DoAms3 => write!(f, "ams3"),
             DoSgp1 => write!(f, "sgp1"),
-            Yandex => write!(f, "yandex"),
+            Yandex => write!(f, "ru-central1"),
             Custom { ref region, .. } => write!(f, "{}", region.to_string()),
         }
     }
@@ -141,6 +141,7 @@ impl FromStr for Region {
             "ams3" => Ok(DoAms3),
             "sgp1" => Ok(DoSgp1),
             "yandex" => Ok(Yandex),
+            "ru-central1" => Ok(Yandex),
             x => Ok(Custom {
                 region: x.to_string(),
                 endpoint: x.to_string(),
@@ -208,18 +209,18 @@ impl Region {
 fn yandex_object_storage() {
     let yandex = Region::Custom {
         endpoint: "storage.yandexcloud.net".to_string(),
-        region: "yandex".to_string(),
+        region: "ru-central1".to_string(),
     };
 
-    let ru_central_1 = "yandex".parse::<Region>().unwrap();
+    let yandex_region = "ru-central1".parse::<Region>().unwrap();
 
     assert_eq!(
         yandex.endpoint(),
-        ru_central_1.endpoint()
+        yandex_region.endpoint()
     );
 
     assert_eq!(
         yandex.to_string(),
-        ru_central_1.to_string()
+        yandex_region.to_string()
     );
 }
