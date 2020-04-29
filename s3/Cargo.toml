@@ -14,6 +14,10 @@ edition = "2018"
 name = "s3"
 path = "src/lib.rs"
 
+[[bin]]
+name = "simple_crud"
+path = "bin/simple_crud.rs"
+
 [dependencies]
 base64 = "0.12.0"
 chrono = "^0.4.0"
