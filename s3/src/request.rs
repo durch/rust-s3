@@ -47,26 +47,13 @@ impl<'a> Request<'a> {
     }
 
     fn url(&self) -> Url {
-        let mut url_str = match self.command {
-            Command::GetBucketLocation => {
-                format!("{}://{}", self.bucket.scheme(), self.bucket.self_host())
-            }
-            _ => format!("{}://{}", self.bucket.scheme(), self.bucket.host()),
-        };
-        match self.command {
-            Command::GetBucketLocation => {}
-            _ => {
-                url_str.push_str("/");
-                url_str.push_str(&self.bucket.name());
-            }
-        }
+        let mut url_str = format!("{}://{}", self.bucket.scheme(), self.bucket.self_host());
+
         if !self.path.starts_with('/') {
             url_str.push_str("/");
         }
-        match self.command {
-            Command::GetBucketLocation => url_str.push_str(self.path),
-            _ => url_str.push_str(&signing::uri_encode(self.path, false)),
-        };
+
+        url_str.push_str(self.path);
 
         // Since every part of this URL is either pre-encoded or statically
         // generated, there's really no way this should fail.
@@ -189,17 +176,20 @@ impl<'a> Request<'a> {
             .iter()
             .map(|(k, v)| Ok((k.parse::<HeaderName>()?, v.parse::<HeaderValue>()?)))
             .collect::<Result<HeaderMap, S3Error>>()?;
+        headers.insert(header::HOST, self.bucket.self_host().parse()?);
         match self.command {
-            Command::GetBucketLocation => {
-                headers.insert(header::HOST, self.bucket.self_host().parse()?)
+            Command::ListBucket { .. } => {},
+            Command::GetObject => {},
+            Command::GetObjectTagging => {},
+            Command::GetBucketLocation => {},
+            _ => {
+                headers.insert(
+                    header::CONTENT_LENGTH,
+                    self.content_length().to_string().parse()?,
+                );
+                headers.insert(header::CONTENT_TYPE, self.content_type().parse()?);
             }
-            _ => headers.insert(header::HOST, self.bucket.host().parse()?),
-        };
-        headers.insert(
-            header::CONTENT_LENGTH,
-            self.content_length().to_string().parse()?,
-        );
-        headers.insert(header::CONTENT_TYPE, self.content_type().parse()?);
+        }
         headers.insert("X-Amz-Content-Sha256", sha256.parse()?);
         headers.insert("X-Amz-Date", self.long_date().parse()?);
 
@@ -271,6 +261,8 @@ impl<'a> Request<'a> {
             Vec::new()
         };
 
+        println!("{}", self.url());
+
         let request = client
             .request(self.command.http_verb(), self.url().as_str())
             .headers(headers.to_owned())
@@ -326,7 +318,7 @@ mod tests {
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
 
-        assert_eq!(*host, "custom-region".to_string());
+        assert_eq!(*host, "my-first-bucket.custom-region".to_string());
         Ok(())
     }
 
@@ -342,7 +334,7 @@ mod tests {
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
 
-        assert_eq!(*host, "custom-region".to_string());
+        assert_eq!(*host, "my-second-bucket.custom-region".to_string());
         Ok(())
     }
 }

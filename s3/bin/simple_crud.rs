@@ -4,8 +4,8 @@ extern crate s3;
 use std::str;
 
 use s3::bucket::Bucket;
-use s3::credentials::Credentials;
-use s3::error::S3Error;
+use s3::creds::Credentials;
+use s3::S3Error;
 use s3::region::Region;
 
 struct Storage {
@@ -19,7 +19,7 @@ struct Storage {
 const MESSAGE: &str = "I want to go to S3";
 
 pub fn main() -> Result<(), S3Error> {
-    let s3 = Storage {
+    let aws = Storage {
         name: "aws".into(),
         region: "eu-central-1".parse()?,
         credentials: Credentials::from_profile(Some("rust-s3".to_string()))?,
@@ -38,7 +38,15 @@ pub fn main() -> Result<(), S3Error> {
         location_supported: false,
     };
 
-    for backend in vec![s3, minio] {
+    let yandex = Storage {
+        name: "yandex".into(),
+        region: "ru-central1".parse()?,
+        credentials: Credentials::from_profile(Some("yandex".to_string()))?,
+        bucket: "soundcloud".to_string(),
+        location_supported: false,
+    };
+
+    for backend in vec![aws, yandex] {
         println!("Running {}", backend.name);
         // Create Bucket in REGION for BUCKET
         let bucket = Bucket::new(&backend.bucket, backend.region, backend.credentials)?;
@@ -66,6 +74,7 @@ pub fn main() -> Result<(), S3Error> {
         // matches what we sent.
         let (data, code) = bucket.get_object_blocking("test_file")?;
         let string = str::from_utf8(&data)?;
+        // println!("{}", string);
         assert_eq!(200, code);
         assert_eq!(MESSAGE, string);
 
