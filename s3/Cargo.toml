@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.21.0"
+version = "0.21.1"
 authors = ["Drazen Urch", "Nick Stevens"]
 description = "Tiny Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -30,7 +30,7 @@ futures = "0.3.4"
 tokio = {version="0.2.13", features=["macros", "fs"]}
 rand = "0.7.3"
 simpl = "0.1.0-alpha"
-aws-region = "0.20.0"
+aws-region = "0.21.0"
 aws-creds = "0.21.0"
 
 [features]
