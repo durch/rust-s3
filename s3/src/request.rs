@@ -47,26 +47,13 @@ impl<'a> Request<'a> {
     }
 
     fn url(&self) -> Url {
-        let mut url_str = match self.command {
-            // Command::GetBucketLocation => {
-            //     format!("{}://{}", self.bucket.scheme(), self.bucket.self_host())
-            // }
-            _ => format!("{}://{}", self.bucket.scheme(), self.bucket.self_host()),
-        };
-        match self.command {
-            _ => {}
-            // _ => {
-            //     url_str.push_str("/");
-            //     url_str.push_str(&self.bucket.name());
-            // }
-        }
+        let mut url_str = format!("{}://{}", self.bucket.scheme(), self.bucket.self_host());
+
         if !self.path.starts_with('/') {
             url_str.push_str("/");
         }
-        match self.command {
-            _ => url_str.push_str(self.path),
-            // _ => url_str.push_str(&signing::uri_encode(self.path, false)),
-        };
+
+        url_str.push_str(self.path);
 
         // Since every part of this URL is either pre-encoded or statically
         // generated, there's really no way this should fail.
@@ -189,12 +176,7 @@ impl<'a> Request<'a> {
             .iter()
             .map(|(k, v)| Ok((k.parse::<HeaderName>()?, v.parse::<HeaderValue>()?)))
             .collect::<Result<HeaderMap, S3Error>>()?;
-        match self.command {
-            // Command::GetBucketLocation => {
-            //     headers.insert(header::HOST, self.bucket.self_host().parse()?)
-            // }
-            _ => headers.insert(header::HOST, self.bucket.self_host().parse()?),
-        };
+        headers.insert(header::HOST, self.bucket.self_host().parse()?);
         match self.command {
             Command::ListBucket { .. } => {},
             Command::GetObject => {},
