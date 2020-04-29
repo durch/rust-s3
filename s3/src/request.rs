@@ -203,8 +203,10 @@ impl<'a> Request<'a> {
         headers.insert("X-Amz-Content-Sha256", sha256.parse()?);
         headers.insert("X-Amz-Date", self.long_date().parse()?);
 
-        if let Some(token) = self.bucket.credentials().token.as_ref() {
-            headers.insert("X-Amz-Security-Token", token.parse()?);
+        if let Some(session_token) = self.bucket.session_token() {
+            headers.insert("X-Amz-Security-Token", session_token.parse()?);
+        } else if let Some(security_token) = self.bucket.security_token() {
+            headers.insert("X-Amz-Security-Token", security_token.parse()?);
         }
 
         if let Command::PutObjectTagging { tags } = self.command {
@@ -309,7 +311,7 @@ mod tests {
     fn fake_credentials() -> Credentials {
         const ACCESS_KEY: &'static str = "AKIAIOSFODNN7EXAMPLE";
         const SECRET_KEY: &'static str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-        Credentials::new_blocking(Some(ACCESS_KEY.into()), Some(SECRET_KEY.into()), None, None).unwrap()
+        Credentials::new_blocking(Some(ACCESS_KEY.into()), Some(SECRET_KEY.into()), None, None, None).unwrap()
     }
 
     #[test]

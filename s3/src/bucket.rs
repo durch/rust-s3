@@ -786,10 +786,18 @@ impl Bucket {
         self.credentials.secret_key.clone()
     }
 
-    /// Get a reference to the AWS token.
-    pub fn token(&self) -> Option<&str> {
+    /// Get a reference to the AWS security token.
+    pub fn security_token(&self) -> Option<&str> {
         self.credentials
-            .token
+            .security_token
+            .as_ref()
+            .map(std::string::String::as_str)
+    }
+
+    /// Get a reference to the AWS session token.
+    pub fn session_token(&self) -> Option<&str> {
+        self.credentials
+            .session_token
             .as_ref()
             .map(std::string::String::as_str)
     }
