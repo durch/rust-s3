@@ -87,7 +87,6 @@ impl<'a> Request<'a> {
             _ => {}
         }
 
-        //        println!("{}", url);
         url
     }
 
@@ -260,8 +259,7 @@ impl<'a> Request<'a> {
         } else {
             Vec::new()
         };
-
-        println!("{}", self.url());
+        
 
         let request = client
             .request(self.command.http_verb(), self.url().as_str())
