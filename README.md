@@ -12,7 +12,7 @@ Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully c
 Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Wasabi, Yandex or Minio.
 Supports `put`, `get`, `list`, `delete`, operations on `tags` and `location`.
 
-**[AWS, Yandex and Custom (Minio) Example](https://github.com/durch/rust-s3/blob/master/src/s3/bin/simple_crud.rs)**
+**[AWS, Yandex and Custom (Minio) Example](https://github.com/durch/rust-s3/blob/master/s3/bin/simple_crud.rs)**
 
 #### GET
 
