@@ -65,6 +65,16 @@ impl Bucket {
         })
     }
 
+    pub fn new_public(name: &str, region: Region) -> Result<Bucket> {
+        Ok(Bucket {
+            name: name.into(),
+            region,
+            credentials: Credentials::anonymous()?,
+            extra_headers: HashMap::new(),
+            extra_query: HashMap::new(),
+        })
+    }
+
     /// Gets file from an S3 path, blocks.
     ///
     /// # Example:
@@ -239,7 +249,8 @@ impl Bucket {
         s3_path: S,
     ) -> Result<u16> {
         let mut bytes = Vec::new();
-        reader.read(&mut bytes)?;
+        let read_n = reader.read(&mut bytes)?;
+        debug!("Read {} bytes from reader", read_n);
         let command = Command::PutObject {
             content: &bytes[..],
             content_type: "application/octet-stream",
@@ -891,12 +902,12 @@ impl Bucket {
     }
 
     /// Get a reference to the AWS access key.
-    pub fn access_key(&self) -> String {
+    pub fn access_key(&self) -> Option<String> {
         self.credentials.access_key.clone()
     }
 
     /// Get a reference to the AWS secret key.
-    pub fn secret_key(&self) -> String {
+    pub fn secret_key(&self) -> Option<String> {
         self.credentials.secret_key.clone()
     }
 

@@ -35,7 +35,9 @@ tokio = {version="0.2.13", features=["macros", "io-util"]}
 rand = "0.7.3"
 simpl = "0.1.0-alpha"
 aws-region = "0.21.0"
-aws-creds = "0.21.0"
+# aws-creds = "0.21.0"
+aws-creds = "0.22.0"
+log = "0.4.8"
 
 [features]
 no-verify-ssl = []

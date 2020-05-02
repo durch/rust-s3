@@ -115,7 +115,7 @@ pub fn signing_key(datetime: &DateTime<Utc>,
                    region: &Region,
                    service: &str)
                    -> Result<Vec<u8>> {
-    let secret = String::from("AWS4") + secret_key;
+    let secret = format!("AWS4{}", secret_key);
     let mut date_hmac = HmacSha256::new_varkey(secret.as_bytes())?;
     date_hmac.input(datetime.format(SHORT_DATE).to_string().as_bytes());
     let mut region_hmac = HmacSha256::new_varkey(&date_hmac.result().code())?;

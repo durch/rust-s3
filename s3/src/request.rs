@@ -143,7 +143,7 @@ impl<'a> Request<'a> {
     fn signing_key(&self) -> Result<Vec<u8>> {
         Ok(signing::signing_key(
             &self.datetime,
-            &self.bucket.secret_key(),
+            &self.bucket.secret_key().expect("Secret key must be provided to sign headers, found None"),
             &self.bucket.region(),
             "s3",
         )?)
@@ -157,7 +157,7 @@ impl<'a> Request<'a> {
         let signature = hex::encode(hmac.result().code());
         let signed_header = signing::signed_header_string(headers);
         Ok(signing::authorization_header(
-            &self.bucket.access_key(),
+            &self.bucket.access_key().unwrap(),
             &self.datetime,
             &self.bucket.region(),
             &signed_header,
@@ -216,10 +216,12 @@ impl<'a> Request<'a> {
             // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
         }
 
-        // This must be last, as it signs the other headers
-        let authorization = self.authorization(&headers)?;
-        headers.insert(header::AUTHORIZATION, authorization.parse()?);
-
+        // This must be last, as it signs the other headers, omitted if no secret key is provided
+        if self.bucket.secret_key().is_some() {
+            let authorization = self.authorization(&headers)?;
+            headers.insert(header::AUTHORIZATION, authorization.parse()?);
+        }
+        
         // The format of RFC2822 is somewhat malleable, so including it in
         // signed headers can cause signature mismatches. We do include the
         // X-Amz-Date header, so requests are still properly limited to a date
