@@ -1,5 +1,5 @@
 [![](https://camo.githubusercontent.com/2fee3780a8605b6fc92a43dab8c7b759a274a6cf/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f72757374632d737461626c652d627269676874677265656e2e737667)](https://www.rust-lang.org/downloads.html)
-[![](https://travis-ci.org/durch/rust-s3.svg?branch=master)](https://travis-ci.org/durch/rust-s3)
+[![build](https://xxx.execute-api.us-west-2.amazonaws.com/production/badge/{owner}/{repo})](https://xxx.execute-api.us-west-2.amazonaws.com/production/results/durch/rust-s3)
 [![](http://meritbadge.herokuapp.com/rust-s3)](https://crates.io/crates/rust-s3)
 ![](https://img.shields.io/crates/d/rust-s3.svg)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/durch/rust-s3/blob/master/LICENSE.md)
