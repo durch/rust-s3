@@ -4,7 +4,7 @@
 ![](https://img.shields.io/crates/d/rust-s3.svg)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/durch/rust-s3/blob/master/LICENSE.md)
 <!-- [![Join the chat at https://gitter.im/durch/rust-s3](https://badges.gitter.im/durch/rust-s3.svg)](https://gitter.im/durch/rust-s3?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) -->
-## rust-s3 [[docs](https://durch.github.io/rust-s3/)]
+## rust-s3 [[docs](https://durch.github.io/rust-s3/s3/)]
 
 Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with **async/await** and `futures ^0.3`
 
