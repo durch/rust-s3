@@ -22,8 +22,16 @@ pub fn main() -> Result<(), S3Error> {
     let aws = Storage {
         name: "aws".into(),
         region: "eu-central-1".parse()?,
-        credentials: Credentials::from_profile(Some("rust-s3".to_string()))?,
+        credentials: Credentials::from_profile(Some("rust-s3"))?,
         bucket: "rust-s3-test".to_string(),
+        location_supported: true,
+    };
+
+    let aws_public = Storage {
+        name: "aws-public".into(),
+        region: "eu-central-1".parse()?,
+        credentials: Credentials::anonymous()?,
+        bucket: "rust-s3-public".to_string(),
         location_supported: true,
     };
 
@@ -33,7 +41,7 @@ pub fn main() -> Result<(), S3Error> {
             region: "us-east-1".into(),
             endpoint: "https://minio.adder.black".into(),
         },
-        credentials: Credentials::from_profile(Some("minio".to_string()))?,
+        credentials: Credentials::from_profile(Some("minio"))?,
         bucket: "rust-s3-test".to_string(),
         location_supported: false,
     };
@@ -41,12 +49,12 @@ pub fn main() -> Result<(), S3Error> {
     let yandex = Storage {
         name: "yandex".into(),
         region: "ru-central1".parse()?,
-        credentials: Credentials::from_profile(Some("yandex".to_string()))?,
+        credentials: Credentials::from_profile(Some("yandex"))?,
         bucket: "soundcloud".to_string(),
         location_supported: false,
     };
 
-    for backend in vec![aws, yandex] {
+    for backend in vec![aws_public, aws, yandex] {
         println!("Running {}", backend.name);
         // Create Bucket in REGION for BUCKET
         let bucket = Bucket::new(&backend.bucket, backend.region, backend.credentials)?;
