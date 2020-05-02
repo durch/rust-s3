@@ -1,4 +1,4 @@
-use crate::{Result, AwsCredsError};
+use crate::{AwsCredsError, Result};
 use ini::Ini;
 use std::collections::HashMap;
 use std::env;
@@ -24,6 +24,8 @@ use std::env;
 /// // Load credentials from `[my-profile]` profile
 /// let credentials = Credentials::new(None, None, None, None, Some("my-profile".into()));
 /// ```
+/// // Use anonymous credentials for public objects
+/// let credentials = Credentials::anonymous();
 ///
 /// Credentials may also be initialized directly or by the following environment variables:
 ///
@@ -38,8 +40,8 @@ use std::env;
 /// use awscreds::Credentials;
 ///
 /// // Load credentials directly
-/// let access_key = String::from("AKIAIOSFODNN7EXAMPLE");
-/// let secret_key = String::from("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+/// let access_key = "AKIAIOSFODNN7EXAMPLE";
+/// let secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
 /// let credentials = Credentials::new(Some(access_key), Some(secret_key), None, None, None);
 ///
 /// // Load credentials from the environment
@@ -51,9 +53,9 @@ use std::env;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Credentials {
     /// AWS public access key.
-    pub access_key: String,
+    pub access_key: Option<String>,
     /// AWS secret key.
-    pub secret_key: String,
+    pub secret_key: Option<String>,
     /// Temporary token issued by AWS service.
     pub security_token: Option<String>,
     pub session_token: Option<String>,
@@ -62,14 +64,20 @@ pub struct Credentials {
 
 impl Credentials {
     pub fn new_blocking(
-        access_key: Option<String>,
-        secret_key: Option<String>,
-        security_token: Option<String>,
-        session_token: Option<String>,
-        profile: Option<String>,
+        access_key: Option<&str>,
+        secret_key: Option<&str>,
+        security_token: Option<&str>,
+        session_token: Option<&str>,
+        profile: Option<&str>,
     ) -> Result<Credentials> {
         let mut rt = tokio::runtime::Runtime::new().unwrap();
-        Ok(rt.block_on(Credentials::new(access_key, secret_key, security_token, session_token, profile))?)
+        Ok(rt.block_on(Credentials::new(
+            access_key,
+            secret_key,
+            security_token,
+            session_token,
+            profile,
+        ))?)
     }
 
     pub async fn default() -> Result<Credentials> {
@@ -79,25 +87,48 @@ impl Credentials {
     pub fn default_blocking() -> Result<Credentials> {
         let mut rt = tokio::runtime::Runtime::new().unwrap();
         Ok(rt.block_on(Credentials::default())?)
-    } 
+    }
+
+    pub fn anonymous() -> Result<Credentials> {
+        Ok(Credentials {
+            access_key: None,
+            secret_key: None,
+            security_token: None,
+            session_token: None,
+            _private: ()
+        })
+    }
 
     /// Initialize Credentials directly with key ID, secret key, and optional
     /// token.
     pub async fn new(
-        access_key: Option<String>,
-        secret_key: Option<String>,
-        security_token: Option<String>,
-        session_token: Option<String>,
-        profile: Option<String>,
+        access_key: Option<&str>,
+        secret_key: Option<&str>,
+        security_token: Option<&str>,
+        session_token: Option<&str>,
+        profile: Option<&str>,
     ) -> Result<Credentials> {
+        
+        let security_token = if let Some(security_token) = security_token{
+            Some(security_token.to_string())
+        } else {
+            None
+        };
+
+        let session_token = if let Some(session_token) = session_token {
+            Some(session_token.to_string())
+        } else {
+            None
+        };
+
         let credentials = if let Some(access_key) = access_key {
             if let Some(secret_key) = secret_key {
                 Some(Credentials {
-                    access_key,
-                    secret_key,
+                    access_key: Some(access_key.to_string()),
+                    secret_key: Some(secret_key.to_string()),
                     security_token,
                     session_token,
-                    _private: ()
+                    _private: (),
                 })
             } else {
                 None
@@ -133,8 +164,8 @@ impl Credentials {
             Err(_) => None,
         };
         Ok(Credentials {
-            access_key,
-            secret_key,
+            access_key: Some(access_key),
+            secret_key: Some(secret_key),
             security_token,
             session_token,
             _private: (),
@@ -184,8 +215,8 @@ impl Credentials {
         let secret_key = resp.get("SecretAccessKey").unwrap().clone();
         let security_token = Some(resp.get("Token").unwrap().clone());
         Ok(Credentials {
-            access_key,
-            secret_key,
+            access_key: Some(access_key),
+            secret_key: Some(secret_key),
             security_token,
             session_token: None,
             _private: (),
@@ -206,7 +237,7 @@ impl Credentials {
         false
     }
 
-    pub fn from_profile(section: Option<String>) -> Result<Credentials> {
+    pub fn from_profile(section: Option<&str>) -> Result<Credentials> {
         let home_dir = match dirs::home_dir() {
             Some(path) => Ok(path),
             None => Err(AwsCredsError::from("Invalid home dir")),
@@ -215,7 +246,7 @@ impl Credentials {
         let conf = Ini::load_from_file(&profile)?;
         let section = match section {
             Some(s) => s,
-            None => String::from("default"),
+            None => "default",
         };
         let mut access_key = Err(AwsCredsError::from("Missing aws_access_key_id section"));
         let mut secret_key = Err(AwsCredsError::from("Missing aws_secret_access_key section"));
@@ -241,8 +272,8 @@ impl Credentials {
         }
 
         Ok(Credentials {
-            access_key: access_key?,
-            secret_key: secret_key?,
+            access_key: Some(access_key?),
+            secret_key: Some(secret_key?),
             security_token,
             session_token,
             _private: (),
