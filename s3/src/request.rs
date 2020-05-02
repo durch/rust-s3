@@ -19,6 +19,8 @@ use crate::{S3Error, Result};
 use crate::EMPTY_PAYLOAD_SHA;
 use crate::LONG_DATE;
 
+use tokio::io::AsyncWriteExt;
+
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
 
@@ -286,6 +288,15 @@ impl<'a> Request<'a> {
     ) -> Result<u16> {
         let (body, status_code) = self.response_data_future().await?;
         writer.write_all(&body[..]).expect("Could not write to writer");
+        Ok(status_code)
+    }
+
+    pub async fn tokio_response_data_to_writer_future<'b, T: AsyncWriteExt + Unpin>(
+        &self,
+        writer: &'b mut T,
+    ) -> Result<u16> {
+        let (body, status_code) = self.response_data_future().await?;
+        writer.write_all(&body[..]).await.expect("Could not write to writer");
         Ok(status_code)
     }
 }
