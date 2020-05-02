@@ -5,19 +5,19 @@ use std::collections::HashMap;
 use std::io::Write;
 
 use super::bucket::Bucket;
-use chrono::{DateTime, Utc};
 use super::command::Command;
+use chrono::{DateTime, Utc};
 use hmac::Mac;
-use reqwest::{Client, Response};
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
+use reqwest::{Client, Response};
 use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::signing;
 
-use crate::{S3Error, Result};
 use crate::EMPTY_PAYLOAD_SHA;
 use crate::LONG_DATE;
+use crate::{Result, S3Error};
 
 use tokio::io::AsyncWriteExt;
 
@@ -143,7 +143,10 @@ impl<'a> Request<'a> {
     fn signing_key(&self) -> Result<Vec<u8>> {
         Ok(signing::signing_key(
             &self.datetime,
-            &self.bucket.secret_key().expect("Secret key must be provided to sign headers, found None"),
+            &self
+                .bucket
+                .secret_key()
+                .expect("Secret key must be provided to sign headers, found None"),
             &self.bucket.region(),
             "s3",
         )?)
@@ -179,10 +182,10 @@ impl<'a> Request<'a> {
             .collect::<Result<HeaderMap, S3Error>>()?;
         headers.insert(header::HOST, self.bucket.self_host().parse()?);
         match self.command {
-            Command::ListBucket { .. } => {},
-            Command::GetObject => {},
-            Command::GetObjectTagging => {},
-            Command::GetBucketLocation => {},
+            Command::ListBucket { .. } => {}
+            Command::GetObject => {}
+            Command::GetObjectTagging => {}
+            Command::GetBucketLocation => {}
             _ => {
                 headers.insert(
                     header::CONTENT_LENGTH,
@@ -221,7 +224,7 @@ impl<'a> Request<'a> {
             let authorization = self.authorization(&headers)?;
             headers.insert(header::AUTHORIZATION, authorization.parse()?);
         }
-        
+
         // The format of RFC2822 is somewhat malleable, so including it in
         // signed headers can cause signature mismatches. We do include the
         // X-Amz-Date header, so requests are still properly limited to a date
@@ -263,7 +266,6 @@ impl<'a> Request<'a> {
         } else {
             Vec::new()
         };
-        
 
         let request = client
             .request(self.command.http_verb(), self.url().as_str())
@@ -279,6 +281,18 @@ impl<'a> Request<'a> {
         let body = response.bytes().await?;
         let mut body_vec = Vec::new();
         body_vec.extend_from_slice(&body[..]);
+        if cfg!(feature = "fail-on-err") {
+            if status_code >= 400 {
+                return Err(S3Error::from(
+                    format!(
+                        "Request failed with code {}\n{}",
+                        status_code,
+                        std::str::from_utf8(body_vec.as_slice())?
+                    )
+                    .as_str(),
+                ));
+            }
+        }
         Ok((body_vec, status_code))
     }
 
@@ -287,7 +301,9 @@ impl<'a> Request<'a> {
         writer: &'b mut T,
     ) -> Result<u16> {
         let (body, status_code) = self.response_data_future().await?;
-        writer.write_all(&body[..]).expect("Could not write to writer");
+        writer
+            .write_all(&body[..])
+            .expect("Could not write to writer");
         Ok(status_code)
     }
 
@@ -296,7 +312,10 @@ impl<'a> Request<'a> {
         writer: &'b mut T,
     ) -> Result<u16> {
         let (body, status_code) = self.response_data_future().await?;
-        writer.write_all(&body[..]).await.expect("Could not write to writer");
+        writer
+            .write_all(&body[..])
+            .await
+            .expect("Could not write to writer");
         Ok(status_code)
     }
 }
@@ -305,16 +324,23 @@ impl<'a> Request<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use awscreds::Credentials;
-    use crate::Result;
     use crate::request::Request;
+    use crate::Result;
+    use awscreds::Credentials;
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
     fn fake_credentials() -> Credentials {
         const ACCESS_KEY: &'static str = "AKIAIOSFODNN7EXAMPLE";
         const SECRET_KEY: &'static str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-        Credentials::new_blocking(Some(ACCESS_KEY.into()), Some(SECRET_KEY.into()), None, None, None).unwrap()
+        Credentials::new_blocking(
+            Some(ACCESS_KEY.into()),
+            Some(SECRET_KEY.into()),
+            None,
+            None,
+            None,
+        )
+        .unwrap()
     }
 
     #[test]
