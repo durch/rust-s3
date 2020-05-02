@@ -9,12 +9,38 @@
 Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with **async/await** and `futures ^0.3`
 
 ### Intro
-Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Wasabi or Minio.
-Supports `put`, `get`, `list`, and `delete`, operations on `tags` and `location`.
+Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Wasabi, Yandex or Minio.
+Supports `put`, `get`, `list`, `delete`, operations on `tags` and `location`.
 
-Supports streaming S3 contents, generic over `T: Write`, as well as streaming local paths to S3.
++ **[AWS, Yandex and Custom (Minio) Example](https://github.com/durch/rust-s3/blob/master/src/bin/simple_crud.rs)**
 
-### What is cool -> Broken and tracked at [#54](https://github.com/durch/rust-s3/issues/54)
+#### GET
+
+There are a few different options for getting an object. `async` and `sync` methods are generic over `std::io::Write`,
+while `tokio` methods are generic over `tokio::io::AsyncWriteExt`.
+
+|         |                                                                                                                              |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `async` | [get_object](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.get_object)                                 |
+| `async` | [get_object_stream](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_stream)                   |
+| `sync`  | [get_object_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_blocking)               |
+| `sync`  | [get_object_stream_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_stream_blocking) |
+| `tokio` | [tokio_get_object_stream](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.tokio_get_object_stream)       |
+
+#### PUT
+
+Each `GET` method has a put companion `sync` and `async` methods are generic over `std::io::Read`,
+while `tokio` methods are generic over `tokio::io::AsyncReadExt`.
+
+|         |                                                                                                                              |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `async` | [put_object](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object)                                 |
+| `async` | [put_object_stream](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_stream)                   |
+| `sync`  | [put_object_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_blocking)               |
+| `sync`  | [put_object_stream_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_stream_blocking) |
+| `tokio` | [tokio_put_object_stream](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.tokio_put_object_stream)       |
+
+### What else is cool? -> Broken and tracked at [#54](https://github.com/durch/rust-s3/issues/54)
 
 The main cool feature is that `put` commands return a presigned link to the file you uploaded
 This means you can upload to s3, and give the link to select people without having to worry about publicly accessible files on S3.
@@ -24,22 +50,23 @@ This means you can upload to s3, and give the link to select people without havi
 Getter and setter functions exist for all `Link` params... You don't really have to touch anything there, maybe `amz-expire`,
 it is configured for one week which is the maximum Amazon allows ATM.
 
-### Usage
+### Usage (in `Cargo.toml`)
 
-*In your Cargo.toml*
-
-```
+```toml
 [dependencies]
-rust-s3 = "0.19.4"
+rust-s3 = "0.22.1"
 ```
 
 #### Disable SSL verification for endpoints, useful for custom regions
-```
+
+```toml
 [dependencies]
-rust-s3 = {version = "0.19.4", features = ["no-verify-ssl"]}
+rust-s3 = {version = "0.22.1", features = ["no-verify-ssl"]}
 ```
 
-#### AWS and Custom (Minio) Example
+#### Fail on HTTP error responses
 
-+ [Simple S3 CRUD](https://github.com/durch/rust-s3/blob/master/src/bin/simple_crud.rs)
-
+```toml
+[dependencies]
+rust-s3 = {version = "0.22.1", features = ["fail-on-err"]}
+```
