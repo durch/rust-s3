@@ -54,19 +54,25 @@ it is configured for one week which is the maximum Amazon allows ATM.
 
 ```toml
 [dependencies]
-rust-s3 = "0.22.1"
+rust-s3 = "0.22.3"
 ```
 
 #### Disable SSL verification for endpoints, useful for custom regions
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.1", features = ["no-verify-ssl"]}
+rust-s3 = {version = "0.22.3", features = ["no-verify-ssl"]}
 ```
 
 #### Fail on HTTP error responses
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.1", features = ["fail-on-err"]}
+rust-s3 = {version = "0.22.3", features = ["fail-on-err"]}
+```
+
+#### Use path style addressing, needed for Minio compatibility
+```toml
+[dependencies]
+rust-s3 = {version = "0.22.3", features = ["path-style"]}
 ```

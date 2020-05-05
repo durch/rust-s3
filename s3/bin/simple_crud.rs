@@ -42,7 +42,7 @@ pub fn main() -> Result<(), S3Error> {
             endpoint: "https://minio.adder.black".into(),
         },
         credentials: Credentials::from_profile(Some("minio"))?,
-        bucket: "rust-s3-test".to_string(),
+        bucket: "rust-s3".to_string(),
         location_supported: false,
     };
 
@@ -54,7 +54,7 @@ pub fn main() -> Result<(), S3Error> {
         location_supported: false,
     };
 
-    for backend in vec![aws_public, aws, yandex] {
+    for backend in vec![minio, aws, yandex] {
         println!("Running {}", backend.name);
         // Create Bucket in REGION for BUCKET
         let bucket = Bucket::new(&backend.bucket, backend.region, backend.credentials)?;

@@ -49,7 +49,11 @@ impl<'a> Request<'a> {
     }
 
     fn url(&self) -> Url {
-        let mut url_str = format!("{}://{}", self.bucket.scheme(), self.bucket.self_host());
+        let mut url_str = if cfg!(feature = "path-style") {
+            format!("{}://{}/{}", self.bucket.scheme(), self.bucket.host(), self.bucket.name())
+        } else {
+            format!("{}://{}", self.bucket.scheme(), self.bucket.self_host())
+        };
 
         if !self.path.starts_with('/') {
             url_str.push_str("/");
@@ -180,7 +184,15 @@ impl<'a> Request<'a> {
             .iter()
             .map(|(k, v)| Ok((k.parse::<HeaderName>()?, v.parse::<HeaderValue>()?)))
             .collect::<Result<HeaderMap, S3Error>>()?;
+        
         headers.insert(header::HOST, self.bucket.self_host().parse()?);
+
+        if cfg!(feature = "path-style") {
+            headers.insert(header::HOST, self.bucket.host().parse()?);
+        } else {
+            headers.insert(header::HOST, self.bucket.self_host().parse()?);
+        };
+
         match self.command {
             Command::ListBucket { .. } => {}
             Command::GetObject => {}
@@ -355,7 +367,11 @@ mod tests {
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
 
-        assert_eq!(*host, "my-first-bucket.custom-region".to_string());
+        if cfg!(feature = "path-style") {
+            assert_eq!(*host, "custom-region".to_string());
+        } else {
+            assert_eq!(*host, "my-first-bucket.custom-region".to_string());
+        }
         Ok(())
     }
 
@@ -370,8 +386,11 @@ mod tests {
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
-
-        assert_eq!(*host, "my-second-bucket.custom-region".to_string());
+        if cfg!(feature = "path-style") {
+            assert_eq!(*host, "custom-region".to_string());
+        } else {
+            assert_eq!(*host, "my-second-bucket.custom-region".to_string());
+        }
         Ok(())
     }
 }
