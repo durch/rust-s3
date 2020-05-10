@@ -20,6 +20,7 @@ use crate::LONG_DATE;
 use crate::{Result, S3Error};
 
 use tokio::io::AsyncWriteExt;
+use once_cell::sync::Lazy;
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -27,6 +28,18 @@ pub type Headers = HashMap<String, String>;
 /// Collection of HTTP query parameters sent to S3 service, in key/value
 /// format.
 pub type Query = HashMap<String, String>;
+
+static CLIENT: Lazy<Client> = Lazy::new(|| {
+    if cfg!(feature = "no-verify-ssl") {
+        Client::builder()
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true)
+            .build()
+            .expect("Could not build dangerous client!")
+    } else {
+        Client::new()
+    }
+});
 
 // Temporary structure for making a request
 pub struct Request<'a> {
@@ -257,16 +270,6 @@ impl<'a> Request<'a> {
     // }
 
     pub async fn response_future(&self) -> Result<Response> {
-        let client = if cfg!(feature = "no-verify-ssl") {
-            Client::builder()
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true)
-                .build()
-                .expect("Could not build dangerous client!")
-        } else {
-            Client::new()
-        };
-
         // Build headers
         let headers = self.headers().expect("Could not get headers!");
 
@@ -279,7 +282,7 @@ impl<'a> Request<'a> {
             Vec::new()
         };
 
-        let request = client
+        let request = CLIENT
             .request(self.command.http_verb(), self.url().as_str())
             .headers(headers.to_owned())
             .body(content.to_owned());
