@@ -340,7 +340,7 @@ impl<'a> Request<'a> {
         let mut stream = response.bytes_stream();
 
         while let Some(item) = stream.next().await {
-            writer.write(&item?).await?;
+            writer.write_all(&item?).await?;
         }
 
         Ok(status_code.as_u16())

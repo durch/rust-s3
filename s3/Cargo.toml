@@ -31,7 +31,7 @@ sha2 = "^0.8.0"
 md5 = "0.7.0"
 url = "^2.1.0"
 futures = "0.3.4"
-tokio = {version="0.2.13", features=["macros", "io-util"]}
+tokio = {version="0.2.13", features=["macros", "io-util", "stream"]}
 rand = "0.7.3"
 simpl = "0.1.0-alpha"
 aws-region = "0.21.0"
