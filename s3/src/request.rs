@@ -324,7 +324,7 @@ impl<'a> Request<'a> {
         let mut stream = response.bytes_stream();
 
         while let Some(item) = stream.next().await {
-            writer.write(&item?)?;
+            writer.write_all(&item?)?;
         }
 
         Ok(status_code.as_u16())
