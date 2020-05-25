@@ -20,6 +20,7 @@ use crate::LONG_DATE;
 use crate::{Result, S3Error};
 
 use tokio::io::AsyncWriteExt;
+use tokio::stream::StreamExt;
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -284,7 +285,20 @@ impl<'a> Request<'a> {
             .headers(headers.to_owned())
             .body(content.to_owned());
 
-        Ok(request.send().await?)
+        let response = request.send().await?;
+
+        if cfg!(feature = "fail-on-err") && response.status().as_u16() >= 400 {
+            return Err(S3Error::from(
+                format!(
+                    "Request failed with code {}\n{}",
+                    response.status().as_u16(),
+                    response.text().await?
+                )
+                .as_str(),
+            ));
+        }
+
+        Ok(response)
     }
 
     pub async fn response_data_future(&self) -> Result<(Vec<u8>, u16)> {
@@ -293,18 +307,6 @@ impl<'a> Request<'a> {
         let body = response.bytes().await?;
         let mut body_vec = Vec::new();
         body_vec.extend_from_slice(&body[..]);
-        if cfg!(feature = "fail-on-err") {
-            if status_code >= 400 {
-                return Err(S3Error::from(
-                    format!(
-                        "Request failed with code {}\n{}",
-                        status_code,
-                        std::str::from_utf8(body_vec.as_slice())?
-                    )
-                    .as_str(),
-                ));
-            }
-        }
         Ok((body_vec, status_code))
     }
 
@@ -323,12 +325,16 @@ impl<'a> Request<'a> {
         &self,
         writer: &'b mut T,
     ) -> Result<u16> {
-        let (body, status_code) = self.response_data_future().await?;
-        writer
-            .write_all(&body[..])
-            .await
-            .expect("Could not write to writer");
-        Ok(status_code)
+        let response = self.response_future().await?;
+
+        let status_code = response.status();
+        let mut stream = response.bytes_stream();
+
+        while let Some(item) = stream.next().await {
+            writer.write(&item?).await?;
+        }
+
+        Ok(status_code.as_u16())
     }
 }
 
