@@ -54,7 +54,7 @@ pub fn main() -> Result<(), S3Error> {
         location_supported: false,
     };
 
-    for backend in vec![minio, aws, yandex] {
+    for backend in vec![aws, yandex] {
         println!("Running {}", backend.name);
         // Create Bucket in REGION for BUCKET
         let bucket = Bucket::new(&backend.bucket, backend.region, backend.credentials)?;
