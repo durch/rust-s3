@@ -314,11 +314,16 @@ impl<'a> Request<'a> {
         &self,
         writer: &'b mut T,
     ) -> Result<u16> {
-        let (body, status_code) = self.response_data_future().await?;
-        writer
-            .write_all(&body[..])
-            .expect("Could not write to writer");
-        Ok(status_code)
+        let response = self.response_future().await?;
+
+        let status_code = response.status();
+        let mut stream = response.bytes_stream();
+
+        while let Some(item) = stream.next().await {
+            writer.write(&item?)?;
+        }
+
+        Ok(status_code.as_u16())
     }
 
     pub async fn tokio_response_data_to_writer_future<'b, T: AsyncWriteExt + Unpin>(
