@@ -814,6 +814,9 @@ impl Bucket {
         let mut result = self.list_page_blocking(prefix.clone(), delimiter.clone(), None)?;
         loop {
             results.push(result.clone());
+            if !result.0.is_truncated {
+                break
+            }
             match result.0.next_continuation_token {
                 Some(token) => {
                     result =
