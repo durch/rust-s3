@@ -19,10 +19,9 @@ use crate::EMPTY_PAYLOAD_SHA;
 use crate::LONG_DATE;
 use crate::{Result, S3Error};
 
+use once_cell::sync::Lazy;
 use tokio::io::AsyncWriteExt;
 use tokio::stream::StreamExt;
-use once_cell::sync::Lazy;
-
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -65,7 +64,12 @@ impl<'a> Request<'a> {
 
     fn url(&self) -> Url {
         let mut url_str = if cfg!(feature = "path-style") {
-            format!("{}://{}/{}", self.bucket.scheme(), self.bucket.host(), self.bucket.name())
+            format!(
+                "{}://{}/{}",
+                self.bucket.scheme(),
+                self.bucket.host(),
+                self.bucket.name()
+            )
         } else {
             format!("{}://{}", self.bucket.scheme(), self.bucket.self_host())
         };
@@ -193,13 +197,29 @@ impl<'a> Request<'a> {
 
         // Start with extra_headers, that way our headers replace anything with
         // the same name.
-        let mut headers = self
-            .bucket
-            .extra_headers
-            .iter()
-            .map(|(k, v)| Ok((k.parse::<HeaderName>()?, v.parse::<HeaderValue>()?)))
-            .collect::<Result<HeaderMap, S3Error>>()?;
-        
+
+        let mut headers = HeaderMap::new();
+
+        for (k, v) in self.bucket.extra_headers.iter() {
+            headers.insert(
+                match HeaderName::from_bytes(k.as_bytes()) {
+                    Ok(name) => name,
+                    Err(e) => return Err(S3Error::from(format!("Could not parse {} to HeaderName.\n {}", k, e).as_ref()))
+                },
+                match HeaderValue::from_bytes(v.as_bytes()) {
+                    Ok(value) => value,
+                    Err(e) => return Err(S3Error::from(format!("Could not parse {} to HeaderValue.\n {}", v, e).as_ref()))
+                },
+            );
+        }
+
+        // let mut headers = self
+        //     .bucket
+        //     .extra_headers
+        //     .iter()
+        //     .map(|(k, v)| Ok((k, v)))
+        //     .collect::<Result<HeaderMap, S3Error>>()?;
+
         headers.insert(header::HOST, self.bucket.self_host().parse()?);
 
         if cfg!(feature = "path-style") {
