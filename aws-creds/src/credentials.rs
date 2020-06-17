@@ -152,7 +152,7 @@ impl Credentials {
         }
     }
 
-    fn from_env() -> Result<Credentials> {
+    pub fn from_env() -> Result<Credentials> {
         let access_key = env::var("AWS_ACCESS_KEY_ID")?;
         let secret_key = env::var("AWS_SECRET_ACCESS_KEY")?;
         let security_token = match env::var("AWS_SECURITY_TOKEN") {

@@ -1,6 +1,6 @@
 [package]
 name = "aws-creds"
-version = "0.22.0"
+version = "0.22.1"
 authors = ["Drazen Urch"]
 description = "Tiny Rust library for working with Amazon IAM credential,s, supports `s3` crate"
 repository = "https://github.com/durch/rust-s3"
