@@ -204,29 +204,43 @@ impl<'a> Request<'a> {
             headers.insert(
                 match HeaderName::from_bytes(k.as_bytes()) {
                     Ok(name) => name,
-                    Err(e) => return Err(S3Error::from(format!("Could not parse {} to HeaderName.\n {}", k, e).as_ref()))
+                    Err(e) => {
+                        return Err(S3Error::from(
+                            format!("Could not parse {} to HeaderName.\n {}", k, e).as_ref(),
+                        ))
+                    }
                 },
                 match HeaderValue::from_bytes(v.as_bytes()) {
                     Ok(value) => value,
-                    Err(e) => return Err(S3Error::from(format!("Could not parse {} to HeaderValue.\n {}", v, e).as_ref()))
+                    Err(e) => {
+                        return Err(S3Error::from(
+                            format!("Could not parse {} to HeaderValue.\n {}", v, e).as_ref(),
+                        ))
+                    }
                 },
             );
         }
 
-        // let mut headers = self
-        //     .bucket
-        //     .extra_headers
-        //     .iter()
-        //     .map(|(k, v)| Ok((k, v)))
-        //     .collect::<Result<HeaderMap, S3Error>>()?;
-
-        headers.insert(header::HOST, self.bucket.self_host().parse()?);
-
-        if cfg!(feature = "path-style") {
-            headers.insert(header::HOST, self.bucket.host().parse()?);
+        let host_header = if cfg!(feature = "path-style") {
+            self.bucket.host()
         } else {
-            headers.insert(header::HOST, self.bucket.self_host().parse()?);
+            self.bucket.self_host()
         };
+
+        let host_header_value: HeaderValue = match host_header.parse() {
+            Ok(host) => host,
+            Err(_) => {
+                return Err(S3Error::from(
+                    format!(
+                        "Could not parse HOST header value {}",
+                        self.bucket.self_host()
+                    )
+                    .as_ref(),
+                ))
+            }
+        };
+
+        headers.insert(header::HOST, host_header_value);
 
         match self.command {
             Command::ListBucket { .. } => {}
@@ -236,18 +250,99 @@ impl<'a> Request<'a> {
             _ => {
                 headers.insert(
                     header::CONTENT_LENGTH,
-                    self.content_length().to_string().parse()?,
+                    match self.content_length().to_string().parse() {
+                        Ok(content_length) => content_length,
+                        Err(_) => {
+                            return Err(S3Error::from(
+                                format!(
+                                    "Could not parse CONTENT_LENGTH header value {}",
+                                    self.content_length()
+                                )
+                                .as_ref(),
+                            ))
+                        }
+                    },
                 );
-                headers.insert(header::CONTENT_TYPE, self.content_type().parse()?);
+                headers.insert(
+                    header::CONTENT_TYPE,
+                    match self.content_type().parse() {
+                        Ok(content_type) => content_type,
+                        Err(_) => {
+                            return Err(S3Error::from(
+                                format!(
+                                    "Could not parse CONTENT_TYPE header value {}",
+                                    self.content_type()
+                                )
+                                .as_ref(),
+                            ))
+                        }
+                    },
+                );
             }
         }
-        headers.insert("X-Amz-Content-Sha256", sha256.parse()?);
-        headers.insert("X-Amz-Date", self.long_date().parse()?);
+        headers.insert(
+            "X-Amz-Content-Sha256",
+            match sha256.parse() {
+                Ok(value) => value,
+                Err(_) => {
+                    return Err(S3Error::from(
+                        format!(
+                            "Could not parse X-Amz-Content-Sha256 header value {}",
+                            sha256
+                        )
+                        .as_ref(),
+                    ))
+                }
+            },
+        );
+        headers.insert(
+            "X-Amz-Date",
+            match self.long_date().parse() {
+                Ok(value) => value,
+                Err(_) => {
+                    return Err(S3Error::from(
+                        format!(
+                            "Could not parse X-Amz-Date header value {}",
+                            self.long_date()
+                        )
+                        .as_ref(),
+                    ))
+                }
+            },
+        );
 
         if let Some(session_token) = self.bucket.session_token() {
-            headers.insert("X-Amz-Security-Token", session_token.parse()?);
+            headers.insert(
+                "X-Amz-Security-Token",
+                match session_token.parse() {
+                    Ok(session_token) => session_token,
+                    Err(_) => {
+                        return Err(S3Error::from(
+                            format!(
+                                "Could not parse X-Amz-Security-Token header value {}",
+                                session_token
+                            )
+                            .as_ref(),
+                        ))
+                    }
+                },
+            );
         } else if let Some(security_token) = self.bucket.security_token() {
-            headers.insert("X-Amz-Security-Token", security_token.parse()?);
+            headers.insert(
+                "X-Amz-Security-Token",
+                match security_token.parse() {
+                    Ok(security_token) => security_token,
+                    Err(_) => {
+                        return Err(S3Error::from(
+                            format!(
+                                "Could not parse X-Amz-Security-Token header value {}",
+                                security_token
+                            )
+                            .as_ref(),
+                        ))
+                    }
+                },
+            );
         }
 
         if let Command::PutObjectTagging { tags } = self.command {
@@ -269,7 +364,16 @@ impl<'a> Request<'a> {
         // This must be last, as it signs the other headers, omitted if no secret key is provided
         if self.bucket.secret_key().is_some() {
             let authorization = self.authorization(&headers)?;
-            headers.insert(header::AUTHORIZATION, authorization.parse()?);
+            headers.insert(header::AUTHORIZATION, match authorization.parse() {
+                Ok(authorization) => authorization,
+                Err(_) => return Err(S3Error::from(
+                    format!(
+                        "Could not parse AUTHORIZATION header value {}",
+                        authorization
+                    )
+                    .as_ref(),
+                ))
+            });
         }
 
         // The format of RFC2822 is somewhat malleable, so including it in
@@ -278,7 +382,16 @@ impl<'a> Request<'a> {
         // range and can't be used again e.g. reply attacks. Adding this header
         // after the generation of the Authorization header leaves it out of
         // the signed headers.
-        headers.insert(header::DATE, self.datetime.to_rfc2822().parse()?);
+        headers.insert(header::DATE, match self.datetime.to_rfc2822().parse() {
+            Ok(date) => date,
+            Err(_) => return Err(S3Error::from(
+                format!(
+                    "Could not parse DATE header value {}",
+                    self.datetime.to_rfc2822()
+                )
+                .as_ref(),
+            ))
+        });
 
         Ok(headers)
     }
@@ -295,7 +408,7 @@ impl<'a> Request<'a> {
         // Build headers
         let headers = match self.headers() {
             Ok(headers) => headers,
-            Err(e) => return Err(e)
+            Err(e) => return Err(e),
         };
 
         // Get owned content to pass to reqwest
