@@ -907,7 +907,7 @@ impl Bucket {
     /// Get a reference to the AWS access key.
     pub fn access_key(&self) -> Option<String> {
         if let Some(access_key) = self.credentials.access_key.clone() {
-            Some(access_key.trim().to_string())
+            Some(access_key.replace('\n',"").to_string())
         } else {
             None
         }
@@ -916,7 +916,7 @@ impl Bucket {
     /// Get a reference to the AWS secret key.
     pub fn secret_key(&self) -> Option<String> {
         if let Some(secret_key) = self.credentials.secret_key.clone() {
-            Some(secret_key.trim().to_string())
+            Some(secret_key.replace('\n',"").to_string())
         } else {
             None
         }
