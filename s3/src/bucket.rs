@@ -906,12 +906,20 @@ impl Bucket {
 
     /// Get a reference to the AWS access key.
     pub fn access_key(&self) -> Option<String> {
-        self.credentials.access_key.clone()
+        if let Some(access_key) = self.credentials.access_key.clone() {
+            Some(access_key.trim().to_string())
+        } else {
+            None
+        }
     }
 
     /// Get a reference to the AWS secret key.
     pub fn secret_key(&self) -> Option<String> {
-        self.credentials.secret_key.clone()
+        if let Some(secret_key) = self.credentials.secret_key.clone() {
+            Some(secret_key.trim().to_string())
+        } else {
+            None
+        }
     }
 
     /// Get a reference to the AWS security token.
