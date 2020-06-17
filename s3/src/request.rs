@@ -293,7 +293,10 @@ impl<'a> Request<'a> {
 
     pub async fn response_future(&self) -> Result<Response> {
         // Build headers
-        let headers = self.headers().expect("Could not get headers!");
+        let headers = match self.headers() {
+            Ok(headers) => headers,
+            Err(e) => return Err(e)
+        };
 
         // Get owned content to pass to reqwest
         let content = if let Command::PutObject { content, .. } = self.command {
