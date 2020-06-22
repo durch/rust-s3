@@ -6,12 +6,12 @@ use std::str;
 
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
-use url::Url;
 use reqwest::header::HeaderMap;
 use sha2::{Digest, Sha256};
+use url::Url;
 
-use awsregion::Region;
 use crate::Result;
+use awsregion::Region;
 
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
@@ -19,6 +19,7 @@ const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
 pub type HmacSha256 = Hmac<Sha256>;
 
 /// Encode a URI following the specific requirements of the AWS service.
+// TODO replace with percent_encoding crate
 pub fn uri_encode(string: &str, encode_slash: bool) -> String {
     let mut result = String::with_capacity(string.len() * 2);
     for c in string.chars() {
@@ -28,10 +29,12 @@ pub fn uri_encode(string: &str, encode_slash: bool) -> String {
             '/' if !encode_slash => result.push('/'),
             _ => {
                 result.push('%');
-                result.push_str(&format!("{}", c)
-                    .bytes()
-                    .map(|b| format!("{:02X}", b))
-                    .collect::<String>());
+                result.push_str(
+                    &format!("{}", c)
+                        .bytes()
+                        .map(|b| format!("{:02X}", b))
+                        .collect::<String>(),
+                );
             }
         }
     }
@@ -48,7 +51,8 @@ pub fn canonical_uri_string(uri: &Url) -> String {
 
 /// Generate a canonical query string from the query pairs in the given URL.
 pub fn canonical_query_string(uri: &Url) -> String {
-    let mut keyvalues = uri.query_pairs()
+    let mut keyvalues = uri
+        .query_pairs()
         .map(|(key, value)| uri_encode(&key, true) + "=" + &uri_encode(&value, true))
         .collect::<Vec<String>>();
     keyvalues.sort();
@@ -67,7 +71,8 @@ pub fn canonical_header_string(headers: &HeaderMap) -> String {
             } else {
                 None
             }
-        }).collect::<Vec<String>>();
+        })
+        .collect::<Vec<String>>();
     keyvalues.sort();
     keyvalues.join("\n")
 }
@@ -84,20 +89,24 @@ pub fn signed_header_string(headers: &HeaderMap) -> String {
 
 /// Generate a canonical request.
 pub fn canonical_request(method: &str, url: &Url, headers: &HeaderMap, sha256: &str) -> String {
-    format!("{method}\n{uri}\n{query_string}\n{headers}\n\n{signed}\n{sha256}",
-            method = method,
-            uri = canonical_uri_string(url),
-            query_string = canonical_query_string(url),
-            headers = canonical_header_string(headers),
-            signed = signed_header_string(headers),
-            sha256 = sha256)
+    format!(
+        "{method}\n{uri}\n{query_string}\n{headers}\n\n{signed}\n{sha256}",
+        method = method,
+        uri = canonical_uri_string(url),
+        query_string = canonical_query_string(url),
+        headers = canonical_header_string(headers),
+        signed = signed_header_string(headers),
+        sha256 = sha256
+    )
 }
 
 /// Generate an AWS scope string.
 pub fn scope_string(datetime: &DateTime<Utc>, region: &Region) -> String {
-    format!("{date}/{region}/s3/aws4_request",
-            date = datetime.format(SHORT_DATE),
-            region = region)
+    format!(
+        "{date}/{region}/s3/aws4_request",
+        date = datetime.format(SHORT_DATE),
+        region = region
+    )
 }
 
 /// Generate the "string to sign" - the value to which the HMAC signing is
@@ -105,19 +114,23 @@ pub fn scope_string(datetime: &DateTime<Utc>, region: &Region) -> String {
 pub fn string_to_sign(datetime: &DateTime<Utc>, region: &Region, canonical_req: &str) -> String {
     let mut hasher = Sha256::default();
     hasher.input(canonical_req.as_bytes());
-    format!("AWS4-HMAC-SHA256\n{timestamp}\n{scope}\n{hash}",
-            timestamp = datetime.format(LONG_DATETIME),
-            scope = scope_string(datetime, region),
-            hash = hex::encode(hasher.result().as_slice()))
+    let string_to = format!(
+        "AWS4-HMAC-SHA256\n{timestamp}\n{scope}\n{hash}",
+        timestamp = datetime.format(LONG_DATETIME),
+        scope = scope_string(datetime, region),
+        hash = hex::encode(hasher.result().as_slice())
+    );
+    string_to
 }
 
 /// Generate the AWS signing key, derived from the secret key, date, region,
 /// and service name.
-pub fn signing_key(datetime: &DateTime<Utc>,
-                   secret_key: &str,
-                   region: &Region,
-                   service: &str)
-                   -> Result<Vec<u8>> {
+pub fn signing_key(
+    datetime: &DateTime<Utc>,
+    secret_key: &str,
+    region: &Region,
+    service: &str,
+) -> Result<Vec<u8>> {
     let secret = format!("AWS4{}", secret_key);
     let mut date_hmac = HmacSha256::new_varkey(secret.as_bytes())?;
     date_hmac.input(datetime.format(SHORT_DATE).to_string().as_bytes());
@@ -131,18 +144,40 @@ pub fn signing_key(datetime: &DateTime<Utc>,
 }
 
 /// Generate the AWS authorization header.
-pub fn authorization_header(access_key: &str,
-                            datetime: &DateTime<Utc>,
-                            region: &Region,
-                            signed_headers: &str,
-                            signature: &str)
-                            -> String {
-    format!("AWS4-HMAC-SHA256 Credential={access_key}/{scope},\
+pub fn authorization_header(
+    access_key: &str,
+    datetime: &DateTime<Utc>,
+    region: &Region,
+    signed_headers: &str,
+    signature: &str,
+) -> String {
+    format!(
+        "AWS4-HMAC-SHA256 Credential={access_key}/{scope},\
             SignedHeaders={signed_headers},Signature={signature}",
-            access_key = access_key,
-            scope = scope_string(datetime, region),
-            signed_headers = signed_headers,
-            signature = signature)
+        access_key = access_key,
+        scope = scope_string(datetime, region),
+        signed_headers = signed_headers,
+        signature = signature
+    )
+}
+
+pub fn authorization_query_params_no_sig(
+    access_key: &str,
+    datetime: &DateTime<Utc>,
+    region: &Region,
+    expires: u32,
+) -> String {
+    format!(
+        "?X-Amz-Algorithm=AWS4-HMAC-SHA256\
+            &X-Amz-Credential={access_key}/{scope}\
+            &X-Amz-Date={long_date}\
+            &X-Amz-Expires={expires}\
+            &X-Amz-SignedHeaders=host",
+        access_key = access_key,
+        scope = scope_string(datetime, region),
+        long_date = datetime.format(LONG_DATETIME).to_string(),
+        expires = expires
+    )
 }
 
 #[cfg(test)]
@@ -155,8 +190,8 @@ mod tests {
 
     use super::*;
 
-    use serde_xml_rs as serde_xml;
     use crate::serde_types::ListBucketResult;
+    use serde_xml_rs as serde_xml;
 
     #[test]
     fn test_base_url_encode() {
@@ -176,9 +211,11 @@ mod tests {
 
     #[test]
     fn test_query_string_encode() {
-        let url = Url::parse("http://s3.amazonaws.com/examplebucket?\
-                              prefix=somePrefix&marker=someMarker&max-keys=20")
-            .unwrap();
+        let url = Url::parse(
+            "http://s3.amazonaws.com/examplebucket?\
+                              prefix=somePrefix&marker=someMarker&max-keys=20",
+        )
+        .unwrap();
         let canonical = canonical_query_string(&url);
         assert_eq!("marker=someMarker&max-keys=20&prefix=somePrefix", canonical);
 
@@ -186,9 +223,11 @@ mod tests {
         let canonical = canonical_query_string(&url);
         assert_eq!("acl=", canonical);
 
-        let url = Url::parse("http://s3.amazonaws.com/examplebucket?\
-                              key=with%20space&also+space=with+plus")
-            .unwrap();
+        let url = Url::parse(
+            "http://s3.amazonaws.com/examplebucket?\
+                              key=with%20space&also+space=with+plus",
+        )
+        .unwrap();
         let canonical = canonical_query_string(&url);
         assert_eq!("also%20space=with%20plus&key=with%20space", canonical);
     }
@@ -281,7 +320,8 @@ mod tests {
                 <IsTruncated>true</IsTruncated>
             </ListBucketResult>
         "###;
-        let deserialized: ListBucketResult = serde_xml::from_reader(result_string.as_bytes()).expect("Parse error!");
+        let deserialized: ListBucketResult =
+            serde_xml::from_reader(result_string.as_bytes()).expect("Parse error!");
         assert!(deserialized.is_truncated);
     }
 }

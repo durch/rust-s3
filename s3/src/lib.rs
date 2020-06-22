@@ -27,6 +27,7 @@ simpl::err!(S3Error, {
     Io@std::io::Error;
     Region@awsregion::AwsRegionError;
     Creds@awscreds::AwsCredsError;
+    UrlParse@url::ParseError;
 });
 
 const LONG_DATE: &str = "%Y%m%dT%H%M%SZ";
