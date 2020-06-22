@@ -40,7 +40,10 @@ pub fn uri_encode(string: &str, encode_slash: bool) -> String {
 
 /// Generate a canonical URI string from the given URL.
 pub fn canonical_uri_string(uri: &Url) -> String {
-    uri.path().into()
+    // decode `Url`'s percent-encoding and then reencode it
+    // according to AWS's rules
+    let decoded = percent_encoding::percent_decode_str(uri.path()).decode_utf8_lossy();
+    uri_encode(&decoded, false)
 }
 
 /// Generate a canonical query string from the query pairs in the given URL.
@@ -162,6 +165,13 @@ mod tests {
         let url = Url::parse("http://s3.amazonaws.com/examplebucket///foo//bar//baz").unwrap();
         let canonical = canonical_uri_string(&url);
         assert_eq!("/examplebucket///foo//bar//baz", canonical);
+    }
+
+    #[test]
+    fn test_path_encode() {
+        let url = Url::parse("http://s3.amazonaws.com/bucket/Filename (xx)%").unwrap();
+        let canonical = canonical_uri_string(&url);
+        assert_eq!("/bucket/Filename%20%28xx%29%25", canonical);
     }
 
     #[test]
