@@ -64,7 +64,8 @@ impl<'a> Request<'a> {
 
     pub fn presigned(&self) -> Result<String> {
         let expiry = match self.command {
-            Command::PresignGet { expiry} => expiry,
+            Command::PresignGet { expiry_secs} => expiry_secs,
+            Command::PresignPut { expiry_secs} => expiry_secs,
             _ => unreachable!()
         };
         let authorization = self.presigned_authorization()?;
@@ -160,13 +161,12 @@ impl<'a> Request<'a> {
     }
 
     fn canonical_request(&self, headers: &HeaderMap) -> String {
-        let canonical_request = signing::canonical_request(
+        signing::canonical_request(
             self.command.http_verb().as_str(),
             &self.url(),
             headers,
             &self.sha256(),
-        );
-        canonical_request
+        )
     }
 
     fn presigned_url_no_sig(&self, expiry: u32) -> Result<Url> {
@@ -184,7 +184,7 @@ impl<'a> Request<'a> {
 
     fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String> {
         let expiry = match self.command {
-            Command::PresignGet { expiry } => expiry,
+            Command::PresignGet { expiry_secs } => expiry_secs,
             _ => unreachable!()
         };
         let canonical_request = signing::canonical_request(

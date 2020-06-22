@@ -21,7 +21,10 @@ pub enum Command<'a> {
     },
     GetBucketLocation,
     PresignGet {
-        expiry: u32
+        expiry_secs: u32
+    },
+    PresignPut {
+        expiry_secs: u32
     }
 }
 
@@ -29,7 +32,7 @@ impl<'a> Command<'a> {
     pub fn http_verb(&self) -> Method {
         match *self {
             Command::GetObject | Command::ListBucket { .. } | Command::GetBucketLocation | Command::GetObjectTagging | Command::PresignGet { .. } => Method::GET,
-            Command::PutObject { .. } | Command::PutObjectTagging { .. } => Method::PUT,
+            Command::PutObject { .. } | Command::PutObjectTagging { .. } | Command::PresignPut { .. } => Method::PUT,
             Command::DeleteObject | Command::DeleteObjectTagging => Method::DELETE,
         }
     }

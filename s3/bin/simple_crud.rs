@@ -76,9 +76,8 @@ pub fn main() -> Result<(), S3Error> {
         // Put a "test_file" with the contents of MESSAGE at the root of the
         // bucket.
         let (_, code) = bucket.put_object_blocking("test_file", MESSAGE.as_bytes(), "text/plain")?;
-        println!("{}", bucket.presign("test_file", 86400)?);
+        // println!("{}", bucket.presign_get("test_file", 604801)?);
         assert_eq!(200, code);
-        // panic!();
 
         // Get the "test_file" contents and make sure that the returned message
         // matches what we sent.

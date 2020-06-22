@@ -37,10 +37,54 @@ pub struct Bucket {
     pub extra_query: Query,
 }
 
+fn validate_expiry(expiry_secs: u32) -> Result<()> {
+    if 604800 < expiry_secs {
+        return Err(S3Error::from(format!("Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead", expiry_secs).as_ref()));
+    }
+    Ok(())
+}
+
 impl Bucket {
-    
-    pub fn presign<S: AsRef<str>>(&self, path: S, expiry: u32) -> Result<String> {
-        let request = Request::new(self, path.as_ref(), Command::PresignGet { expiry });
+    /// Get a presigned url for getting object on a given path
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use awscreds::Credentials;
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// let url = bucket.presign_get("/test.file", 86400).unwrap();
+    /// println!("Presigned url: {}", url);
+    /// ```
+    pub fn presign_get<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
+        validate_expiry(expiry_secs)?;
+        let request = Request::new(self, path.as_ref(), Command::PresignGet { expiry_secs });
+        Ok(request.presigned()?)
+    }
+    /// Get a presigned url for putting object to a given path
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use awscreds::Credentials;
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// let url = bucket.presign_put("/test.file", 86400).unwrap();
+    /// println!("Presigned url: {}", url);
+    /// ```
+    pub fn presign_put<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
+        validate_expiry(expiry_secs)?;
+        let request = Request::new(self, path.as_ref(), Command::PresignPut { expiry_secs });
         Ok(request.presigned()?)
     }
     /// Instantiate a new `Bucket`.
@@ -188,7 +232,7 @@ impl Bucket {
         Ok(request.response_data_to_writer_future(writer).await?)
     }
 
-        /// Stream file from S3 path to a local file, generic over T: Write, async.
+    /// Stream file from S3 path to a local file, generic over T: Write, async.
     ///
     /// # Example:
     ///
@@ -820,7 +864,7 @@ impl Bucket {
         loop {
             results.push(result.clone());
             if !result.0.is_truncated {
-                break
+                break;
             }
             match result.0.next_continuation_token {
                 Some(token) => {
@@ -912,7 +956,7 @@ impl Bucket {
     /// Get a reference to the AWS access key.
     pub fn access_key(&self) -> Option<String> {
         if let Some(access_key) = self.credentials.access_key.clone() {
-            Some(access_key.replace('\n',""))
+            Some(access_key.replace('\n', ""))
         } else {
             None
         }
@@ -921,7 +965,7 @@ impl Bucket {
     /// Get a reference to the AWS secret key.
     pub fn secret_key(&self) -> Option<String> {
         if let Some(secret_key) = self.credentials.secret_key.clone() {
-            Some(secret_key.replace('\n',""))
+            Some(secret_key.replace('\n', ""))
         } else {
             None
         }

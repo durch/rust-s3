@@ -9,10 +9,21 @@
 Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with **async/await** and `futures ^0.3`
 
 ### Intro
+
 Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Wasabi, Yandex or Minio.
-Supports `put`, `get`, `list`, `delete`, operations on `tags` and `location`.
+Supports `put`, `get`, `list`, `delete`, operations on `tags` and `location`. 
+
+Additionally a dedicated `presign_get` `Bucket` method is available. This means you can upload to s3, and give the link to select people without having to worry about publicly accessible files on S3. This also means that you can give people 
+a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the duration of the presigned URL.
 
 **[AWS, Yandex and Custom (Minio) Example](https://github.com/durch/rust-s3/blob/master/s3/bin/simple_crud.rs)**
+
+#### Presign
+
+|       |                                                                                                |
+| ----- | ---------------------------------------------------------------------------------------------- |
+| `PUT` | [presign_put](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.presign_put) |
+| `GET` | [presign_get](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.presign_get) |
 
 #### GET
 
@@ -29,7 +40,7 @@ while `tokio` methods are generic over `tokio::io::AsyncWriteExt`.
 
 #### PUT
 
-Each `GET` method has a put companion `sync` and `async` methods are generic over `std::io::Read`,
+Each `GET` method has a `PUT` companion `sync` and `async` methods are generic over `std::io::Read`,
 while `tokio` methods are generic over `tokio::io::AsyncReadExt`.
 
 |         |                                                                                                                              |
@@ -40,39 +51,60 @@ while `tokio` methods are generic over `tokio::io::AsyncReadExt`.
 | `sync`  | [put_object_stream_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_stream_blocking) |
 | `tokio` | [tokio_put_object_stream](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.tokio_put_object_stream)       |
 
-### What else is cool? -> Broken and tracked at [#54](https://github.com/durch/rust-s3/issues/54)
+#### List
 
-The main cool feature is that `put` commands return a presigned link to the file you uploaded
-This means you can upload to s3, and give the link to select people without having to worry about publicly accessible files on S3.
+|         |                                                                                                            |
+| ------- | ---------------------------------------------------------------------------------------------------------- |
+| `async` | [list](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.list)                   |
+| `sync`  | [list_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.list_blocking) |
 
-### Configuration
+#### DELETE
 
-Getter and setter functions exist for all `Link` params... You don't really have to touch anything there, maybe `amz-expire`,
-it is configured for one week which is the maximum Amazon allows ATM.
+|         |                                                                                                                      |
+| ------- | -------------------------------------------------------------------------------------------------------------------- |
+| `async` | [delete_object](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.delete_object)                   |
+| `sync`  | [delete_object_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.delete_object_blocking) |
+
+#### Location
+
+|         |                                                                                                            |
+| ------- | ---------------------------------------------------------------------------------------------------------- |
+| `async` | [location](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.location)                   |
+| `sync`  | [location_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.location_blocking) |
+
+#### Tagging
+
+|         |                                                                                                                                |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `async` | [put_object_tagging](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_tagging)                   |
+| `sync`  | [put_object_tagging_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_tagging_blocking) |
+| `async` | [get_object_tagging](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_tagging)                   |
+| `sync`  | [get_object_tagging_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_tagging_blocking) |
 
 ### Usage (in `Cargo.toml`)
 
 ```toml
 [dependencies]
-rust-s3 = "0.22.3"
+rust-s3 = "0.22.8"
 ```
 
 #### Disable SSL verification for endpoints, useful for custom regions
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.3", features = ["no-verify-ssl"]}
+rust-s3 = {version = "0.22.8", features = ["no-verify-ssl"]}
 ```
 
 #### Fail on HTTP error responses
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.3", features = ["fail-on-err"]}
+rust-s3 = {version = "0.22.8", features = ["fail-on-err"]}
 ```
 
 #### Use path style addressing, needed for Minio compatibility
+
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.3", features = ["path-style"]}
+rust-s3 = {version = "0.22.8", features = ["path-style"]}
 ```
