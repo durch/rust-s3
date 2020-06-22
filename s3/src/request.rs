@@ -62,6 +62,15 @@ impl<'a> Request<'a> {
         }
     }
 
+    pub fn presigned(&self) -> Result<String> {
+        let expiry = match self.command {
+            Command::PresignGet { expiry} => expiry,
+            _ => unreachable!()
+        };
+        let authorization = self.presigned_authorization()?;
+        Ok(format!("{}&X-Amz-Signature={}", self.presigned_url_no_sig(expiry)?, authorization))
+    }
+
     fn url(&self) -> Url {
         let mut url_str = if cfg!(feature = "path-style") {
             format!(
@@ -151,12 +160,40 @@ impl<'a> Request<'a> {
     }
 
     fn canonical_request(&self, headers: &HeaderMap) -> String {
-        signing::canonical_request(
+        let canonical_request = signing::canonical_request(
             self.command.http_verb().as_str(),
             &self.url(),
             headers,
             &self.sha256(),
-        )
+        );
+        canonical_request
+    }
+
+    fn presigned_url_no_sig(&self, expiry: u32) -> Result<Url> {
+        Ok(Url::parse(&format!(
+            "{}{}",
+            self.url(),
+            signing::authorization_query_params_no_sig(
+                &self.bucket.access_key().unwrap(),
+                &self.datetime,
+                &self.bucket.region(),
+                expiry
+            )
+        ))?)
+    }
+
+    fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String> {
+        let expiry = match self.command {
+            Command::PresignGet { expiry } => expiry,
+            _ => unreachable!()
+        };
+        let canonical_request = signing::canonical_request(
+            self.command.http_verb().as_str(),
+            &self.presigned_url_no_sig(expiry)?,
+            headers,
+            "UNSIGNED-PAYLOAD",
+        );
+        Ok(canonical_request)
     }
 
     fn string_to_sign(&self, request: &str) -> String {
@@ -173,6 +210,21 @@ impl<'a> Request<'a> {
             &self.bucket.region(),
             "s3",
         )?)
+    }
+
+    fn presigned_authorization(&self) -> Result<String> {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::HOST,
+            HeaderValue::from_str(&self.bucket.self_host()).unwrap(),
+        );
+        let canonical_request = self.presigned_canonical_request(&headers)?;
+        let string_to_sign = self.string_to_sign(&canonical_request);
+        let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
+        hmac.input(string_to_sign.as_bytes());
+        let signature = hex::encode(hmac.result().code());
+        // let signed_header = signing::signed_header_string(&headers);
+        Ok(signature)
     }
 
     fn authorization(&self, headers: &HeaderMap) -> Result<String> {
@@ -364,16 +416,21 @@ impl<'a> Request<'a> {
         // This must be last, as it signs the other headers, omitted if no secret key is provided
         if self.bucket.secret_key().is_some() {
             let authorization = self.authorization(&headers)?;
-            headers.insert(header::AUTHORIZATION, match authorization.parse() {
-                Ok(authorization) => authorization,
-                Err(_) => return Err(S3Error::from(
-                    format!(
-                        "Could not parse AUTHORIZATION header value {}",
-                        authorization
-                    )
-                    .as_ref(),
-                ))
-            });
+            headers.insert(
+                header::AUTHORIZATION,
+                match authorization.parse() {
+                    Ok(authorization) => authorization,
+                    Err(_) => {
+                        return Err(S3Error::from(
+                            format!(
+                                "Could not parse AUTHORIZATION header value {}",
+                                authorization
+                            )
+                            .as_ref(),
+                        ))
+                    }
+                },
+            );
         }
 
         // The format of RFC2822 is somewhat malleable, so including it in
@@ -382,16 +439,21 @@ impl<'a> Request<'a> {
         // range and can't be used again e.g. reply attacks. Adding this header
         // after the generation of the Authorization header leaves it out of
         // the signed headers.
-        headers.insert(header::DATE, match self.datetime.to_rfc2822().parse() {
-            Ok(date) => date,
-            Err(_) => return Err(S3Error::from(
-                format!(
-                    "Could not parse DATE header value {}",
-                    self.datetime.to_rfc2822()
-                )
-                .as_ref(),
-            ))
-        });
+        headers.insert(
+            header::DATE,
+            match self.datetime.to_rfc2822().parse() {
+                Ok(date) => date,
+                Err(_) => {
+                    return Err(S3Error::from(
+                        format!(
+                            "Could not parse DATE header value {}",
+                            self.datetime.to_rfc2822()
+                        )
+                        .as_ref(),
+                    ))
+                }
+            },
+        );
 
         Ok(headers)
     }

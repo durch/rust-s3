@@ -38,6 +38,11 @@ pub struct Bucket {
 }
 
 impl Bucket {
+    
+    pub fn presign<S: AsRef<str>>(&self, path: S, expiry: u32) -> Result<String> {
+        let request = Request::new(self, path.as_ref(), Command::PresignGet { expiry });
+        Ok(request.presigned()?)
+    }
     /// Instantiate a new `Bucket`.
     ///
     /// # Example

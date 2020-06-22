@@ -1,6 +1,6 @@
 use reqwest::Method;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Command<'a> {
     DeleteObject,
     DeleteObjectTagging,
@@ -19,13 +19,16 @@ pub enum Command<'a> {
         delimiter: Option<String>,
         continuation_token: Option<String>
     },
-    GetBucketLocation
+    GetBucketLocation,
+    PresignGet {
+        expiry: u32
+    }
 }
 
 impl<'a> Command<'a> {
     pub fn http_verb(&self) -> Method {
         match *self {
-            Command::GetObject | Command::ListBucket { .. } | Command::GetBucketLocation | Command::GetObjectTagging => Method::GET,
+            Command::GetObject | Command::ListBucket { .. } | Command::GetBucketLocation | Command::GetObjectTagging | Command::PresignGet { .. } => Method::GET,
             Command::PutObject { .. } | Command::PutObjectTagging { .. } => Method::PUT,
             Command::DeleteObject | Command::DeleteObjectTagging => Method::DELETE,
         }
