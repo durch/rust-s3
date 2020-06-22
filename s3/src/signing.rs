@@ -169,9 +169,9 @@ mod tests {
 
     #[test]
     fn test_path_encode() {
-        let url = Url::parse("http://s3.amazonaws.com/bucket/Filename (xx)%").unwrap();
+        let url = Url::parse("http://s3.amazonaws.com/bucket/Filename (xx)%=").unwrap();
         let canonical = canonical_uri_string(&url);
-        assert_eq!("/bucket/Filename%20%28xx%29%25", canonical);
+        assert_eq!("/bucket/Filename%20%28xx%29%25%3D", canonical);
     }
 
     #[test]
