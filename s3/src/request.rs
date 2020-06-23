@@ -64,12 +64,23 @@ impl<'a> Request<'a> {
 
     pub fn presigned(&self) -> Result<String> {
         let expiry = match self.command {
-            Command::PresignGet { expiry_secs} => expiry_secs,
-            Command::PresignPut { expiry_secs} => expiry_secs,
+            Command::PresignGet { expiry_secs } => expiry_secs,
+            Command::PresignPut { expiry_secs } => expiry_secs,
             _ => unreachable!()
         };
         let authorization = self.presigned_authorization()?;
         Ok(format!("{}&X-Amz-Signature={}", self.presigned_url_no_sig(expiry)?, authorization))
+    }
+
+    fn host_header(&self) -> Result<HeaderValue> {
+        let host = if cfg!(feature = "path-style") {
+            self.bucket.host()
+        } else {
+            self.bucket.self_host()
+        };
+        HeaderValue::from_str(&host).map_err(|_e| {
+            S3Error::from(format!("Could not parse HOST header value {}", host).as_ref())
+        })
     }
 
     fn url(&self) -> Url {
@@ -185,6 +196,7 @@ impl<'a> Request<'a> {
     fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String> {
         let expiry = match self.command {
             Command::PresignGet { expiry_secs } => expiry_secs,
+            Command::PresignPut { expiry_secs } => expiry_secs,
             _ => unreachable!()
         };
         let canonical_request = signing::canonical_request(
@@ -214,10 +226,8 @@ impl<'a> Request<'a> {
 
     fn presigned_authorization(&self) -> Result<String> {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            header::HOST,
-            HeaderValue::from_str(&self.bucket.self_host()).unwrap(),
-        );
+        let host_header = self.host_header()?;
+        headers.insert(header::HOST, host_header);
         let canonical_request = self.presigned_canonical_request(&headers)?;
         let string_to_sign = self.string_to_sign(&canonical_request);
         let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
@@ -273,26 +283,9 @@ impl<'a> Request<'a> {
             );
         }
 
-        let host_header = if cfg!(feature = "path-style") {
-            self.bucket.host()
-        } else {
-            self.bucket.self_host()
-        };
+        let host_header = self.host_header()?;
 
-        let host_header_value: HeaderValue = match host_header.parse() {
-            Ok(host) => host,
-            Err(_) => {
-                return Err(S3Error::from(
-                    format!(
-                        "Could not parse HOST header value {}",
-                        self.bucket.self_host()
-                    )
-                    .as_ref(),
-                ))
-            }
-        };
-
-        headers.insert(header::HOST, host_header_value);
+        headers.insert(header::HOST, host_header);
 
         match self.command {
             Command::ListBucket { .. } => {}
