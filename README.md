@@ -8,6 +8,11 @@
 
 Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with **async/await** and `futures ^0.3`
 
+### Support further development
+
++ BTC - `3QQdtQGSMStTWEBhe65hPiAWJekXH8n26o`
++ ETH - `0x369Fd06ACc25CCfE0A28BE40018cF3aC38AcdcB6`
+
 ### Intro
 
 Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Wasabi, Yandex or Minio.
