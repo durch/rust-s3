@@ -955,6 +955,26 @@ impl Bucket {
         Ok(results)
     }
 
+    /// Get path_style field of the Bucket struct
+    pub fn is_path_style(&self) -> bool {
+        self.path_style
+    }
+
+    // Get negated path_style field of the Bucket struct
+    pub fn is_subdomain_style(&self) -> bool {
+        !self.path_style
+    }
+
+    /// Configure bucket to use path-style urls and headers
+    pub fn set_path_style(&mut self) {
+        self.path_style = true;
+    }
+
+    /// Configure bucket to use subdomain style urls and headers [default]
+    pub fn set_subdomain_style(&mut self) {
+        self.path_style = false;
+    }
+
     /// Get a reference to the name of the S3 bucket.
     pub fn name(&self) -> String {
         self.name.to_string()

@@ -20,7 +20,7 @@ a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the d
 
 #### Path or subdomain style URLs and headers
 
-`Bucket` struct provides constructors for `path-style` paths, `subdomain` style is the default.
+`Bucket` struct provides constructors for `path-style` paths, `subdomain` style is the default. `Bucket` exposes methods for configuring and accessing `path-style` configuration.
 
 #### Presign
 
