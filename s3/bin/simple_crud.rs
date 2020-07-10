@@ -5,8 +5,8 @@ use std::str;
 
 use s3::bucket::Bucket;
 use s3::creds::Credentials;
-use s3::S3Error;
 use s3::region::Region;
+use s3::S3Error;
 
 struct Storage {
     name: String,
@@ -22,39 +22,45 @@ pub fn main() -> Result<(), S3Error> {
     let aws = Storage {
         name: "aws".into(),
         region: "eu-central-1".parse()?,
-        credentials: Credentials::from_profile(Some("rust-s3"))?,
+        // credentials: Credentials::from_profile(Some("rust-s3"))?,
+        credentials: Credentials::from_env_specific(
+            Some("EU_AWS_ACCESS_KEY_ID"),
+            Some("EU_AWS_SECRET_ACCESS_KEY"),
+            None,
+            None,
+        )?,
         bucket: "rust-s3-test".to_string(),
         location_supported: true,
     };
 
-    let aws_public = Storage {
-        name: "aws-public".into(),
-        region: "eu-central-1".parse()?,
-        credentials: Credentials::anonymous()?,
-        bucket: "rust-s3-public".to_string(),
-        location_supported: true,
-    };
+    // let aws_public = Storage {
+    //     name: "aws-public".into(),
+    //     region: "eu-central-1".parse()?,
+    //     credentials: Credentials::anonymous()?,
+    //     bucket: "rust-s3-public".to_string(),
+    //     location_supported: true,
+    // };
 
-    let minio = Storage {
-        name: "minio".into(),
-        region: Region::Custom {
-            region: "us-east-1".into(),
-            endpoint: "https://minio.adder.black".into(),
-        },
-        credentials: Credentials::from_profile(Some("minio"))?,
-        bucket: "rust-s3".to_string(),
-        location_supported: false,
-    };
+    // let minio = Storage {
+    //     name: "minio".into(),
+    //     region: Region::Custom {
+    //         region: "us-east-1".into(),
+    //         endpoint: "https://minio.adder.black".into(),
+    //     },
+    //     credentials: Credentials::from_profile(Some("minio"))?,
+    //     bucket: "rust-s3".to_string(),
+    //     location_supported: false,
+    // };
 
-    let yandex = Storage {
-        name: "yandex".into(),
-        region: "ru-central1".parse()?,
-        credentials: Credentials::from_profile(Some("yandex"))?,
-        bucket: "soundcloud".to_string(),
-        location_supported: false,
-    };
+    // let yandex = Storage {
+    //     name: "yandex".into(),
+    //     region: "ru-central1".parse()?,
+    //     credentials: Credentials::from_profile(Some("yandex"))?,
+    //     bucket: "soundcloud".to_string(),
+    //     location_supported: false,
+    // };
 
-    for backend in vec![aws, yandex] {
+    for backend in vec![aws] {
         println!("Running {}", backend.name);
         // Create Bucket in REGION for BUCKET
         let bucket = Bucket::new(&backend.bucket, backend.region, backend.credentials)?;
@@ -75,7 +81,8 @@ pub fn main() -> Result<(), S3Error> {
 
         // Put a "test_file" with the contents of MESSAGE at the root of the
         // bucket.
-        let (_, code) = bucket.put_object_blocking("test_file", MESSAGE.as_bytes(), "text/plain")?;
+        let (_, code) =
+            bucket.put_object_blocking("test_file", MESSAGE.as_bytes(), "text/plain")?;
         // println!("{}", bucket.presign_get("test_file", 604801)?);
         assert_eq!(200, code);
 
