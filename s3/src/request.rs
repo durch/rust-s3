@@ -73,27 +73,14 @@ impl<'a> Request<'a> {
     }
 
     fn host_header(&self) -> Result<HeaderValue> {
-        let host = if cfg!(feature = "path-style") {
-            self.bucket.host()
-        } else {
-            self.bucket.self_host()
-        };
+        let host = self.bucket.host();
         HeaderValue::from_str(&host).map_err(|_e| {
             S3Error::from(format!("Could not parse HOST header value {}", host).as_ref())
         })
     }
 
     fn url(&self) -> Url {
-        let mut url_str = if cfg!(feature = "path-style") {
-            format!(
-                "{}://{}/{}",
-                self.bucket.scheme(),
-                self.bucket.host(),
-                self.bucket.name()
-            )
-        } else {
-            format!("{}://{}", self.bucket.scheme(), self.bucket.self_host())
-        };
+        let mut url_str = self.bucket.url();
 
         if !self.path.starts_with('/') {
             url_str.push_str("/");
@@ -573,11 +560,23 @@ mod tests {
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
 
-        if cfg!(feature = "path-style") {
-            assert_eq!(*host, "custom-region".to_string());
-        } else {
-            assert_eq!(*host, "my-first-bucket.custom-region".to_string());
-        }
+        assert_eq!(*host, "my-first-bucket.custom-region".to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn url_uses_https_by_default_path_style() -> Result<()> {
+        let region = "custom-region".parse()?;
+        let bucket = Bucket::new_with_path_style("my-first-bucket", region, fake_credentials())?;
+        let path = "/my-first/path";
+        let request = Request::new(&bucket, path, Command::GetObject);
+
+        assert_eq!(request.url().scheme(), "https");
+
+        let headers = request.headers().unwrap();
+        let host = headers.get("Host").unwrap();
+
+        assert_eq!(*host, "custom-region".to_string());
         Ok(())
     }
 
@@ -592,11 +591,23 @@ mod tests {
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
-        if cfg!(feature = "path-style") {
-            assert_eq!(*host, "custom-region".to_string());
-        } else {
-            assert_eq!(*host, "my-second-bucket.custom-region".to_string());
-        }
+        assert_eq!(*host, "my-second-bucket.custom-region".to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
+        let region = "http://custom-region".parse()?;
+        let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
+        let path = "/my-second/path";
+        let request = Request::new(&bucket, path, Command::GetObject);
+
+        assert_eq!(request.url().scheme(), "http");
+
+        let headers = request.headers().unwrap();
+        let host = headers.get("Host").unwrap();
+        assert_eq!(*host, "custom-region".to_string());
+        
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.22.10"
+version = "0.22.11"
 authors = ["Drazen Urch", "Nick Stevens"]
 description = "Tiny Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -44,7 +44,6 @@ percent-encoding = "2.1.0"
 default = ["native-tls"]
 no-verify-ssl = []
 fail-on-err = []
-path-style = []
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 

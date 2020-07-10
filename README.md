@@ -18,6 +18,10 @@ a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the d
 
 **[AWS, Yandex and Custom (Minio) Example](https://github.com/durch/rust-s3/blob/master/s3/bin/simple_crud.rs)**
 
+#### Path or subdomain style URLs and headers
+
+`Bucket` struct provides constructors for `path-style` paths, `subdomain` style is the default.
+
 #### Presign
 
 |       |                                                                                                |
@@ -85,26 +89,30 @@ while `tokio` methods are generic over `tokio::io::AsyncReadExt`.
 
 ```toml
 [dependencies]
-rust-s3 = "0.22.8"
+rust-s3 = "0.22.11"
 ```
 
-#### Disable SSL verification for endpoints, useful for custom regions
+#### Features
+
+##### Disable SSL verification for endpoints, useful for custom regions
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.8", features = ["no-verify-ssl"]}
+rust-s3 = {version = "0.22.11", features = ["no-verify-ssl"]}
 ```
 
-#### Fail on HTTP error responses
+##### Fail on HTTP error responses
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.8", features = ["fail-on-err"]}
+rust-s3 = {version = "0.22.11", features = ["fail-on-err"]}
 ```
 
-#### Use path style addressing, needed for Minio compatibility
+##### Different SSL backends
+
+Default is `reqwest/native-tls`, it is possible to switch to `reqwest/rustls-tls` which is more portable
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.8", features = ["path-style"]}
+rust-s3 = {version = "0.22.11", features = ["rustls-tls"]}
 ```
