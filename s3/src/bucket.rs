@@ -35,6 +35,7 @@ pub struct Bucket {
     pub credentials: Credentials,
     pub extra_headers: Headers,
     pub extra_query: Query,
+    path_style: bool
 }
 
 fn validate_expiry(expiry_secs: u32) -> Result<()> {
@@ -111,6 +112,7 @@ impl Bucket {
             credentials,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
+            path_style: false
         })
     }
 
@@ -121,6 +123,29 @@ impl Bucket {
             credentials: Credentials::anonymous()?,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
+            path_style: false
+        })
+    }
+
+    pub fn new_with_path_style(name: &str, region: Region, credentials: Credentials) -> Result<Bucket> {
+        Ok(Bucket {
+            name: name.into(),
+            region,
+            credentials,
+            extra_headers: HashMap::new(),
+            extra_query: HashMap::new(),
+            path_style: true
+        })
+    }
+
+    pub fn new_public_with_path_style(name: &str, region: Region) -> Result<Bucket> {
+        Ok(Bucket {
+            name: name.into(),
+            region,
+            credentials: Credentials::anonymous()?,
+            extra_headers: HashMap::new(),
+            extra_query: HashMap::new(),
+            path_style: true
         })
     }
 
@@ -930,19 +955,65 @@ impl Bucket {
         Ok(results)
     }
 
+    /// Get path_style field of the Bucket struct
+    pub fn is_path_style(&self) -> bool {
+        self.path_style
+    }
+
+    // Get negated path_style field of the Bucket struct
+    pub fn is_subdomain_style(&self) -> bool {
+        !self.path_style
+    }
+
+    /// Configure bucket to use path-style urls and headers
+    pub fn set_path_style(&mut self) {
+        self.path_style = true;
+    }
+
+    /// Configure bucket to use subdomain style urls and headers [default]
+    pub fn set_subdomain_style(&mut self) {
+        self.path_style = false;
+    }
+
     /// Get a reference to the name of the S3 bucket.
     pub fn name(&self) -> String {
         self.name.to_string()
     }
 
-    /// Get a reference to the hostname of the S3 API endpoint.
+    // Get a reference to the hostname of the S3 API endpoint.
     pub fn host(&self) -> String {
+        if self.path_style {
+            self.path_style_host()
+        } else {
+            self.subdomain_style_host()
+        }
+    }
+
+    pub fn url(&self) -> String {
+        if self.path_style {
+            format!(
+                "{}://{}/{}",
+                self.scheme(),
+                self.path_style_host(),
+                self.name()
+            )
+        } else {
+            format!("{}://{}", self.scheme(), self.subdomain_style_host())
+        }
+    }
+
+    /// Get a paths-style reference to the hostname of the S3 API endpoint.
+    pub fn path_style_host(&self) -> String {
         self.region.host()
     }
 
-    pub fn self_host(&self) -> String {
+    pub fn subdomain_style_host(&self) -> String {
         format!("{}.{}", self.name, self.region.host())
     }
+
+    // pub fn self_host(&self) -> String {
+    //     format!("{}.{}", self.name, self.region.host())
+    // }
 
     pub fn scheme(&self) -> String {
         self.region.scheme()

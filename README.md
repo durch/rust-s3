@@ -8,6 +8,11 @@
 
 Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with **async/await** and `futures ^0.3`
 
+### Support further development
+
++ BTC - `3QQdtQGSMStTWEBhe65hPiAWJekXH8n26o`
++ ETH - `0x369Fd06ACc25CCfE0A28BE40018cF3aC38AcdcB6`
+
 ### Intro
 
 Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Wasabi, Yandex or Minio.
@@ -17,6 +22,10 @@ Additionally a dedicated `presign_get` `Bucket` method is available. This means 
 a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the duration of the presigned URL.
 
 **[AWS, Yandex and Custom (Minio) Example](https://github.com/durch/rust-s3/blob/master/s3/bin/simple_crud.rs)**
+
+#### Path or subdomain style URLs and headers
+
+`Bucket` struct provides constructors for `path-style` paths, `subdomain` style is the default. `Bucket` exposes methods for configuring and accessing `path-style` configuration.
 
 #### Presign
 
@@ -85,26 +94,30 @@ while `tokio` methods are generic over `tokio::io::AsyncReadExt`.
 
 ```toml
 [dependencies]
-rust-s3 = "0.22.8"
+rust-s3 = "0.22.11"
 ```
 
-#### Disable SSL verification for endpoints, useful for custom regions
+#### Features
+
+##### Disable SSL verification for endpoints, useful for custom regions
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.8", features = ["no-verify-ssl"]}
+rust-s3 = {version = "0.22.11", features = ["no-verify-ssl"]}
 ```
 
-#### Fail on HTTP error responses
+##### Fail on HTTP error responses
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.8", features = ["fail-on-err"]}
+rust-s3 = {version = "0.22.11", features = ["fail-on-err"]}
 ```
 
-#### Use path style addressing, needed for Minio compatibility
+##### Different SSL backends
+
+Default is `reqwest/native-tls`, it is possible to switch to `reqwest/rustls-tls` which is more portable
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.8", features = ["path-style"]}
+rust-s3 = {version = "0.22.11", features = ["rustls-tls"]}
 ```

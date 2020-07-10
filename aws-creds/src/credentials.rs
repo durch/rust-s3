@@ -2,6 +2,7 @@ use crate::{AwsCredsError, Result};
 use ini::Ini;
 use std::collections::HashMap;
 use std::env;
+use std::str::FromStr;
 
 /// AWS access credentials: access key, secret key, and optional token.
 ///
@@ -95,7 +96,7 @@ impl Credentials {
             secret_key: None,
             security_token: None,
             session_token: None,
-            _private: ()
+            _private: (),
         })
     }
 
@@ -108,8 +109,7 @@ impl Credentials {
         session_token: Option<&str>,
         profile: Option<&str>,
     ) -> Result<Credentials> {
-        
-        let security_token = if let Some(security_token) = security_token{
+        let security_token = if let Some(security_token) = security_token {
             Some(security_token.to_string())
         } else {
             None
@@ -152,14 +152,20 @@ impl Credentials {
         }
     }
 
-    pub fn from_env() -> Result<Credentials> {
-        let access_key = env::var("AWS_ACCESS_KEY_ID")?;
-        let secret_key = env::var("AWS_SECRET_ACCESS_KEY")?;
-        let security_token = match env::var("AWS_SECURITY_TOKEN") {
+    pub fn from_env_specific(
+        access_key_var: Option<&str>,
+        secret_key_var: Option<&str>,
+        security_token_var: Option<&str>,
+        session_token_var: Option<&str>,
+    ) -> Result<Credentials> {
+        let access_key = from_env_with_default(access_key_var, "AWS_ACCESS_KEY_ID")?;
+        let secret_key = from_env_with_default(secret_key_var, "AWS_SECRET_ACCESS_KEY")?;
+
+        let security_token = match from_env_with_default(security_token_var, "AWS_SECURITY_TOKEN") {
             Ok(x) => Some(x),
             Err(_) => None,
         };
-        let session_token = match env::var("AWS_SESSION_TOKEN") {
+        let session_token = match from_env_with_default(session_token_var, "AWS_SESSION_TOKEN") {
             Ok(x) => Some(x),
             Err(_) => None,
         };
@@ -170,6 +176,10 @@ impl Credentials {
             session_token,
             _private: (),
         })
+    }
+
+    pub fn from_env() -> Result<Credentials> {
+        Credentials::from_env_specific(None, None, None, None)
     }
 
     async fn from_instance_metadata() -> Result<Credentials> {
@@ -278,5 +288,33 @@ impl Credentials {
             session_token,
             _private: (),
         })
+    }
+}
+
+fn from_env_with_default(var: Option<&str>, default: &str) -> Result<String> {
+    if let Some(var) = var {
+        if let Ok(value) = env::var(var) {
+            Ok(value)
+        } else {
+            match env::var(default) {
+                Ok(value) => Ok(value),
+                Err(_) => Err(format!(
+                    "Neither {:?}, nor {} does not exist in the environment",
+                    var, default
+                )
+                .as_str()
+                .into()),
+            }
+        }
+    } else {
+        match env::var(default) {
+            Ok(value) => Ok(value),
+            Err(_) => Err(format!(
+                "Neither {:?}, nor {} does not exist in the environment",
+                var, default
+            )
+            .as_str()
+            .into()),
+        }
     }
 }
