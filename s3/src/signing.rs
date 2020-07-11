@@ -255,11 +255,11 @@ mod tests {
         assert_eq!(expected, hex::encode(signature));
     }
 
-    const EXPECTED_SHA: &'static str = "e3b0c44298fc1c149afbf4c8996fb924\
+    const EXPECTED_SHA: &str = "e3b0c44298fc1c149afbf4c8996fb924\
                                         27ae41e4649b934ca495991b7852b855";
 
     #[rustfmt::skip]
-    const EXPECTED_CANONICAL_REQUEST: &'static str =
+    const EXPECTED_CANONICAL_REQUEST: &str =
         "GET\n\
          /test.txt\n\
          \n\
@@ -272,7 +272,7 @@ mod tests {
          e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
     #[rustfmt::skip]
-    const EXPECTED_STRING_TO_SIGN: &'static str =
+    const EXPECTED_STRING_TO_SIGN: &str =
         "AWS4-HMAC-SHA256\n\
          20130524T000000Z\n\
          20130524/us-east-1/s3/aws4_request\n\
