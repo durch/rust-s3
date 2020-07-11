@@ -310,7 +310,7 @@ impl Bucket {
     ///     let region = "us-east-1".parse()?;
     ///     let credentials = Credentials::default().await?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
-    ///     let mut file = File::open("foo.txt")?;  
+    ///     let mut file = File::open("foo.txt")?;
     ///
     ///     let status_code = bucket.put_object_stream(&mut file, "/test_file").await?;
     ///     println!("Code: {}", status_code);
@@ -351,7 +351,7 @@ impl Bucket {
     ///     let region = "us-east-1".parse()?;
     ///     let credentials = Credentials::default().await?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
-    ///     let mut file = File::open("foo.txt")?;  
+    ///     let mut file = File::open("foo.txt")?;
     ///
     ///     let status_code = bucket.put_object_stream(&mut file, "/test_file").await?;
     ///     println!("Code: {}", status_code);
@@ -827,9 +827,11 @@ impl Bucket {
         prefix: String,
         delimiter: Option<String>,
         continuation_token: Option<String>,
+        start_after: Option<String>,
+        max_keys: Option<usize>,
     ) -> Result<(ListBucketResult, u16)> {
         let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.list_page(prefix, delimiter, continuation_token))?)
+        Ok(rt.block_on(self.list_page(prefix, delimiter, continuation_token, start_after, max_keys))?)
     }
 
     pub async fn list_page(
@@ -837,11 +839,15 @@ impl Bucket {
         prefix: String,
         delimiter: Option<String>,
         continuation_token: Option<String>,
+        start_after: Option<String>,
+        max_keys: Option<usize>,
     ) -> Result<(ListBucketResult, u16)> {
         let command = Command::ListBucket {
             prefix,
             delimiter,
             continuation_token,
+            start_after,
+            max_keys,
         };
         let request = Request::new(self, "/", command);
         let (response, status_code) = request.response_data_future().await?;
@@ -885,7 +891,7 @@ impl Bucket {
         delimiter: Option<String>,
     ) -> Result<Vec<(ListBucketResult, u16)>> {
         let mut results = Vec::new();
-        let mut result = self.list_page_blocking(prefix.clone(), delimiter.clone(), None)?;
+        let mut result = self.list_page_blocking(prefix.clone(), delimiter.clone(), None, None, None)?;
         loop {
             results.push(result.clone());
             if !result.0.is_truncated {
@@ -894,7 +900,7 @@ impl Bucket {
             match result.0.next_continuation_token {
                 Some(token) => {
                     result =
-                        self.list_page_blocking(prefix.clone(), delimiter.clone(), Some(token))?
+                        self.list_page_blocking(prefix.clone(), delimiter.clone(), Some(token), None, None)?
                 }
                 None => break,
             }
@@ -943,7 +949,7 @@ impl Bucket {
 
         loop {
             let (list_bucket_result, _) = the_bucket
-                .list_page(prefix.clone(), delimiter.clone(), continuation_token)
+                .list_page(prefix.clone(), delimiter.clone(), continuation_token, None, None)
                 .await?;
             continuation_token = list_bucket_result.next_continuation_token.clone();
             results.push(list_bucket_result);

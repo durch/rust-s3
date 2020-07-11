@@ -100,6 +100,8 @@ impl<'a> Request<'a> {
             prefix,
             delimiter,
             continuation_token,
+            start_after,
+            max_keys,
         } = self.command.clone()
         {
             let mut query_pairs = url.query_pairs_mut();
@@ -108,6 +110,12 @@ impl<'a> Request<'a> {
             query_pairs.append_pair("list-type", "2");
             if let Some(token) = continuation_token {
                 query_pairs.append_pair("continuation-token", &token);
+            }
+            if let Some(start_after) = start_after {
+                query_pairs.append_pair("start-after", &start_after);
+            }
+            if let Some(max_keys) = max_keys {
+                query_pairs.append_pair("max-keys", &max_keys.to_string());
             }
         }
 
