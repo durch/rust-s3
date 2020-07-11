@@ -17,7 +17,7 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
       - name: Run simple_crud
-        if: github.repository == durch/rust-s3
+        if: github.repository == 'durch/rust-s3'
         env:
           EU_AWS_ACCESS_KEY_ID: ${{ secrets.EU_AWS_ACCESS_KEY_ID }}
           EU_AWS_SECRET_ACCESS_KEY: ${{ secrets.EU_AWS_SECRET_ACCESS_KEY }}
