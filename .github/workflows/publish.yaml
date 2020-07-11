@@ -13,4 +13,4 @@ jobs:
       - uses: actions/checkout@v2
       - name: Publish to crates.io
         if: github.repository == 'durch/rust-s3'
-        run: cargo login ${{ CARGO_TOKEN }} && cargo publish
+        run: cargo login ${{ secrets.CARGO_TOKEN }} && cargo publish
