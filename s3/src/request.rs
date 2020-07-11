@@ -544,11 +544,11 @@ mod tests {
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
     fn fake_credentials() -> Credentials {
-        const ACCESS_KEY: &'static str = "AKIAIOSFODNN7EXAMPLE";
-        const SECRET_KEY: &'static str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        let access_key = "AKIAIOSFODNN7EXAMPLE";
+        let secert_key =  "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
         Credentials::new_blocking(
-            Some(ACCESS_KEY.into()),
-            Some(SECRET_KEY.into()),
+            Some(access_key),
+            Some(secert_key),
             None,
             None,
             None,
