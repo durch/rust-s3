@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::env;
 use std::str::FromStr;
 
+// TODO Switch to surf instead of requests
+
 /// AWS access credentials: access key, secret key, and optional token.
 ///
 /// # Example
@@ -64,30 +66,8 @@ pub struct Credentials {
 }
 
 impl Credentials {
-    pub fn new_blocking(
-        access_key: Option<&str>,
-        secret_key: Option<&str>,
-        security_token: Option<&str>,
-        session_token: Option<&str>,
-        profile: Option<&str>,
-    ) -> Result<Credentials> {
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
-        Ok(rt.block_on(Credentials::new(
-            access_key,
-            secret_key,
-            security_token,
-            session_token,
-            profile,
-        ))?)
-    }
-
-    pub async fn default() -> Result<Credentials> {
-        Ok(Credentials::new(None, None, None, None, None).await?)
-    }
-
-    pub fn default_blocking() -> Result<Credentials> {
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
-        Ok(rt.block_on(Credentials::default())?)
+    pub fn default() -> Result<Credentials> {
+        Ok(Credentials::new(None, None, None, None, None)?)
     }
 
     pub fn anonymous() -> Result<Credentials> {
@@ -102,7 +82,7 @@ impl Credentials {
 
     /// Initialize Credentials directly with key ID, secret key, and optional
     /// token.
-    pub async fn new(
+    pub fn new(
         access_key: Option<&str>,
         secret_key: Option<&str>,
         security_token: Option<&str>,
@@ -143,7 +123,7 @@ impl Credentials {
                 Ok(c) => Ok(c),
                 Err(_) => match Credentials::from_profile(profile) {
                     Ok(c) => Ok(c),
-                    Err(_) => match Credentials::from_instance_metadata().await {
+                    Err(_) => match Credentials::from_instance_metadata() {
                         Ok(c) => Ok(c),
                         Err(e) => Err(format!("No credentials provided as arguments, in the environment or in the profile file. \n {}", e).as_str().into())
                     }
@@ -182,34 +162,31 @@ impl Credentials {
         Credentials::from_env_specific(None, None, None, None)
     }
 
-    async fn from_instance_metadata() -> Result<Credentials> {
+    fn from_instance_metadata() -> Result<Credentials> {
         if !Credentials::is_ec2() {
             return Err(AwsCredsError::from("Not an EC2 instance"));
         }
         let resp: HashMap<String, String> =
             match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
                 Ok(credentials_path) => Some(
-                    reqwest::get(&format!("http://169.254.170.2{}", credentials_path))
-                        .await?
-                        .json()
-                        .await?,
+                    attohttpc::get(&format!("http://169.254.170.2{}", credentials_path))
+                        .send()?
+                        .json()?,
                 ),
                 Err(_) => {
                     let resp: HashMap<String, String> =
-                        reqwest::get("http://169.254.169.254/latest/meta-data/iam/info")
-                            .await?
-                            .json()
-                            .await?;
+                        attohttpc::get("http://169.254.169.254/latest/meta-data/iam/info")
+                            .send()?
+                            .json()?;
                     if let Some(arn) = resp.get("InstanceProfileArn") {
                         if let Some(role) = arn.split('/').last() {
                             Some(
-                                reqwest::get(&format!(
+                                attohttpc::get(&format!(
                             "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
                             role
                         ))
-                                .await?
-                                .json()
-                                .await?,
+                                .send()?
+                                .json()?,
                             )
                         } else {
                             None
