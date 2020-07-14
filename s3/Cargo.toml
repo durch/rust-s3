@@ -1,6 +1,6 @@
 [package]
 authors       = ["Drazen Urch"]
-description   = "Tiny Rust library for working with Amazon S3 and compatible object storage APIs"
+description   = "Tiny Rust library for working with Amazon S3 and compatible object storage APIs. WASM compatible"
 documentation = "https://durch.github.io/rust-s3/s3/"
 edition       = "2018"
 keywords      = ["AWS", "S3", "Wasabi", "Minio", "Yandex"]
