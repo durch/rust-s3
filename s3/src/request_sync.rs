@@ -16,6 +16,7 @@ use crate::signing;
 use crate::EMPTY_PAYLOAD_SHA;
 use crate::LONG_DATE;
 use crate::{Result, S3Error};
+use std::convert::From;
 
 use once_cell::sync::Lazy;
 
@@ -44,7 +45,7 @@ static SESSION: Lazy<Session> = Lazy::new(|| {
 });
 
 // Temporary structure for making a request
-pub struct Request<'a> {
+pub struct RequestSync<'a> {
     pub bucket: &'a Bucket,
     pub path: &'a str,
     pub command: Command<'a>,
@@ -52,19 +53,20 @@ pub struct Request<'a> {
     pub sync: bool,
 }
 
-impl<'a> Request<'a> {
+impl<'a> RequestSync<'a> {
 
     pub fn response_data(&self) -> Result<(Vec<u8>, u16)> {
         let response = self.response()?;
         let status_code = response.status().as_u16();
-        let body = response.bytes()?;
-        let mut body_vec = Vec::new();
-        body_vec.extend_from_slice(&body[..]);
-        Ok((body_vec, status_code))
+        let body = match response.bytes() {
+            Ok(body) => body,
+            Err(e) => return Err(S3Error::from(format!("{}", e).as_ref())) 
+        };
+        Ok((body.to_vec(), status_code))
     }
 
-    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> Request<'b> {
-        Request {
+    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> RequestSync<'b> {
+        RequestSync {
             bucket,
             path,
             command,
@@ -476,7 +478,10 @@ impl<'a> Request<'a> {
         let response = self.response()?;
 
         let status_code = response.status();
-        response.write_to(writer)?;
+        match response.write_to(writer) {
+            Ok(_) => {},
+            Err(e) => return Err(S3Error::from(format!("{}", e).as_ref()))
+        }
 
         Ok(status_code.as_u16())
     }
@@ -510,14 +515,20 @@ impl<'a> Request<'a> {
 
         let request = request.bytes(content.as_slice());
 
-        let response = request.send()?;
+        let response = match request.send() {
+            Ok(response) => response,
+            Err(e) => return Err(S3Error::from(format!("{}", e).as_ref()))
+        };
 
         if cfg!(feature = "fail-on-err") && response.status().as_u16() >= 400 {
             return Err(S3Error::from(
                 format!(
                     "Request failed with code {}\n{}",
                     response.status().as_u16(),
-                    response.text()?
+                    match response.text() {
+                        Ok(text) => text,
+                        Err(e) => format!("{}", e)
+                    }
                 )
                 .as_str(),
             ));

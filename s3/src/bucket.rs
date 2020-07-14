@@ -6,9 +6,6 @@ use std::mem;
 
 use crate::command::Command;
 use crate::serde_types::{BucketLocationResult, ListBucketResult, Tagging};
-#[cfg(any(feature = "async", feature = "async-rustls"))]
-use crate::{Result, S3Error};
-#[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
 use crate::{Result, S3Error};
 use awscreds::Credentials;
 use awsregion::Region;
@@ -16,9 +13,9 @@ use awsregion::Region;
 #[cfg(any(feature = "async", feature = "async-rustls"))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(any(feature = "async", feature = "async-rustls"))]
-use crate::request_async::Request;
+use crate::request_async::RequestAsync;
 #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
-use crate::request_sync::Request;
+use crate::request_sync::RequestSync;
 
 /// # Example
 /// ```
@@ -73,7 +70,7 @@ impl Bucket {
     #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn presign_get<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
         validate_expiry(expiry_secs)?;
-        let request = Request::new(self, path.as_ref(), Command::PresignGet { expiry_secs });
+        let request = RequestSync::new(self, path.as_ref(), Command::PresignGet { expiry_secs });
         Ok(request.presigned()?)
     }
     /// Get a presigned url for putting object to a given path
@@ -95,7 +92,7 @@ impl Bucket {
     #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn presign_put<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
         validate_expiry(expiry_secs)?;
-        let request = Request::new(self, path.as_ref(), Command::PresignPut { expiry_secs });
+        let request = RequestSync::new(self, path.as_ref(), Command::PresignPut { expiry_secs });
         Ok(request.presigned()?)
     }
     /// Instantiate a new `Bucket`.
@@ -182,7 +179,7 @@ impl Bucket {
     #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn get_object_blocking<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestSync::new(self, path.as_ref(), command);
         Ok(request.response_data()?)
     }
 
@@ -212,7 +209,7 @@ impl Bucket {
     #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestAsync::new(self, path.as_ref(), command);
         Ok(request.response_data_future().await?)
     }
 
@@ -237,7 +234,7 @@ impl Bucket {
     #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn get_object_stream_blocking<T: Write>(&self, path: &str, writer: &mut T) -> Result<u16> {
         let command = Command::GetObject;
-        let request = Request::new(self, path, command);
+        let request = RequestSync::new(self, path, command);
         Ok(request.response_data_to_writer(writer)?)
     }
 
@@ -273,7 +270,7 @@ impl Bucket {
         writer: &mut T,
     ) -> Result<u16> {
         let command = Command::GetObject;
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestAsync::new(self, path.as_ref(), command);
         Ok(request.response_data_to_writer_future(writer).await?)
     }
 
@@ -309,7 +306,7 @@ impl Bucket {
         writer: &mut T,
     ) -> Result<u16> {
         let command = Command::GetObject;
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestAsync::new(self, path.as_ref(), command);
         Ok(request.tokio_response_data_to_writer_future(writer).await?)
     }
 
@@ -351,7 +348,7 @@ impl Bucket {
             content: &bytes[..],
             content_type: "application/octet-stream",
         };
-        let request = Request::new(self, s3_path.as_ref(), command);
+        let request = RequestAsync::new(self, s3_path.as_ref(), command);
         Ok(request.response_data_future().await?.1)
     }
 
@@ -392,7 +389,7 @@ impl Bucket {
             content: &bytes[..],
             content_type: "application/octet-stream",
         };
-        let request = Request::new(self, s3_path.as_ref(), command);
+        let request = RequestAsync::new(self, s3_path.as_ref(), command);
         Ok(request.response_data_future().await?.1)
     }
 
@@ -433,7 +430,7 @@ impl Bucket {
             content: &bytes[..],
             content_type: "application/octet-stream",
         };
-        let request = Request::new(self, s3_path.as_ref(), command);
+        let request = RequestSync::new(self, s3_path.as_ref(), command);
         Ok(request.response_data()?.1)
     }
 
@@ -459,7 +456,7 @@ impl Bucket {
     /// ```
     #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn location(&self) -> Result<(Region, u16)> {
-        let request = Request::new(self, "?location", Command::GetBucketLocation);
+        let request = RequestAsync::new(self, "?location", Command::GetBucketLocation);
         let result = request.response_data_future().await?;
         let region_string = String::from_utf8_lossy(&result.0);
         let region = match serde_xml::from_reader(region_string.as_bytes()) {
@@ -504,7 +501,7 @@ impl Bucket {
     /// ```
     #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn location_blocking(&self) -> Result<(Region, u16)> {
-        let request = Request::new(self, "?location", Command::GetBucketLocation);
+        let request = RequestSync::new(self, "?location", Command::GetBucketLocation);
         let result = request.response_data()?;
         let region_string = String::from_utf8_lossy(&result.0);
         let region = match serde_xml::from_reader(region_string.as_bytes()) {
@@ -555,7 +552,7 @@ impl Bucket {
     #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObject;
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestAsync::new(self, path.as_ref(), command);
         Ok(request.response_data_future().await?)
     }
 
@@ -578,7 +575,7 @@ impl Bucket {
     #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn delete_object_blocking<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObject;
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestSync::new(self, path.as_ref(), command);
         Ok(request.response_data()?)
     }
 
@@ -620,7 +617,7 @@ impl Bucket {
             content,
             content_type,
         };
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestAsync::new(self, path.as_ref(), command);
         Ok(request.response_data_future().await?)
     }
 
@@ -656,7 +653,7 @@ impl Bucket {
             content,
             content_type,
         };
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestSync::new(self, path.as_ref(), command);
         Ok(request.response_data()?)
     }
 
@@ -715,7 +712,7 @@ impl Bucket {
     ) -> Result<(Vec<u8>, u16)> {
         let content = self._tags_xml(&tags);
         let command = Command::PutObjectTagging { tags: &content };
-        let request = Request::new(self, path, command);
+        let request = RequestAsync::new(self, path, command);
         Ok(request.response_data_future().await?)
     }
 
@@ -747,7 +744,7 @@ impl Bucket {
     ) -> Result<(Vec<u8>, u16)> {
         let content = self._tags_xml(&tags);
         let command = Command::PutObjectTagging { tags: &content };
-        let request = Request::new(self, path, command);
+        let request = RequestSync::new(self, path, command);
         Ok(request.response_data()?)
     }
 
@@ -780,7 +777,7 @@ impl Bucket {
     #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn delete_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObjectTagging;
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestAsync::new(self, path.as_ref(), command);
         Ok(request.response_data_future().await?)
     }
 
@@ -807,7 +804,7 @@ impl Bucket {
     #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn delete_object_tagging_blocking<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObjectTagging;
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestSync::new(self, path.as_ref(), command);
         Ok(request.response_data()?)
     }
 
@@ -847,7 +844,7 @@ impl Bucket {
         path: S,
     ) -> Result<(Option<Tagging>, u16)> {
         let command = Command::GetObjectTagging {};
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestAsync::new(self, path.as_ref(), command);
         let result = request.response_data_future().await?;
 
         let tagging = if result.1 == 200 {
@@ -891,7 +888,7 @@ impl Bucket {
         path: S,
     ) -> Result<(Option<Tagging>, u16)> {
         let command = Command::GetObjectTagging {};
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestSync::new(self, path.as_ref(), command);
         let result = request.response_data()?;
 
         let tagging = if result.1 == 200 {
@@ -921,7 +918,7 @@ impl Bucket {
             start_after,
             max_keys,
         };
-        let request = Request::new(self, "/", command);
+        let request = RequestSync::new(self, "/", command);
         let (response, status_code) = request.response_data()?;
         match serde_xml::from_reader(response.as_slice()) {
             Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
@@ -948,7 +945,7 @@ impl Bucket {
             start_after,
             max_keys,
         };
-        let request = Request::new(self, "/", command);
+        let request = RequestAsync::new(self, "/", command);
         let (response, status_code) = request.response_data_future().await?;
         match serde_xml::from_reader(response.as_slice()) {
             Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),

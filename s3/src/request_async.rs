@@ -14,14 +14,16 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::signing;
+use crate::{S3Error, Result};
 
 use crate::EMPTY_PAYLOAD_SHA;
 use crate::LONG_DATE;
-use crate::{Result, S3Error};
+// use crate::{Result, S3Error};
 
 use once_cell::sync::Lazy;
 use tokio::io::AsyncWriteExt;
 use tokio::stream::StreamExt;
+
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -49,7 +51,7 @@ static CLIENT: Lazy<Client> = Lazy::new(|| {
 });
 
 // Temporary structure for making a request
-pub struct Request<'a> {
+pub struct RequestAsync<'a> {
     pub bucket: &'a Bucket,
     pub path: &'a str,
     pub command: Command<'a>,
@@ -57,9 +59,9 @@ pub struct Request<'a> {
     pub sync: bool,
 }
 
-impl<'a> Request<'a> {
-    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> Request<'b> {
-        Request {
+impl<'a> RequestAsync<'a> {
+    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> RequestAsync<'b> {
+        RequestAsync {
             bucket,
             path,
             command,
@@ -481,14 +483,20 @@ impl<'a> Request<'a> {
             .headers(headers.to_owned())
             .body(content.to_owned());
 
-        let response = request.send().await?;
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(e) => return Err(S3Error::from(format!("{}", e).as_ref()))
+        };
 
         if cfg!(feature = "fail-on-err") && response.status().as_u16() >= 400 {
             return Err(S3Error::from(
                 format!(
                     "Request failed with code {}\n{}",
                     response.status().as_u16(),
-                    response.text().await?
+                    match response.text().await {
+                        Ok(text) => text,
+                        Err(e) => return Err(S3Error::from(format!("{}", e).as_ref()))
+                    }
                 )
                 .as_str(),
             ));
@@ -500,10 +508,11 @@ impl<'a> Request<'a> {
     pub async fn response_data_future(&self) -> Result<(Vec<u8>, u16)> {
         let response = self.response_future().await?;
         let status_code = response.status().as_u16();
-        let body = response.bytes().await?;
-        let mut body_vec = Vec::new();
-        body_vec.extend_from_slice(&body[..]);
-        Ok((body_vec, status_code))
+        let body = match response.bytes().await {
+            Ok(body) => body,
+            Err(e) => return Err(S3Error::from(format!("{}", e).as_ref()))
+        };
+        Ok((body.to_vec(), status_code))
     }
 
     pub async fn response_data_to_writer_future<'b, T: Write>(
@@ -516,7 +525,11 @@ impl<'a> Request<'a> {
         let mut stream = response.bytes_stream();
 
         while let Some(item) = stream.next().await {
-            writer.write_all(&item?)?;
+            let item = match item {
+                Ok(item) => item,
+                Err(e) => return Err(S3Error::from(format!("{}", e).as_ref()))
+            };
+            writer.write_all(&item)?;
         }
 
         Ok(status_code.as_u16())
@@ -532,7 +545,11 @@ impl<'a> Request<'a> {
         let mut stream = response.bytes_stream();
 
         while let Some(item) = stream.next().await {
-            writer.write_all(&item?).await?;
+            let item = match item {
+                Ok(item) => item,
+                Err(e) => return Err(S3Error::from(format!("{}", e).as_ref()))
+            };
+            writer.write_all(&item).await?;
         }
 
         Ok(status_code.as_u16())

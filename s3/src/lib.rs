@@ -21,21 +21,6 @@ pub mod request_async;
 #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
 pub mod request_sync;
 
-#[cfg(any(feature = "async", feature = "async-rustls"))]
-simpl::err!(S3Error, {
-    Xml@serde_xml::Error;
-    Req@reqwest::Error;
-    InvalidHeaderName@reqwest::header::InvalidHeaderName;
-    InvalidHeaderValue@reqwest::header::InvalidHeaderValue;
-    Hmac@hmac::crypto_mac::InvalidKeyLength;
-    Utf8@std::str::Utf8Error;
-    Io@std::io::Error;
-    Region@awsregion::AwsRegionError;
-    Creds@awscreds::AwsCredsError;
-    UrlParse@url::ParseError;
-});
-
-#[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
 simpl::err!(S3Error, {
     Xml@serde_xml::Error;
     Hmac@hmac::crypto_mac::InvalidKeyLength;
@@ -45,7 +30,6 @@ simpl::err!(S3Error, {
     Creds@awscreds::AwsCredsError;
     UrlParse@url::ParseError;
     Http@http::header::InvalidHeaderValue;
-    Atto@attohttpc::Error;
 });
 
 const LONG_DATE: &str = "%Y%m%dT%H%M%SZ";
