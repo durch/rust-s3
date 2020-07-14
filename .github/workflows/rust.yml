@@ -12,13 +12,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: Test
-        run: cargo test --all-features
-      - name: Run simple_crud
+      # - name: clippy
+      #   run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: test sync
+        run: cargo test --features sync --features sync-rustls --features wasm
+      - name: test async
+        run: cargo test --features async
+      - name: test async
+        run: cargo test --features async-rustls
+      - name: build wasm32
+        run: cargo build --target wasm32-unknown-unknown --features wasm
+      - name: run simple_crud
         if: github.repository == 'durch/rust-s3'
         env:
           EU_AWS_ACCESS_KEY_ID: ${{ secrets.EU_AWS_ACCESS_KEY_ID }}
           EU_AWS_SECRET_ACCESS_KEY: ${{ secrets.EU_AWS_SECRET_ACCESS_KEY }}
-        run: cargo run --bin simple_crud
+        run: cargo run --bin simple_crud --features sync

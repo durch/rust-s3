@@ -30,6 +30,7 @@ pub type Headers = HashMap<String, String>;
 /// format.
 pub type Query = HashMap<String, String>;
 
+#[cfg(feature = "async")]
 static CLIENT: Lazy<Client> = Lazy::new(|| {
     if cfg!(feature = "no-verify-ssl") {
         Client::builder()
@@ -40,6 +41,11 @@ static CLIENT: Lazy<Client> = Lazy::new(|| {
     } else {
         Client::new()
     }
+});
+
+#[cfg(feature = "async-rustls")]
+static CLIENT: Lazy<Client> = Lazy::new(|| {
+    Client::new()
 });
 
 // Temporary structure for making a request
@@ -168,7 +174,7 @@ impl<'a> Request<'a> {
 
     fn canonical_request(&self, headers: &HeaderMap) -> String {
         signing::canonical_request(
-            self.command.http_verb().as_str(),
+            &self.command.http_verb().to_string(),
             &self.url(),
             headers,
             &self.sha256(),
@@ -195,7 +201,7 @@ impl<'a> Request<'a> {
             _ => unreachable!()
         };
         let canonical_request = signing::canonical_request(
-            self.command.http_verb().as_str(),
+            &self.command.http_verb().to_string(),
             &self.presigned_url_no_sig(expiry)?,
             headers,
             "UNSIGNED-PAYLOAD",
@@ -471,7 +477,7 @@ impl<'a> Request<'a> {
         };
 
         let request = CLIENT
-            .request(self.command.http_verb(), self.url().as_str())
+            .request(self.command.http_verb().into(), self.url().as_str())
             .headers(headers.to_owned())
             .body(content.to_owned());
 
@@ -537,7 +543,7 @@ impl<'a> Request<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request::Request;
+    use crate::request_async::Request;
     use crate::Result;
     use awscreds::Credentials;
 
@@ -546,7 +552,7 @@ mod tests {
     fn fake_credentials() -> Credentials {
         let access_key = "AKIAIOSFODNN7EXAMPLE";
         let secert_key =  "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-        Credentials::new_blocking(
+        Credentials::new(
             Some(access_key),
             Some(secert_key),
             None,

@@ -1,4 +1,42 @@
-use reqwest::Method;
+
+use std::fmt;
+
+pub enum Method {
+    Get,
+    Put,
+    Delete,
+}
+
+// #[cfg(features = "async")]
+// impl Into<reqwest::Method> for Method {
+//     fn into(self) -> reqwest::Method {
+//         match self {
+//             Method::Get => reqwest::Method::GET,
+//             Method::Put => reqwest::Method::PUT,
+//             Method::Delete => reqwest::Method::DELETE,
+//         }
+//     }
+// }
+
+impl Into<http::method::Method> for Method {
+    fn into(self) -> http::method::Method {
+        match self {
+            Method::Get => http::method::Method::GET,
+            Method::Put => http::method::Method::PUT,
+            Method::Delete => http::method::Method::DELETE,
+        }
+    }
+}
+
+impl fmt::Display for Method {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Method::Get => write!(f, "GET"),
+            Method::Put => write!(f, "PUT"),
+            Method::Delete => write!(f, "DELETE"),
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum Command<'a> {
@@ -11,7 +49,7 @@ pub enum Command<'a> {
         content_type: &'a str,
     },
     PutObjectTagging {
-        tags: &'a str
+        tags: &'a str,
     },
 
     ListBucket {
@@ -23,19 +61,25 @@ pub enum Command<'a> {
     },
     GetBucketLocation,
     PresignGet {
-        expiry_secs: u32
+        expiry_secs: u32,
     },
     PresignPut {
-        expiry_secs: u32
-    }
+        expiry_secs: u32,
+    },
 }
 
 impl<'a> Command<'a> {
     pub fn http_verb(&self) -> Method {
         match *self {
-            Command::GetObject | Command::ListBucket { .. } | Command::GetBucketLocation | Command::GetObjectTagging | Command::PresignGet { .. } => Method::GET,
-            Command::PutObject { .. } | Command::PutObjectTagging { .. } | Command::PresignPut { .. } => Method::PUT,
-            Command::DeleteObject | Command::DeleteObjectTagging => Method::DELETE,
+            Command::GetObject
+            | Command::ListBucket { .. }
+            | Command::GetBucketLocation
+            | Command::GetObjectTagging
+            | Command::PresignGet { .. } => Method::Get,
+            Command::PutObject { .. }
+            | Command::PutObjectTagging { .. }
+            | Command::PresignPut { .. } => Method::Put,
+            Command::DeleteObject | Command::DeleteObjectTagging => Method::Delete,
         }
     }
 }

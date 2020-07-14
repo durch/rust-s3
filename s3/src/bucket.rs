@@ -2,16 +2,23 @@ use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::mem;
-use tokio::runtime::Runtime;
+
 
 use crate::command::Command;
-use crate::request::{Headers, Query, Request};
 use crate::serde_types::{BucketLocationResult, ListBucketResult, Tagging};
+#[cfg(any(feature = "async", feature = "async-rustls"))]
+use crate::{Result, S3Error};
+#[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
 use crate::{Result, S3Error};
 use awscreds::Credentials;
 use awsregion::Region;
 
+#[cfg(any(feature = "async", feature = "async-rustls"))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(any(feature = "async", feature = "async-rustls"))]
+use crate::request_async::Request;
+#[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
+use crate::request_sync::Request;
 
 /// # Example
 /// ```
@@ -24,7 +31,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 ///
 /// let bucket_name = "rust-s3-test";
 /// let region = "us-east-1".parse().unwrap();
-/// let credentials = Credentials::default_blocking().unwrap();
+/// let credentials = Credentials::default().unwrap();
 ///
 /// let bucket = Bucket::new(bucket_name, region, credentials);
 /// ```
@@ -33,14 +40,15 @@ pub struct Bucket {
     pub name: String,
     pub region: Region,
     pub credentials: Credentials,
-    pub extra_headers: Headers,
-    pub extra_query: Query,
+    pub extra_headers: HashMap<String, String>,
+    pub extra_query: HashMap<String, String>,
     path_style: bool
 }
 
+#[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm", feature = "async", feature = "async-rustls"))]
 fn validate_expiry(expiry_secs: u32) -> Result<()> {
     if 604800 < expiry_secs {
-        return Err(S3Error::from(format!("Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead", expiry_secs).as_ref()));
+        return Err(S3Error::from(format!("Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead", expiry_secs).as_str()));
     }
     Ok(())
 }
@@ -56,12 +64,13 @@ impl Bucket {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let url = bucket.presign_get("/test.file", 86400).unwrap();
     /// println!("Presigned url: {}", url);
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn presign_get<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
         validate_expiry(expiry_secs)?;
         let request = Request::new(self, path.as_ref(), Command::PresignGet { expiry_secs });
@@ -77,12 +86,13 @@ impl Bucket {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let url = bucket.presign_put("/test.file", 86400).unwrap();
     /// println!("Presigned url: {}", url);
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn presign_put<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
         validate_expiry(expiry_secs)?;
         let request = Request::new(self, path.as_ref(), Command::PresignPut { expiry_secs });
@@ -101,10 +111,11 @@ impl Bucket {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let credentials = Credentials::default().unwrap();
     ///
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm", feature = "async", feature = "async-rustls"))]
     pub fn new(name: &str, region: Region, credentials: Credentials) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
@@ -116,6 +127,7 @@ impl Bucket {
         })
     }
 
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm", feature = "async", feature = "async-rustls"))]
     pub fn new_public(name: &str, region: Region) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
@@ -127,6 +139,7 @@ impl Bucket {
         })
     }
 
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm", feature = "async", feature = "async-rustls"))]
     pub fn new_with_path_style(name: &str, region: Region, credentials: Credentials) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
@@ -138,6 +151,7 @@ impl Bucket {
         })
     }
 
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm", feature = "async", feature = "async-rustls"))]
     pub fn new_public_with_path_style(name: &str, region: Region) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
@@ -159,15 +173,17 @@ impl Bucket {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (data, code) = bucket.get_object_blocking("/test.file").unwrap();
     /// println!("Code: {}\nData: {:?}", code, data);
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn get_object_blocking<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
-        let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.get_object(path))?)
+        let command = Command::GetObject;
+        let request = Request::new(self, path.as_ref(), command);
+        Ok(request.response_data()?)
     }
 
     /// Gets file from an S3 path, async.
@@ -184,7 +200,7 @@ impl Bucket {
     ///
     ///     let bucket_name = "rust-s3-test";
     ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default().await?;
+    ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let (data, code) = bucket.get_object("/test.file").await?;
@@ -193,6 +209,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
         let request = Request::new(self, path.as_ref(), command);
@@ -210,16 +227,18 @@ impl Bucket {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// let mut output_file = File::create("output_file").expect("Unable to create file");
     ///
     /// let code = bucket.get_object_stream_blocking("/test.file", &mut output_file).unwrap();
     /// println!("Code: {}", code);
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn get_object_stream_blocking<T: Write>(&self, path: &str, writer: &mut T) -> Result<u16> {
-        let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.get_object_stream(path, writer))?)
+        let command = Command::GetObject;
+        let request = Request::new(self, path, command);
+        Ok(request.response_data_to_writer(writer)?)
     }
 
     /// Stream file from S3 path to a local file, generic over T: Write, async.
@@ -238,7 +257,7 @@ impl Bucket {
     ///
     ///     let bucket_name = "rust-s3-test";
     ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default().await?;
+    ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     let mut output_file = File::create("output_file").expect("Unable to create file");
     ///
@@ -247,6 +266,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn get_object_stream<T: Write, S: AsRef<str>>(
         &self,
         path: S,
@@ -273,7 +293,7 @@ impl Bucket {
     ///
     ///     let bucket_name = "rust-s3-test";
     ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default().await?;
+    ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     let mut output_file = File::create("output_file").expect("Unable to create file");
     ///
@@ -282,6 +302,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn tokio_get_object_stream<T: AsyncWriteExt + Unpin, S: AsRef<str>>(
         &self,
         path: S,
@@ -308,7 +329,7 @@ impl Bucket {
     ///
     ///     let bucket_name = "rust-s3-test";
     ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default().await?;
+    ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     let mut file = File::open("foo.txt")?;
     ///
@@ -317,6 +338,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn put_object_stream<R: Read, S: AsRef<str>>(
         &self,
         reader: &mut R,
@@ -349,7 +371,7 @@ impl Bucket {
     ///
     ///     let bucket_name = "rust-s3-test";
     ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default().await?;
+    ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     let mut file = File::open("foo.txt")?;
     ///
@@ -358,6 +380,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn tokio_put_object_stream<R: AsyncReadExt + Unpin, S: AsRef<str>>(
         &self,
         reader: &mut R,
@@ -388,7 +411,7 @@ impl Bucket {
     ///
     ///     let bucket_name = "rust-s3-test";
     ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default_blocking()?;
+    ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     let mut file = File::open("foo.txt")?;
     ///
@@ -397,13 +420,21 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn put_object_stream_blocking<R: Read, S: AsRef<str>>(
         &self,
         reader: &mut R,
         s3_path: S,
     ) -> Result<u16> {
-        let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.put_object_stream(reader, s3_path))?)
+        let mut bytes = Vec::new();
+        let read_n = reader.read(&mut bytes)?;
+        debug!("Read {} bytes from reader", read_n);
+        let command = Command::PutObject {
+            content: &bytes[..],
+            content_type: "application/octet-stream",
+        };
+        let request = Request::new(self, s3_path.as_ref(), command);
+        Ok(request.response_data()?.1)
     }
 
     //// Get bucket location from S3, async
@@ -419,13 +450,14 @@ impl Bucket {
     ///
     ///     let bucket_name = "rust-s3-test";
     ///     let region = "eu-central-1".parse()?;
-    ///     let credentials = Credentials::default().await?;
+    ///     let credentials = Credentials::default()?;
     ///
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     println!("{}", bucket.location().await?.0);
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn location(&self) -> Result<(Region, u16)> {
         let request = Request::new(self, "?location", Command::GetBucketLocation);
         let result = request.response_data_future().await?;
@@ -465,14 +497,36 @@ impl Bucket {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "eu-central-1".parse().unwrap();
-    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let credentials = Credentials::default().unwrap();
     ///
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// println!("{}", bucket.location_blocking().unwrap().0)
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn location_blocking(&self) -> Result<(Region, u16)> {
-        let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.location())?)
+        let request = Request::new(self, "?location", Command::GetBucketLocation);
+        let result = request.response_data()?;
+        let region_string = String::from_utf8_lossy(&result.0);
+        let region = match serde_xml::from_reader(region_string.as_bytes()) {
+            Ok(r) => {
+                let location_result: BucketLocationResult = r;
+                location_result.region.parse()?
+            }
+            Err(e) => {
+                if result.1 == 200 {
+                    Region::Custom {
+                        region: "Custom".to_string(),
+                        endpoint: "".to_string(),
+                    }
+                } else {
+                    Region::Custom {
+                        region: format!("Error encountered : {}", e),
+                        endpoint: "".to_string(),
+                    }
+                }
+            }
+        };
+        Ok((region, result.1))
     }
 
     /// Delete file from an S3 path, async.
@@ -489,7 +543,7 @@ impl Bucket {
     ///
     ///     let bucket_name = &"rust-s3-test";
     ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default().await?;
+    ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let (_, code) = bucket.delete_object("/test.file").await?;
@@ -498,6 +552,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObject;
         let request = Request::new(self, path.as_ref(), command);
@@ -514,15 +569,17 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (_, code) = bucket.delete_object_blocking("/test.file").unwrap();
     /// assert_eq!(204, code);
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn delete_object_blocking<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
-        let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.delete_object(path))?)
+        let command = Command::DeleteObject;
+        let request = Request::new(self, path.as_ref(), command);
+        Ok(request.response_data()?)
     }
 
     /// Put into an S3 bucket, async.
@@ -543,7 +600,7 @@ impl Bucket {
     ///
     ///     let bucket_name = &"rust-s3-test";
     ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default_blocking().unwrap();
+    ///     let credentials = Credentials::default().unwrap();
     ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     ///     let content = "I want to go to S3".as_bytes();
@@ -552,6 +609,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn put_object<S: AsRef<str>>(
         &self,
         path: S,
@@ -580,21 +638,26 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let content = "I want to go to S3".as_bytes();
     /// let (_, code) = bucket.put_object_blocking("/test.file", content, "text/plain").unwrap();
     /// assert_eq!(201, code);
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn put_object_blocking<S: AsRef<str>>(
         &self,
         path: S,
         content: &[u8],
         content_type: &str,
     ) -> Result<(Vec<u8>, u16)> {
-        let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.put_object(path, content, content_type))?)
+        let command = Command::PutObject {
+            content,
+            content_type,
+        };
+        let request = Request::new(self, path.as_ref(), command);
+        Ok(request.response_data()?)
     }
 
     fn _tags_xml<S: AsRef<str>>(&self, tags: &[(S, S)]) -> String {
@@ -636,7 +699,7 @@ impl Bucket {
     ///
     ///     let bucket_name = &"rust-s3-test";
     ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default().await?;
+    ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let (_, code) = bucket.put_object_tagging("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).await?;
@@ -644,6 +707,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn put_object_tagging<S: AsRef<str>>(
         &self,
         path: &str,
@@ -669,19 +733,22 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (_, code) = bucket.put_object_tagging_blocking("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).unwrap();
     /// assert_eq!(201, code);
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn put_object_tagging_blocking<S: AsRef<str>>(
         &self,
         path: &str,
         tags: &[(S, S)],
     ) -> Result<(Vec<u8>, u16)> {
-        let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.put_object_tagging(path, tags))?)
+        let content = self._tags_xml(&tags);
+        let command = Command::PutObjectTagging { tags: &content };
+        let request = Request::new(self, path, command);
+        Ok(request.response_data()?)
     }
 
     /// Delete tags from an S3 object, async.
@@ -702,7 +769,7 @@ impl Bucket {
     ///
     ///     let bucket_name = &"rust-s3-test";
     ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default().await?;
+    ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let (_, code) = bucket.delete_object_tagging("/test.file").await?;
@@ -710,6 +777,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn delete_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObjectTagging;
         let request = Request::new(self, path.as_ref(), command);
@@ -730,15 +798,17 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (_, code) = bucket.delete_object_tagging_blocking("/test.file").unwrap();
     /// assert_eq!(201, code);
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn delete_object_tagging_blocking<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
-        let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.delete_object_tagging(path))?)
+        let command = Command::DeleteObjectTagging;
+        let request = Request::new(self, path.as_ref(), command);
+        Ok(request.response_data()?)
     }
 
     /// Retrieve an S3 object list of tags, async.
@@ -759,7 +829,7 @@ impl Bucket {
     ///
     ///     let bucket_name = &"rust-s3-test";
     ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default().await?;
+    ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let (tags, code) = bucket.get_object_tagging("/test.file").await?;
@@ -771,6 +841,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn get_object_tagging<S: AsRef<str>>(
         &self,
         path: S,
@@ -804,7 +875,7 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let (tags, code) = bucket.get_object_tagging_blocking("/test.file").unwrap();
@@ -814,14 +885,27 @@ impl Bucket {
     ///     }
     /// }
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn get_object_tagging_blocking<S: AsRef<str>>(
         &self,
         path: S,
     ) -> Result<(Option<Tagging>, u16)> {
-        let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.get_object_tagging(path))?)
+        let command = Command::GetObjectTagging {};
+        let request = Request::new(self, path.as_ref(), command);
+        let result = request.response_data()?;
+
+        let tagging = if result.1 == 200 {
+            let result_string = String::from_utf8_lossy(&result.0);
+            println!("{}", result_string);
+            Some(serde_xml::from_reader(result_string.as_bytes())?)
+        } else {
+            None
+        };
+
+        Ok((tagging, result.1))
     }
 
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn list_page_blocking(
         &self,
         prefix: String,
@@ -830,10 +914,25 @@ impl Bucket {
         start_after: Option<String>,
         max_keys: Option<usize>,
     ) -> Result<(ListBucketResult, u16)> {
-        let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.list_page(prefix, delimiter, continuation_token, start_after, max_keys))?)
+        let command = Command::ListBucket {
+            prefix,
+            delimiter,
+            continuation_token,
+            start_after,
+            max_keys,
+        };
+        let request = Request::new(self, "/", command);
+        let (response, status_code) = request.response_data()?;
+        match serde_xml::from_reader(response.as_slice()) {
+            Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
+            Err(_) => {
+                let mut err = S3Error::from("Could not deserialize result");
+                err.data = Some(String::from_utf8_lossy(response.as_slice()).to_string());
+                Err(err)
+            }
+        }
     }
-
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn list_page(
         &self,
         prefix: String,
@@ -876,7 +975,7 @@ impl Bucket {
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let results = bucket.list_blocking("/".to_string(), Some("/".to_string())).unwrap();
@@ -885,6 +984,7 @@ impl Bucket {
     ///     println!("{:?}", list);
     /// }
     /// ```
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
     pub fn list_blocking(
         &self,
         prefix: String,
@@ -929,7 +1029,7 @@ impl Bucket {
     ///
     ///     let bucket_name = &"rust-s3-test";
     ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default().await?;
+    ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     ///     let results = bucket.list("/".to_string(), Some("/".to_string())).await?;
@@ -938,6 +1038,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     pub async fn list(
         &self,
         prefix: String,
@@ -1093,13 +1194,13 @@ impl Bucket {
     }
 
     /// Get a reference to the extra headers to be passed to the S3 API.
-    pub fn extra_headers(&self) -> &Headers {
+    pub fn extra_headers(&self) -> &HashMap<String, String> {
         &self.extra_headers
     }
 
     /// Get a mutable reference to the extra headers to be passed to the S3
     /// API.
-    pub fn extra_headers_mut(&mut self) -> &mut Headers {
+    pub fn extra_headers_mut(&mut self) -> &mut HashMap<String, String> {
         &mut self.extra_headers
     }
 
@@ -1109,13 +1210,13 @@ impl Bucket {
     }
 
     /// Get a reference to the extra query pairs to be passed to the S3 API.
-    pub fn extra_query(&self) -> &Query {
+    pub fn extra_query(&self) -> &HashMap<String, String> {
         &self.extra_query
     }
 
     /// Get a mutable reference to the extra query pairs to be passed to the S3
     /// API.
-    pub fn extra_query_mut(&mut self) -> &mut Query {
+    pub fn extra_query_mut(&mut self) -> &mut HashMap<String, String> {
         &mut self.extra_query
     }
 }

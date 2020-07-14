@@ -4,12 +4,22 @@
 
 use std::str;
 
+#[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
+use attohttpc::header::HeaderMap;
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
+#[cfg(any(feature = "async", feature = "async-rustls"))]
 use reqwest::header::HeaderMap;
 use sha2::{Digest, Sha256};
 use url::Url;
 
+#[cfg(any(
+    feature = "sync",
+    feature = "sync-rustls",
+    feature = "wasm",
+    feature = "async",
+    feature = "async-rustls"
+))]
 use crate::Result;
 use awsregion::Region;
 
@@ -60,6 +70,13 @@ pub fn canonical_query_string(uri: &Url) -> String {
 }
 
 /// Generate a canonical header string from the provided headers.
+#[cfg(any(
+    feature = "sync",
+    feature = "sync-rustls",
+    feature = "wasm",
+    feature = "async",
+    feature = "async-rustls"
+))]
 pub fn canonical_header_string(headers: &HeaderMap) -> String {
     let mut keyvalues = headers
         .iter()
@@ -78,6 +95,13 @@ pub fn canonical_header_string(headers: &HeaderMap) -> String {
 }
 
 /// Generate a signed header string from the provided headers.
+#[cfg(any(
+    feature = "sync",
+    feature = "sync-rustls",
+    feature = "wasm",
+    feature = "async",
+    feature = "async-rustls"
+))]
 pub fn signed_header_string(headers: &HeaderMap) -> String {
     let mut keys = headers
         .keys()
@@ -88,6 +112,13 @@ pub fn signed_header_string(headers: &HeaderMap) -> String {
 }
 
 /// Generate a canonical request.
+#[cfg(any(
+    feature = "sync",
+    feature = "sync-rustls",
+    feature = "wasm",
+    feature = "async",
+    feature = "async-rustls"
+))]
 pub fn canonical_request(method: &str, url: &Url, headers: &HeaderMap, sha256: &str) -> String {
     format!(
         "{method}\n{uri}\n{query_string}\n{headers}\n\n{signed}\n{sha256}",
@@ -125,6 +156,13 @@ pub fn string_to_sign(datetime: &DateTime<Utc>, region: &Region, canonical_req: 
 
 /// Generate the AWS signing key, derived from the secret key, date, region,
 /// and service name.
+#[cfg(any(
+    feature = "sync",
+    feature = "sync-rustls",
+    feature = "wasm",
+    feature = "async",
+    feature = "async-rustls"
+))]
 pub fn signing_key(
     datetime: &DateTime<Utc>,
     secret_key: &str,
@@ -184,7 +222,10 @@ pub fn authorization_query_params_no_sig(
 mod tests {
     use std::str;
 
+    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
+    use attohttpc::header::{HeaderMap, HeaderValue};
     use chrono::{TimeZone, Utc};
+    #[cfg(any(feature = "async", feature = "async-rustls"))]
     use reqwest::header::{HeaderMap, HeaderValue};
     use url::Url;
 
@@ -232,6 +273,13 @@ mod tests {
         assert_eq!("also%20space=with%20plus&key=with%20space", canonical);
     }
 
+    #[cfg(any(
+        feature = "sync",
+        feature = "sync-rustls",
+        feature = "wasm",
+        feature = "async",
+        feature = "async-rustls"
+    ))]
     #[test]
     fn test_headers_encode() {
         let mut headers = HeaderMap::new();
@@ -246,6 +294,13 @@ mod tests {
         assert_eq!("foo;host;x-amz-date", signed);
     }
 
+    #[cfg(any(
+        feature = "sync",
+        feature = "sync-rustls",
+        feature = "wasm",
+        feature = "async",
+        feature = "async-rustls"
+    ))]
     #[test]
     fn test_aws_signing_key() {
         let key = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
@@ -278,6 +333,13 @@ mod tests {
          20130524/us-east-1/s3/aws4_request\n\
          7344ae5b7ee6c3e7e6b0fe0640412a37625d1fbfff95c48bbb2dc43964946972";
 
+    #[cfg(any(
+        feature = "sync",
+        feature = "sync-rustls",
+        feature = "wasm",
+        feature = "async",
+        feature = "async-rustls"
+    ))]
     #[test]
     fn test_signing() {
         let url = Url::parse("https://examplebucket.s3.amazonaws.com/test.txt").unwrap();

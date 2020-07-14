@@ -18,5 +18,4 @@ path = "src/lib.rs"
 simpl = "0.1"
 dirs = "2"
 rust-ini = "0.15"
-attohttpc = {version = "0.15", features = ["json"]}
-
+attohttpc = {version = "0.15", features = ["json"], default-features = false}

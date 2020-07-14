@@ -13,11 +13,15 @@ pub use awscreds as creds;
 
 pub mod bucket;
 pub mod command;
-pub mod request;
 pub mod serde_types;
 pub mod signing;
 pub mod deserializer;
+#[cfg(any(feature = "async", feature = "async-rustls"))]
+pub mod request_async;
+#[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
+pub mod request_sync;
 
+#[cfg(any(feature = "async", feature = "async-rustls"))]
 simpl::err!(S3Error, {
     Xml@serde_xml::Error;
     Req@reqwest::Error;
@@ -29,6 +33,19 @@ simpl::err!(S3Error, {
     Region@awsregion::AwsRegionError;
     Creds@awscreds::AwsCredsError;
     UrlParse@url::ParseError;
+});
+
+#[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
+simpl::err!(S3Error, {
+    Xml@serde_xml::Error;
+    Hmac@hmac::crypto_mac::InvalidKeyLength;
+    Utf8@std::str::Utf8Error;
+    Io@std::io::Error;
+    Region@awsregion::AwsRegionError;
+    Creds@awscreds::AwsCredsError;
+    UrlParse@url::ParseError;
+    Http@http::header::InvalidHeaderValue;
+    Atto@attohttpc::Error;
 });
 
 const LONG_DATE: &str = "%Y%m%dT%H%M%SZ";
