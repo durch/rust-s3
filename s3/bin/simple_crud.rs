@@ -18,10 +18,6 @@ struct Storage {
 
 const MESSAGE: &str = "I want to go to S3";
 
-#[cfg(any(feature = "async", feature = "async-rustls"))]
-pub fn main() {}
-
-#[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
 pub fn main() -> Result<(), S3Error> {
     let aws = Storage {
         name: "aws".into(),

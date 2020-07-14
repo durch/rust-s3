@@ -50,6 +50,13 @@ static CLIENT: Lazy<Client> = Lazy::new(|| {
     Client::new()
 });
 
+fn into_hash_map(h: &HeaderMap) -> Result<HashMap<String, String>> {
+    let mut out = HashMap::new();
+    for (k, v) in h.iter() {
+        out.insert(k.to_string(), v.to_str()?.to_string());    }
+    Ok(out)
+}
+
 // Temporary structure for making a request
 pub struct RequestAsync<'a> {
     pub bucket: &'a Bucket,
@@ -174,13 +181,13 @@ impl<'a> RequestAsync<'a> {
         self.datetime.format(LONG_DATE).to_string()
     }
 
-    fn canonical_request(&self, headers: &HeaderMap) -> String {
-        signing::canonical_request(
+    fn canonical_request(&self, headers: &HeaderMap) -> Result<String> {
+        Ok(signing::canonical_request(
             &self.command.http_verb().to_string(),
             &self.url(),
-            headers,
+            &into_hash_map(headers)?,
             &self.sha256(),
-        )
+        ))
     }
 
     fn presigned_url_no_sig(&self, expiry: u32) -> Result<Url> {
@@ -205,7 +212,7 @@ impl<'a> RequestAsync<'a> {
         let canonical_request = signing::canonical_request(
             &self.command.http_verb().to_string(),
             &self.presigned_url_no_sig(expiry)?,
-            headers,
+            &into_hash_map(headers)?,
             "UNSIGNED-PAYLOAD",
         );
         Ok(canonical_request)
@@ -242,11 +249,11 @@ impl<'a> RequestAsync<'a> {
 
     fn authorization(&self, headers: &HeaderMap) -> Result<String> {
         let canonical_request = self.canonical_request(headers);
-        let string_to_sign = self.string_to_sign(&canonical_request);
+        let string_to_sign = self.string_to_sign(&canonical_request?);
         let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
         hmac.input(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.result().code());
-        let signed_header = signing::signed_header_string(headers);
+        let signed_header = signing::signed_header_string(&into_hash_map(headers)?);
         Ok(signing::authorization_header(
             &self.bucket.access_key().unwrap(),
             &self.datetime,

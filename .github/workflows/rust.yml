@@ -15,13 +15,13 @@ jobs:
       # - name: clippy
       #   run: cargo clippy --all-targets --all-features -- -D warnings
       - name: test sync
-        run: cd s3 && cargo test --features sync --features sync-rustls --features wasm
+        run: cd s3 && cargo test --no-default-features --features sync --features sync-rustls --features wasm
       - name: test async
-        run: cd s3 && cargo test --features async
+        run: cd s3 && cargo test --no-default-features --features async
       - name: test async
-        run: cd s3 && cargo test --features async-rustls
+        run: cd s3 && cargo test --no-default-features --features async-rustls
       - name: build wasm32
-        run: cd s3 && rustup target add wasm32-unknown-unknown && cargo build --target wasm32-unknown-unknown --features wasm
+        run: cd s3 && rustup target add wasm32-unknown-unknown && cargo build --target wasm32-unknown-unknown --no-default-features --features wasm
       - name: run simple_crud
         if: github.repository == 'durch/rust-s3'
         env:

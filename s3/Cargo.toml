@@ -8,7 +8,7 @@ license       = "MIT"
 name          = "rust-s3"
 readme        = "README.md"
 repository    = "https://github.com/durch/rust-s3"
-version       = "0.23.0-beta1"
+version       = "0.23.0-beta2"
 
 [lib]
 name = "s3"
@@ -24,21 +24,21 @@ attohttpc = { version = "0.15", default-features = false, optional = true }
 aws-creds        = "0.23.1"
 aws-region       = "0.21"
 base64           = "0.12"
-chrono           = "^0.4"
+chrono           = "0.4"
 futures          = "0.3"
-hex              = "^0.4"
-hmac             = "^0.7"
+hex              = "0.4"
+hmac             = "0.7"
 http             = "0.2"
 log              = "0.4"
 md5              = "0.7"
 once_cell        = "1.3"
-percent-encoding = "2.1"
+percent-encoding = "2"
 rand             = "0.7"
 reqwest          = { version = "0.10", features = ["stream"], optional = true, default-features = false }
-serde            = "^1"
+serde            = "1"
 serde-xml-rs     = "0.4"
-serde_derive     = "^1"
-sha2             = "^0.8"
+serde_derive     = "1"
+sha2             = "0.8"
 simpl            = "0.1"
 tokio            = { version = "0.2", features = ["macros", "io-util", "stream"], optional = true }
 url              = "2"
@@ -46,7 +46,7 @@ url              = "2"
 [features]
 async         = ["reqwest", "reqwest/native-tls", "tokio"]
 async-rustls  = ["reqwest", "reqwest/rustls-tls", "tokio"]
-default       = []
+default       = ["sync", "async"]
 fail-on-err   = []
 no-verify-ssl = []
 sync          = ["attohttpc", "attohttpc/tls"]

@@ -33,6 +33,15 @@ pub type Headers = HashMap<String, String>;
 /// format.
 pub type Query = HashMap<String, String>;
 
+
+fn into_hash_map(h: &HeaderMap) -> Result<HashMap<String, String>> {
+    let mut out = HashMap::new();
+    for (k, v) in h.iter() {
+        out.insert(k.to_string(), v.to_str()?.to_string());    }
+    Ok(out)
+}
+
+
 static SESSION: Lazy<Session> = Lazy::new(|| {
     // if cfg!(feature = "no-verify-ssl") {
     //     let mut session = Session::new();
@@ -183,7 +192,7 @@ impl<'a> RequestSync<'a> {
         self.datetime.format(LONG_DATE).to_string()
     }
 
-    fn canonical_request(&self, headers: &HeaderMap) -> String {
+    fn canonical_request(&self, headers: &HashMap<String, String>) -> String {
         signing::canonical_request(
             &self.command.http_verb().to_string(),
             &self.url(),
@@ -205,7 +214,7 @@ impl<'a> RequestSync<'a> {
         ))?)
     }
 
-    fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String> {
+    fn presigned_canonical_request(&self, headers: &HashMap<String, String>) -> Result<String> {
         let expiry = match self.command {
             Command::PresignGet { expiry_secs } => expiry_secs,
             Command::PresignPut { expiry_secs } => expiry_secs,
@@ -240,7 +249,7 @@ impl<'a> RequestSync<'a> {
         let mut headers = HeaderMap::new();
         let host_header = self.host_header()?;
         headers.insert(HOST, host_header);
-        let canonical_request = self.presigned_canonical_request(&headers)?;
+        let canonical_request = self.presigned_canonical_request(&into_hash_map(&headers)?)?;
         let string_to_sign = self.string_to_sign(&canonical_request);
         let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
         hmac.input(string_to_sign.as_bytes());
@@ -249,7 +258,7 @@ impl<'a> RequestSync<'a> {
         Ok(signature)
     }
 
-    fn authorization(&self, headers: &HeaderMap) -> Result<String> {
+    fn authorization(&self, headers: &HashMap<String, String>) -> Result<String> {
         let canonical_request = self.canonical_request(headers);
         let string_to_sign = self.string_to_sign(&canonical_request);
         let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
@@ -420,7 +429,7 @@ impl<'a> RequestSync<'a> {
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided
         if self.bucket.secret_key().is_some() {
-            let authorization = self.authorization(&headers)?;
+            let authorization = self.authorization(&into_hash_map(&headers)?)?;
             headers.insert(
                 AUTHORIZATION,
                 match authorization.parse() {

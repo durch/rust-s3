@@ -30,6 +30,8 @@ simpl::err!(S3Error, {
     Creds@awscreds::AwsCredsError;
     UrlParse@url::ParseError;
     Http@http::header::InvalidHeaderValue;
+    ToStrHttp@http::header::ToStrError;
+    
 });
 
 const LONG_DATE: &str = "%Y%m%dT%H%M%SZ";
