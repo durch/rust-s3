@@ -17,10 +17,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "simple_crud"
 path = "bin/simple_crud.rs"
+test = false
 
 [dependencies]
 attohttpc = { version = "0.15", default-features = false, optional = true }
-# aws-creds        = "0.23"
 aws-creds        = "0.23.1"
 aws-region       = "0.21"
 base64           = "0.12"
@@ -49,6 +49,7 @@ async-rustls  = ["reqwest", "reqwest/rustls-tls", "tokio"]
 default       = ["sync", "async"]
 fail-on-err   = []
 no-verify-ssl = []
+rustls        = ["sync-rustls", "async-rustls"]
 sync          = ["attohttpc", "attohttpc/tls"]
 sync-rustls   = ["attohttpc", "attohttpc/tls-rustls"]
 wasm          = ["sync-rustls"]

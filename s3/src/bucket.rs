@@ -42,7 +42,7 @@ pub struct Bucket {
     path_style: bool
 }
 
-#[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm", feature = "async", feature = "async-rustls"))]
+#[allow(dead_code)]
 fn validate_expiry(expiry_secs: u32) -> Result<()> {
     if 604800 < expiry_secs {
         return Err(S3Error::from(format!("Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead", expiry_secs).as_str()));
@@ -112,7 +112,6 @@ impl Bucket {
     ///
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// ```
-    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm", feature = "async", feature = "async-rustls"))]
     pub fn new(name: &str, region: Region, credentials: Credentials) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
@@ -124,7 +123,6 @@ impl Bucket {
         })
     }
 
-    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm", feature = "async", feature = "async-rustls"))]
     pub fn new_public(name: &str, region: Region) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
@@ -136,7 +134,6 @@ impl Bucket {
         })
     }
 
-    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm", feature = "async", feature = "async-rustls"))]
     pub fn new_with_path_style(name: &str, region: Region, credentials: Credentials) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
@@ -148,7 +145,6 @@ impl Bucket {
         })
     }
 
-    #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm", feature = "async", feature = "async-rustls"))]
     pub fn new_public_with_path_style(name: &str, region: Region) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
