@@ -542,7 +542,7 @@ impl<'a> RequestSync<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request_sync::Request;
+    use crate::request_sync::RequestSync;
     use crate::Result;
     use awscreds::Credentials;
 
@@ -559,7 +559,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = Request::new(&bucket, path, Command::GetObject);
+        let request = RequestSync::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -575,7 +575,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new_with_path_style("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = Request::new(&bucket, path, Command::GetObject);
+        let request = RequestSync::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -591,7 +591,7 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = Request::new(&bucket, path, Command::GetObject);
+        let request = RequestSync::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url().scheme(), "http");
 
@@ -606,7 +606,7 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = Request::new(&bucket, path, Command::GetObject);
+        let request = RequestSync::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url().scheme(), "http");
 
