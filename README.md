@@ -3,7 +3,8 @@
 [![](http://meritbadge.herokuapp.com/rust-s3)](https://crates.io/crates/rust-s3)
 ![](https://img.shields.io/crates/d/rust-s3.svg)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/durch/rust-s3/blob/master/LICENSE.md)
-## rust-s3 [[docs](https://durch.github.io/rust-s3/s3/)]
+## rust-s3 [[docs](https://docs.rs/rust-s3/)]
+
 
 Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with **async/await** and `futures ^0.3`. Blocking familiy of methods is also compatible with `wasm`.
 
