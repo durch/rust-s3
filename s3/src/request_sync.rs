@@ -8,7 +8,6 @@ use super::bucket::Bucket;
 use super::command::Command;
 use chrono::{DateTime, Utc};
 
-use crate::LONG_DATE;
 use crate::{Result, S3Error};
 use std::convert::From;
 
@@ -19,7 +18,7 @@ use attohttpc::header::{ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DAT
 use attohttpc::{Response, Session};
 
 use crate::command::Method;
-use crate::request_utils::{Request, url, host_header, authorization, sha256};
+use crate::request_utils::{Request, url, host_header, authorization, sha256, content_length, content_type, long_date};
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -92,25 +91,6 @@ impl<'a> RequestSync<'a> {
         }
     }
 
-    fn content_length(&self) -> usize {
-        match self.command {
-            Command::PutObject { content, .. } => content.len(),
-            Command::PutObjectTagging { tags } => tags.len(),
-            _ => 0,
-        }
-    }
-
-    fn content_type(&self) -> String {
-        match self.command {
-            Command::PutObject { content_type, .. } => content_type.into(),
-            _ => "text/plain".into(),
-        }
-    }
-
-    fn long_date(&self) -> String {
-        self.datetime.format(LONG_DATE).to_string()
-    }
-
     fn headers(&self) -> Result<HeaderMap> {
         // Generate this once, but it's used in more than one place.
         let sha256 = sha256(self);
@@ -153,13 +133,13 @@ impl<'a> RequestSync<'a> {
             _ => {
                 headers.insert(
                     CONTENT_LENGTH,
-                    match self.content_length().to_string().parse() {
+                    match content_length(self).to_string().parse() {
                         Ok(content_length) => content_length,
                         Err(_) => {
                             return Err(S3Error::from(
                                 format!(
                                     "Could not parse CONTENT_LENGTH header value {}",
-                                    self.content_length()
+                                    content_length(self)
                                 )
                                 .as_ref(),
                             ))
@@ -168,13 +148,13 @@ impl<'a> RequestSync<'a> {
                 );
                 headers.insert(
                     CONTENT_TYPE,
-                    match self.content_type().parse() {
+                    match content_type(self).parse() {
                         Ok(content_type) => content_type,
                         Err(_) => {
                             return Err(S3Error::from(
                                 format!(
                                     "Could not parse CONTENT_TYPE header value {}",
-                                    self.content_type()
+                                    content_type(self)
                                 )
                                 .as_ref(),
                             ))
@@ -200,13 +180,13 @@ impl<'a> RequestSync<'a> {
         );
         headers.insert(
             "X-Amz-Date",
-            match self.long_date().parse() {
+            match long_date(self).parse() {
                 Ok(value) => value,
                 Err(_) => {
                     return Err(S3Error::from(
                         format!(
                             "Could not parse X-Amz-Date header value {}",
-                            self.long_date()
+                            long_date(self)
                         )
                         .as_ref(),
                     ))
@@ -383,6 +363,7 @@ mod tests {
     use crate::command::Command;
     use crate::request_sync::RequestSync;
     use crate::Result;
+    use crate::request_utils::url;
     use awscreds::Credentials;
 
     // Fake keys - otherwise using Credentials::default will use actual user
@@ -400,7 +381,7 @@ mod tests {
         let path = "/my-first/path";
         let request = RequestSync::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url().scheme(), "https");
+        assert_eq!(url(&request).scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -416,7 +397,7 @@ mod tests {
         let path = "/my-first/path";
         let request = RequestSync::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url().scheme(), "https");
+        assert_eq!(url(&request).scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -432,7 +413,7 @@ mod tests {
         let path = "/my-second/path";
         let request = RequestSync::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url().scheme(), "http");
+        assert_eq!(url(&request).scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -447,7 +428,7 @@ mod tests {
         let path = "/my-second/path";
         let request = RequestSync::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url().scheme(), "http");
+        assert_eq!(url(&request).scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();

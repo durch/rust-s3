@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use url::Url;
 use sha2::{Digest, Sha256};
 use crate::EMPTY_PAYLOAD_SHA;
+use crate::LONG_DATE;
 
 pub trait Request {
     fn command(&self) -> &Command<'_>;
@@ -185,22 +186,22 @@ pub fn url(r: &impl Request) -> Url {
 
     url
 }
-// // Generics based on the trait
-// fn url(&self) -> Url;
 
-// // Dependes on commnad
-// fn content_length(&self) -> usize;
-// fn content_type(&self) -> String;
-// fn sha256(&self) -> String;
-// // Depends on datetime
-// fn long_date(&self) -> String;
+pub fn content_length(r: &impl Request) -> usize {
+    match r.command() {
+        Command::PutObject { content, .. } => content.len(),
+        Command::PutObjectTagging { tags } => tags.len(),
+        _ => 0,
+    }
+}
 
-// // Misc
-// fn presigned(&self) -> Result<String>;
-// fn presigned_url_no_sig(&self, expiry: u32) -> Result<Url>;
-// fn canonical_request(&self, headers: &HashMap<String, String>) -> String;
-// fn presigned_canonical_request(&self, headers: &HashMap<String, String>) -> Result<String>;
-// fn string_to_sign(&self, request: &str) -> String;
-// fn signing_key(&self) -> Result<Vec<u8>>;
-// fn presigned_authorization(&self) -> Result<String>;
-// fn authorization(&self, headers: &HashMap<String, String>) -> Result<String>;
+pub fn content_type(r: &impl Request) -> String {
+    match r.command() {
+        Command::PutObject { content_type, .. } => content_type.to_string(),
+        _ => "text/plain".into(),
+    }
+}
+
+pub fn long_date(r: &impl Request) -> String {
+    r.datetime().format(LONG_DATE).to_string()
+}
