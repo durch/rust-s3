@@ -8,7 +8,7 @@ license       = "MIT"
 name          = "rust-s3"
 readme        = "README.md"
 repository    = "https://github.com/durch/rust-s3"
-version       = "0.23.0-beta2"
+version       = "0.23.0-beta3"
 
 [lib]
 name = "s3"
