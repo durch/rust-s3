@@ -71,7 +71,7 @@ impl Bucket {
     pub fn presign_get<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
         validate_expiry(expiry_secs)?;
         let request = RequestSync::new(self, path.as_ref(), Command::PresignGet { expiry_secs });
-        Ok(request.presigned()?)
+        Ok(crate::request_utils::presigned(&request)?)
     }
     /// Get a presigned url for putting object to a given path
     ///
@@ -93,7 +93,7 @@ impl Bucket {
     pub fn presign_put<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
         validate_expiry(expiry_secs)?;
         let request = RequestSync::new(self, path.as_ref(), Command::PresignPut { expiry_secs });
-        Ok(request.presigned()?)
+        Ok(crate::request_utils::presigned(&request)?)
     }
     /// Instantiate a new `Bucket`.
     ///

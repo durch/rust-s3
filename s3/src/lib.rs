@@ -7,7 +7,6 @@ use serde_xml_rs as serde_xml;
 #[macro_use]
 extern crate log;
 
-
 pub use awsregion as region;
 pub use awscreds as creds;
 
@@ -20,6 +19,8 @@ pub mod deserializer;
 pub mod request_async;
 #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
 pub mod request_sync;
+
+mod request_utils;
 
 simpl::err!(S3Error, {
     Xml@serde_xml::Error;

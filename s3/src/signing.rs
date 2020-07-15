@@ -60,13 +60,6 @@ pub fn canonical_query_string(uri: &Url) -> String {
 }
 
 /// Generate a canonical header string from the provided headers.
-#[cfg(any(
-    feature = "sync",
-    feature = "sync-rustls",
-    feature = "wasm",
-    feature = "async",
-    feature = "async-rustls"
-))]
 pub fn canonical_header_string(headers: &HashMap<String, String>) -> String {
     let mut keyvalues = headers
         .iter()
@@ -79,13 +72,6 @@ pub fn canonical_header_string(headers: &HashMap<String, String>) -> String {
 }
 
 /// Generate a signed header string from the provided headers.
-#[cfg(any(
-    feature = "sync",
-    feature = "sync-rustls",
-    feature = "wasm",
-    feature = "async",
-    feature = "async-rustls"
-))]
 pub fn signed_header_string(headers: &HashMap<String, String>) -> String {
     let mut keys = headers
         .keys()
@@ -96,13 +82,6 @@ pub fn signed_header_string(headers: &HashMap<String, String>) -> String {
 }
 
 /// Generate a canonical request.
-#[cfg(any(
-    feature = "sync",
-    feature = "sync-rustls",
-    feature = "wasm",
-    feature = "async",
-    feature = "async-rustls"
-))]
 pub fn canonical_request(method: &str, url: &Url, headers: &HashMap<String, String>, sha256: &str) -> String {
     format!(
         "{method}\n{uri}\n{query_string}\n{headers}\n\n{signed}\n{sha256}",
@@ -140,13 +119,6 @@ pub fn string_to_sign(datetime: &DateTime<Utc>, region: &Region, canonical_req: 
 
 /// Generate the AWS signing key, derived from the secret key, date, region,
 /// and service name.
-#[cfg(any(
-    feature = "sync",
-    feature = "sync-rustls",
-    feature = "wasm",
-    feature = "async",
-    feature = "async-rustls"
-))]
 pub fn signing_key(
     datetime: &DateTime<Utc>,
     secret_key: &str,

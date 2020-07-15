@@ -7,13 +7,7 @@ use std::io::Write;
 use super::bucket::Bucket;
 use super::command::Command;
 use chrono::{DateTime, Utc};
-use hmac::Mac;
-use sha2::{Digest, Sha256};
-use url::Url;
 
-use crate::signing;
-
-use crate::EMPTY_PAYLOAD_SHA;
 use crate::LONG_DATE;
 use crate::{Result, S3Error};
 use std::convert::From;
@@ -21,10 +15,11 @@ use std::convert::From;
 use once_cell::sync::Lazy;
 
 use attohttpc::header::{HeaderMap, HeaderName, HeaderValue};
-use attohttpc::header::{HOST, AUTHORIZATION, ACCEPT, CONTENT_TYPE, CONTENT_LENGTH, DATE};
+use attohttpc::header::{ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DATE, HOST};
 use attohttpc::{Response, Session};
 
 use crate::command::Method;
+use crate::request_utils::{Request, url, host_header, authorization, sha256};
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -33,14 +28,13 @@ pub type Headers = HashMap<String, String>;
 /// format.
 pub type Query = HashMap<String, String>;
 
-
 fn into_hash_map(h: &HeaderMap) -> Result<HashMap<String, String>> {
     let mut out = HashMap::new();
     for (k, v) in h.iter() {
-        out.insert(k.to_string(), v.to_str()?.to_string());    }
+        out.insert(k.to_string(), v.to_str()?.to_string());
+    }
     Ok(out)
 }
-
 
 static SESSION: Lazy<Session> = Lazy::new(|| {
     // if cfg!(feature = "no-verify-ssl") {
@@ -49,7 +43,7 @@ static SESSION: Lazy<Session> = Lazy::new(|| {
     //     session.danger_accept_invalid_hostnames(true);
     //     session
     // } else {
-        Session::new()
+    Session::new()
     // }
 });
 
@@ -62,14 +56,28 @@ pub struct RequestSync<'a> {
     pub sync: bool,
 }
 
-impl<'a> RequestSync<'a> {
+impl Request for RequestSync<'_> {
+    fn command(&self) -> &Command<'_> {
+        &self.command
+    }
+    fn datetime(&self) -> DateTime<Utc> {
+        self.datetime
+    }
+    fn bucket(&self) -> &Bucket {
+        self.bucket
+    }
+    fn path(&self) -> &str {
+        self.path
+    }
+}
 
+impl<'a> RequestSync<'a> {
     pub fn response_data(&self) -> Result<(Vec<u8>, u16)> {
         let response = self.response()?;
         let status_code = response.status().as_u16();
         let body = match response.bytes() {
             Ok(body) => body,
-            Err(e) => return Err(S3Error::from(format!("{}", e).as_ref())) 
+            Err(e) => return Err(S3Error::from(format!("{}", e).as_ref())),
         };
         Ok((body.to_vec(), status_code))
     }
@@ -82,79 +90,6 @@ impl<'a> RequestSync<'a> {
             datetime: Utc::now(),
             sync: false,
         }
-    }
-
-    pub fn presigned(&self) -> Result<String> {
-        let expiry = match self.command {
-            Command::PresignGet { expiry_secs } => expiry_secs,
-            Command::PresignPut { expiry_secs } => expiry_secs,
-            _ => unreachable!(),
-        };
-        let authorization = self.presigned_authorization()?;
-        Ok(format!(
-            "{}&X-Amz-Signature={}",
-            self.presigned_url_no_sig(expiry)?,
-            authorization
-        ))
-    }
-
-    fn host_header(&self) -> Result<HeaderValue> {
-        let host = self.bucket.host();
-        HeaderValue::from_str(&host).map_err(|_e| {
-            S3Error::from(format!("Could not parse HOST header value {}", host).as_ref())
-        })
-    }
-
-    fn url(&self) -> Url {
-        let mut url_str = self.bucket.url();
-
-        if !self.path.starts_with('/') {
-            url_str.push_str("/");
-        }
-
-        url_str.push_str(self.path);
-
-        // Since every part of this URL is either pre-encoded or statically
-        // generated, there's really no way this should fail.
-        let mut url = Url::parse(&url_str).expect("static URL parsing");
-
-        for (key, value) in &self.bucket.extra_query {
-            url.query_pairs_mut().append_pair(key, value);
-        }
-
-        if let Command::ListBucket {
-            prefix,
-            delimiter,
-            continuation_token,
-            start_after,
-            max_keys,
-        } = self.command.clone()
-        {
-            let mut query_pairs = url.query_pairs_mut();
-            delimiter.map(|d| query_pairs.append_pair("delimiter", &d));
-            query_pairs.append_pair("prefix", &prefix);
-            query_pairs.append_pair("list-type", "2");
-            if let Some(token) = continuation_token {
-                query_pairs.append_pair("continuation-token", &token);
-            }
-            if let Some(start_after) = start_after {
-                query_pairs.append_pair("start-after", &start_after);
-            }
-            if let Some(max_keys) = max_keys {
-                query_pairs.append_pair("max-keys", &max_keys.to_string());
-            }
-        }
-
-        match self.command {
-            Command::PutObjectTagging { .. }
-            | Command::GetObjectTagging
-            | Command::DeleteObjectTagging => {
-                url.query_pairs_mut().append_pair("tagging", "");
-            }
-            _ => {}
-        }
-
-        url
     }
 
     fn content_length(&self) -> usize {
@@ -172,111 +107,13 @@ impl<'a> RequestSync<'a> {
         }
     }
 
-    fn sha256(&self) -> String {
-        match self.command {
-            Command::PutObject { content, .. } => {
-                let mut sha = Sha256::default();
-                sha.input(content);
-                hex::encode(sha.result().as_slice())
-            }
-            Command::PutObjectTagging { tags } => {
-                let mut sha = Sha256::default();
-                sha.input(tags.as_bytes());
-                hex::encode(sha.result().as_slice())
-            }
-            _ => EMPTY_PAYLOAD_SHA.into(),
-        }
-    }
-
     fn long_date(&self) -> String {
         self.datetime.format(LONG_DATE).to_string()
     }
 
-    fn canonical_request(&self, headers: &HashMap<String, String>) -> String {
-        signing::canonical_request(
-            &self.command.http_verb().to_string(),
-            &self.url(),
-            headers,
-            &self.sha256(),
-        )
-    }
-
-    fn presigned_url_no_sig(&self, expiry: u32) -> Result<Url> {
-        Ok(Url::parse(&format!(
-            "{}{}",
-            self.url(),
-            signing::authorization_query_params_no_sig(
-                &self.bucket.access_key().unwrap(),
-                &self.datetime,
-                &self.bucket.region(),
-                expiry
-            )
-        ))?)
-    }
-
-    fn presigned_canonical_request(&self, headers: &HashMap<String, String>) -> Result<String> {
-        let expiry = match self.command {
-            Command::PresignGet { expiry_secs } => expiry_secs,
-            Command::PresignPut { expiry_secs } => expiry_secs,
-            _ => unreachable!(),
-        };
-        let canonical_request = signing::canonical_request(
-            &self.command.http_verb().to_string(),
-            &self.presigned_url_no_sig(expiry)?,
-            headers,
-            "UNSIGNED-PAYLOAD",
-        );
-        Ok(canonical_request)
-    }
-
-    fn string_to_sign(&self, request: &str) -> String {
-        signing::string_to_sign(&self.datetime, &self.bucket.region(), request)
-    }
-
-    fn signing_key(&self) -> Result<Vec<u8>> {
-        Ok(signing::signing_key(
-            &self.datetime,
-            &self
-                .bucket
-                .secret_key()
-                .expect("Secret key must be provided to sign headers, found None"),
-            &self.bucket.region(),
-            "s3",
-        )?)
-    }
-
-    fn presigned_authorization(&self) -> Result<String> {
-        let mut headers = HeaderMap::new();
-        let host_header = self.host_header()?;
-        headers.insert(HOST, host_header);
-        let canonical_request = self.presigned_canonical_request(&into_hash_map(&headers)?)?;
-        let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
-        hmac.input(string_to_sign.as_bytes());
-        let signature = hex::encode(hmac.result().code());
-        // let signed_header = signing::signed_header_string(&headers);
-        Ok(signature)
-    }
-
-    fn authorization(&self, headers: &HashMap<String, String>) -> Result<String> {
-        let canonical_request = self.canonical_request(headers);
-        let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
-        hmac.input(string_to_sign.as_bytes());
-        let signature = hex::encode(hmac.result().code());
-        let signed_header = signing::signed_header_string(headers);
-        Ok(signing::authorization_header(
-            &self.bucket.access_key().unwrap(),
-            &self.datetime,
-            &self.bucket.region(),
-            &signed_header,
-            &signature,
-        ))
-    }
-
     fn headers(&self) -> Result<HeaderMap> {
         // Generate this once, but it's used in more than one place.
-        let sha256 = self.sha256();
+        let sha256 = sha256(self);
 
         // Start with extra_headers, that way our headers replace anything with
         // the same name.
@@ -304,9 +141,9 @@ impl<'a> RequestSync<'a> {
             );
         }
 
-        let host_header = self.host_header()?;
+        let host_header = host_header(self);
 
-        headers.insert(HOST, host_header);
+        headers.insert(HOST, HeaderValue::from_str(&host_header)?);
 
         match self.command {
             Command::ListBucket { .. } => {}
@@ -420,16 +257,13 @@ impl<'a> RequestSync<'a> {
             let hash = base64::encode(digest.as_ref());
             headers.insert("Content-MD5", hash.parse()?);
         } else if let Command::GetObject {} = self.command {
-            headers.insert(
-                ACCEPT,
-                HeaderValue::from_str("application/octet-stream")?,
-            );
+            headers.insert(ACCEPT, HeaderValue::from_str("application/octet-stream")?);
             // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
         }
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided
         if self.bucket.secret_key().is_some() {
-            let authorization = self.authorization(&into_hash_map(&headers)?)?;
+            let authorization = authorization(self, &into_hash_map(&headers)?)?;
             headers.insert(
                 AUTHORIZATION,
                 match authorization.parse() {
@@ -480,16 +314,13 @@ impl<'a> RequestSync<'a> {
     //     Ok(futures::executor::block_on(self.response_data_to_writer_future(writer))?)
     // }
 
-    pub fn response_data_to_writer<'b, T: Write>(
-        &self,
-        writer: &'b mut T,
-    ) -> Result<u16> {
+    pub fn response_data_to_writer<'b, T: Write>(&self, writer: &'b mut T) -> Result<u16> {
         let response = self.response()?;
 
         let status_code = response.status();
         match response.write_to(writer) {
-            Ok(_) => {},
-            Err(e) => return Err(S3Error::from(format!("{}", e).as_ref()))
+            Ok(_) => {}
+            Err(e) => return Err(S3Error::from(format!("{}", e).as_ref())),
         }
 
         Ok(status_code.as_u16())
@@ -512,12 +343,11 @@ impl<'a> RequestSync<'a> {
         };
 
         let mut request = match self.command.http_verb() {
-            Method::Get => SESSION.get(self.url().as_str()),
-            Method::Put => SESSION.put(self.url().as_str()),
-            Method::Delete => SESSION.delete(self.url().as_str())
+            Method::Get => SESSION.get(url(self).as_str()),
+            Method::Put => SESSION.put(url(self).as_str()),
+            Method::Delete => SESSION.delete(url(self).as_str()),
         };
 
-        
         for (name, value) in headers.iter() {
             request = request.header_append(name, value);
         }
@@ -526,7 +356,7 @@ impl<'a> RequestSync<'a> {
 
         let response = match request.send() {
             Ok(response) => response,
-            Err(e) => return Err(S3Error::from(format!("{}", e).as_ref()))
+            Err(e) => return Err(S3Error::from(format!("{}", e).as_ref())),
         };
 
         if cfg!(feature = "fail-on-err") && response.status().as_u16() >= 400 {
@@ -536,7 +366,7 @@ impl<'a> RequestSync<'a> {
                     response.status().as_u16(),
                     match response.text() {
                         Ok(text) => text,
-                        Err(e) => format!("{}", e)
+                        Err(e) => format!("{}", e),
                     }
                 )
                 .as_str(),
