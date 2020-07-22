@@ -19,7 +19,7 @@ const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
 pub type HmacSha256 = Hmac<Sha256>;
 
 /// Encode a URI following the specific requirements of the AWS service.
-// TODO replace with percent_encoding crate
+// TODO replace with an encoding specific crate
 pub fn uri_encode(string: &str, encode_slash: bool) -> String {
     let mut result = String::with_capacity(string.len() * 2);
     for c in string.chars() {

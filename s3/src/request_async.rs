@@ -4,8 +4,8 @@ extern crate md5;
 use std::collections::HashMap;
 use std::io::Write;
 
-use super::bucket::Bucket;
-use super::command::Command;
+use crate::bucket::Bucket;
+use crate::command::Command;
 use chrono::{DateTime, Utc};
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Response};

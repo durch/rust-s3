@@ -4,8 +4,6 @@ use std::collections::HashMap;
 use std::env;
 use std::str::FromStr;
 
-// TODO Switch to surf instead of requests
-
 /// AWS access credentials: access key, secret key, and optional token.
 ///
 /// # Example

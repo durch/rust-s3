@@ -6,7 +6,8 @@ use std::io::Write;
 
 use super::bucket::Bucket;
 use super::command::Command;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::offset::TimeZone;
 
 use crate::{Result, S3Error};
 use std::convert::From;
@@ -18,7 +19,9 @@ use attohttpc::header::{ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DAT
 use attohttpc::{Response, Session};
 
 use crate::command::Method;
-use crate::request_utils::{Request, url, host_header, authorization, sha256, content_length, content_type, long_date};
+use crate::request_utils::{
+    authorization, content_length, content_type, host_header, long_date, sha256, url, Request,
+};
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -86,7 +89,10 @@ impl<'a> RequestSync<'a> {
             bucket,
             path,
             command,
+            #[cfg(not(feature = "wasm"))]
             datetime: Utc::now(),
+            #[cfg(feature = "wasm")]
+            datetime: Utc.from_utc_datetime(&NaiveDateTime::from_timestamp((js_sys::Date::now()/1000.) as i64, 0)),
             sync: false,
         }
     }
@@ -267,21 +273,20 @@ impl<'a> RequestSync<'a> {
         // range and can't be used again e.g. reply attacks. Adding this header
         // after the generation of the Authorization header leaves it out of
         // the signed headers.
-        headers.insert(
-            DATE,
-            match self.datetime.to_rfc2822().parse() {
-                Ok(date) => date,
-                Err(_) => {
-                    return Err(S3Error::from(
-                        format!(
-                            "Could not parse DATE header value {}",
-                            self.datetime.to_rfc2822()
-                        )
-                        .as_ref(),
-                    ))
-                }
-            },
-        );
+        let val:HeaderValue = match self.datetime.to_rfc2822().parse() {
+            Ok(date) => date,
+            Err(_) => {
+                return Err(S3Error::from(
+                    format!(
+                        "Could not parse DATE header value {}",
+                        self.datetime.to_rfc2822()
+                    )
+                    .as_ref(),
+                ))
+            }
+        };
+        
+        headers.insert(DATE, val);
 
         Ok(headers)
     }
@@ -362,8 +367,8 @@ mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
     use crate::request_sync::RequestSync;
-    use crate::Result;
     use crate::request_utils::url;
+    use crate::Result;
     use awscreds::Credentials;
 
     // Fake keys - otherwise using Credentials::default will use actual user

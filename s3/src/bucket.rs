@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::mem;
 
-
 use crate::command::Command;
 use crate::serde_types::{BucketLocationResult, ListBucketResult, Tagging};
 use crate::{Result, S3Error};
@@ -11,11 +10,11 @@ use awscreds::Credentials;
 use awsregion::Region;
 
 #[cfg(any(feature = "async", feature = "async-rustls"))]
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-#[cfg(any(feature = "async", feature = "async-rustls"))]
 use crate::request_async::RequestAsync;
 #[cfg(any(feature = "sync", feature = "sync-rustls", feature = "wasm"))]
 use crate::request_sync::RequestSync;
+#[cfg(any(feature = "async", feature = "async-rustls"))]
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// # Example
 /// ```
@@ -27,7 +26,7 @@ use crate::request_sync::RequestSync;
 /// use awscreds::Credentials;
 ///
 /// let bucket_name = "rust-s3-test";
-/// let region = "us-east-1".parse().unwrap();
+/// let region = "eu-central-1".parse().unwrap();
 /// let credentials = Credentials::default().unwrap();
 ///
 /// let bucket = Bucket::new(bucket_name, region, credentials);
@@ -39,13 +38,19 @@ pub struct Bucket {
     pub credentials: Credentials,
     pub extra_headers: HashMap<String, String>,
     pub extra_query: HashMap<String, String>,
-    path_style: bool
+    path_style: bool,
 }
 
 #[allow(dead_code)]
 fn validate_expiry(expiry_secs: u32) -> Result<()> {
     if 604800 < expiry_secs {
-        return Err(S3Error::from(format!("Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead", expiry_secs).as_str()));
+        return Err(S3Error::from(
+            format!(
+                "Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead",
+                expiry_secs
+            )
+            .as_str(),
+        ));
     }
     Ok(())
 }
@@ -60,7 +65,7 @@ impl Bucket {
     /// use awscreds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = "eu-central-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
@@ -82,7 +87,7 @@ impl Bucket {
     /// use awscreds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = "eu-central-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
@@ -107,7 +112,7 @@ impl Bucket {
     /// use awscreds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = "eu-central-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     ///
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
@@ -119,7 +124,7 @@ impl Bucket {
             credentials,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
-            path_style: false
+            path_style: false,
         })
     }
 
@@ -130,18 +135,22 @@ impl Bucket {
             credentials: Credentials::anonymous()?,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
-            path_style: false
+            path_style: false,
         })
     }
 
-    pub fn new_with_path_style(name: &str, region: Region, credentials: Credentials) -> Result<Bucket> {
+    pub fn new_with_path_style(
+        name: &str,
+        region: Region,
+        credentials: Credentials,
+    ) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
             region,
             credentials,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
-            path_style: true
+            path_style: true,
         })
     }
 
@@ -152,7 +161,7 @@ impl Bucket {
             credentials: Credentials::anonymous()?,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
-            path_style: true
+            path_style: true,
         })
     }
 
@@ -165,7 +174,7 @@ impl Bucket {
     /// use awscreds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = "eu-central-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
@@ -192,7 +201,7 @@ impl Bucket {
     /// async fn main() -> Result<(), S3Error> {
     ///
     ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
+    ///     let region = "eu-central-1".parse()?;
     ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
@@ -219,7 +228,7 @@ impl Bucket {
     /// use std::fs::File;
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = "eu-central-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// let mut output_file = File::create("output_file").expect("Unable to create file");
@@ -249,7 +258,7 @@ impl Bucket {
     /// async fn main() -> Result<(), S3Error> {
     ///
     ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
+    ///     let region = "eu-central-1".parse()?;
     ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     let mut output_file = File::create("output_file").expect("Unable to create file");
@@ -285,7 +294,7 @@ impl Bucket {
     /// async fn main() -> Result<(), S3Error> {
     ///
     ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
+    ///     let region = "eu-central-1".parse()?;
     ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     let mut output_file = File::create("output_file").expect("Unable to create file");
@@ -321,7 +330,7 @@ impl Bucket {
     /// async fn main() -> Result<(), S3Error> {
     ///
     ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
+    ///     let region = "eu-central-1".parse()?;
     ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     let mut file = File::open("foo.txt")?;
@@ -363,7 +372,7 @@ impl Bucket {
     /// async fn main() -> Result<(), S3Error> {
     ///
     ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
+    ///     let region = "eu-central-1".parse()?;
     ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     let mut file = File::open("foo.txt")?;
@@ -403,7 +412,7 @@ impl Bucket {
     /// fn main() -> Result<(), S3Error> {
     ///
     ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
+    ///     let region = "eu-central-1".parse()?;
     ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///     let mut file = File::open("foo.txt")?;
@@ -535,7 +544,7 @@ impl Bucket {
     /// async fn main() -> Result<(), S3Error> {
     ///
     ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
+    ///     let region = "eu-central-1".parse()?;
     ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
@@ -561,7 +570,7 @@ impl Bucket {
     /// use awscreds::Credentials;
     ///
     /// let bucket_name = &"rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = "eu-central-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
@@ -592,7 +601,7 @@ impl Bucket {
     ///     let aws_secret = &"secret_key";
     ///
     ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
+    ///     let region = "eu-central-1".parse().unwrap();
     ///     let credentials = Credentials::default().unwrap();
     ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
@@ -630,7 +639,7 @@ impl Bucket {
     /// let aws_secret = &"secret_key";
     ///
     /// let bucket_name = &"rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = "eu-central-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
@@ -691,7 +700,7 @@ impl Bucket {
     ///     let aws_secret = &"secret_key";
     ///
     ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
+    ///     let region = "eu-central-1".parse()?;
     ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
@@ -725,7 +734,7 @@ impl Bucket {
     /// let aws_secret = &"secret_key";
     ///
     /// let bucket_name = &"rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = "eu-central-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
@@ -761,7 +770,7 @@ impl Bucket {
     ///     let aws_secret = &"secret_key";
     ///
     ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
+    ///     let region = "eu-central-1".parse()?;
     ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
@@ -790,7 +799,7 @@ impl Bucket {
     /// let aws_secret = &"secret_key";
     ///
     /// let bucket_name = &"rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = "eu-central-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
@@ -821,7 +830,7 @@ impl Bucket {
     ///     let aws_secret = &"secret_key";
     ///
     ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
+    ///     let region = "eu-central-1".parse()?;
     ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
@@ -867,7 +876,7 @@ impl Bucket {
     /// let aws_secret = &"secret_key";
     ///
     /// let bucket_name = &"rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = "eu-central-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
@@ -967,7 +976,7 @@ impl Bucket {
     /// let aws_secret = &"secret_key";
     ///
     /// let bucket_name = &"rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = "eu-central-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
@@ -984,7 +993,8 @@ impl Bucket {
         delimiter: Option<String>,
     ) -> Result<Vec<(ListBucketResult, u16)>> {
         let mut results = Vec::new();
-        let mut result = self.list_page_blocking(prefix.clone(), delimiter.clone(), None, None, None)?;
+        let mut result =
+            self.list_page_blocking(prefix.clone(), delimiter.clone(), None, None, None)?;
         loop {
             results.push(result.clone());
             if !result.0.is_truncated {
@@ -992,8 +1002,13 @@ impl Bucket {
             }
             match result.0.next_continuation_token {
                 Some(token) => {
-                    result =
-                        self.list_page_blocking(prefix.clone(), delimiter.clone(), Some(token), None, None)?
+                    result = self.list_page_blocking(
+                        prefix.clone(),
+                        delimiter.clone(),
+                        Some(token),
+                        None,
+                        None,
+                    )?
                 }
                 None => break,
             }
@@ -1021,7 +1036,7 @@ impl Bucket {
     ///     let aws_secret = &"secret_key";
     ///
     ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
+    ///     let region = "eu-central-1".parse()?;
     ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
@@ -1043,7 +1058,13 @@ impl Bucket {
 
         loop {
             let (list_bucket_result, _) = the_bucket
-                .list_page(prefix.clone(), delimiter.clone(), continuation_token, None, None)
+                .list_page(
+                    prefix.clone(),
+                    delimiter.clone(),
+                    continuation_token,
+                    None,
+                    None,
+                )
                 .await?;
             continuation_token = list_bucket_result.next_continuation_token.clone();
             results.push(list_bucket_result);
@@ -1211,5 +1232,87 @@ impl Bucket {
     /// API.
     pub fn extra_query_mut(&mut self) -> &mut HashMap<String, String> {
         &mut self.extra_query
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::bucket::Bucket;
+    use awscreds::Credentials;
+    use once_cell::sync::Lazy;
+
+    static BUCKET: Lazy<Bucket> = Lazy::new(|| {
+        let credentials = Credentials::new(
+            Some("AKIA5FIQUP3MEF4B2V7Q"),
+            Some("iiCmGqxEGoWd2v8D/pbqHe39KRQO9SjJo4nQrnto"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap()
+    });
+
+    #[test]
+    fn test_presign_get() {
+        assert!(BUCKET.presign_get("/test.file", 86400).is_ok());
+    }
+
+    #[test]
+    fn test_presign_put() {
+        assert!(BUCKET.presign_put("/test.file", 86400).is_ok());
+    }
+
+    #[test]
+    fn test_put_get_delete_object_blocking() {
+        let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
+        let (_, code) = BUCKET
+            .put_object_blocking("/test.file", &test, "application/octet-stream")
+            .unwrap();
+        assert_eq!(code, 200);
+        let (data, code) = BUCKET.get_object_blocking("/test.file").unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(data, test);
+        let (_, code) = BUCKET.delete_object_blocking("/test.file").unwrap();
+        assert_eq!(code, 204);
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn async_test_put_get_delete_object() {
+        let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
+        let (_, code) = BUCKET
+            .put_object("/async_test.file", &test, "application/octet-stream")
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        let (data, code) = BUCKET.get_object("/async_test.file").await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(data, test);
+        let (_, code) = BUCKET.delete_object("/async_test.file").await.unwrap();
+        assert_eq!(code, 204);
+    }
+
+    #[cfg(test)]
+    use wasm_bindgen_test::*;
+    
+    #[wasm_bindgen_test]
+    fn wasm_test_put_get_delete_object_blocking() {
+        use std::io::Cursor;
+        wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+        let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
+        let mut test_cursor = Cursor::new(test.clone());
+        let code = BUCKET
+            .put_object_stream_blocking(&mut test_cursor, "/test.stream")
+            .unwrap();
+        assert_eq!(code, 200);
+        let mut writer = Vec::new();
+        let code = BUCKET
+            .get_object_stream_blocking("/test.stream", &mut writer)
+            .unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(writer, test);
+        let (_, code) = BUCKET.delete_object_blocking("/test.stream").unwrap();
+        assert_eq!(code, 204);
     }
 }
