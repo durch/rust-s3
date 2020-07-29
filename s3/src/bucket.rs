@@ -13,6 +13,8 @@ use awsregion::Region;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use futures::io::AsyncReadExt as AsyncRead;
+
 /// # Example
 /// ```
 /// # // Fake  credentials so we don't access user's real credentials in tests
@@ -35,12 +37,18 @@ pub struct Bucket {
     pub credentials: Credentials,
     pub extra_headers: Headers,
     pub extra_query: Query,
-    path_style: bool
+    path_style: bool,
 }
 
 fn validate_expiry(expiry_secs: u32) -> Result<()> {
     if 604800 < expiry_secs {
-        return Err(S3Error::from(format!("Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead", expiry_secs).as_ref()));
+        return Err(S3Error::from(
+            format!(
+                "Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead",
+                expiry_secs
+            )
+            .as_ref(),
+        ));
     }
     Ok(())
 }
@@ -112,7 +120,7 @@ impl Bucket {
             credentials,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
-            path_style: false
+            path_style: false,
         })
     }
 
@@ -123,18 +131,22 @@ impl Bucket {
             credentials: Credentials::anonymous()?,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
-            path_style: false
+            path_style: false,
         })
     }
 
-    pub fn new_with_path_style(name: &str, region: Region, credentials: Credentials) -> Result<Bucket> {
+    pub fn new_with_path_style(
+        name: &str,
+        region: Region,
+        credentials: Credentials,
+    ) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
             region,
             credentials,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
-            path_style: true
+            path_style: true,
         })
     }
 
@@ -145,7 +157,7 @@ impl Bucket {
             credentials: Credentials::anonymous()?,
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
-            path_style: true
+            path_style: true,
         })
     }
 
@@ -266,7 +278,8 @@ impl Bucket {
     /// use s3::bucket::Bucket;
     /// use awscreds::Credentials;
     /// use s3::S3Error;
-    /// use std::fs::File;
+    /// use tokio::fs::File;
+    /// use tokio::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), S3Error> {
@@ -275,9 +288,9 @@ impl Bucket {
     ///     let region = "us-east-1".parse()?;
     ///     let credentials = Credentials::default().await?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
-    ///     let mut output_file = File::create("output_file").expect("Unable to create file");
+    ///     let mut output_file = File::create("output_file").await.expect("Unable to create file");
     ///
-    ///     let status_code = bucket.get_object_stream("/test.file", &mut output_file).await?;
+    ///     let status_code = bucket.tokio_get_object_stream("/test.file", &mut output_file).await?;
     ///     println!("Code: {}", status_code);
     ///     Ok(())
     /// }
@@ -301,7 +314,8 @@ impl Bucket {
     /// use s3::bucket::Bucket;
     /// use awscreds::Credentials;
     /// use s3::S3Error;
-    /// use std::fs::File;
+    /// use async_std::fs::File;
+    /// use async_std::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), S3Error> {
@@ -310,21 +324,36 @@ impl Bucket {
     ///     let region = "us-east-1".parse()?;
     ///     let credentials = Credentials::default().await?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
-    ///     let mut file = File::open("foo.txt")?;
+    ///     let mut file = File::open("foo.txt").await?;
     ///
     ///     let status_code = bucket.put_object_stream(&mut file, "/test_file").await?;
     ///     println!("Code: {}", status_code);
     ///     Ok(())
     /// }
     /// ```
-    pub async fn put_object_stream<R: Read, S: AsRef<str>>(
+    pub async fn put_object_stream<R: AsyncRead + Unpin, S: AsRef<str>>(
         &self,
         reader: &mut R,
         s3_path: S,
     ) -> Result<u16> {
         let mut bytes = Vec::new();
-        let read_n = reader.read(&mut bytes)?;
+        let read_n = reader.read_to_end(&mut bytes).await?;
         debug!("Read {} bytes from reader", read_n);
+        let command = Command::PutObject {
+            content: &bytes[..],
+            content_type: "application/octet-stream",
+        };
+        let request = Request::new(self, s3_path.as_ref(), command);
+        Ok(request.response_data_future().await?.1)
+    }
+
+    async fn _put_object_stream<R: Read, S: AsRef<str>>(
+        &self,
+        reader: &mut R,
+        s3_path: S,
+    ) -> Result<u16> {
+        let mut bytes = Vec::new();
+        let _ = reader.read(&mut bytes)?;
         let command = Command::PutObject {
             content: &bytes[..],
             content_type: "application/octet-stream",
@@ -342,7 +371,8 @@ impl Bucket {
     /// use s3::bucket::Bucket;
     /// use awscreds::Credentials;
     /// use s3::S3Error;
-    /// use std::fs::File;
+    /// use tokio::prelude::*;
+    /// use tokio::fs::File;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), S3Error> {
@@ -351,9 +381,9 @@ impl Bucket {
     ///     let region = "us-east-1".parse()?;
     ///     let credentials = Credentials::default().await?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
-    ///     let mut file = File::open("foo.txt")?;
+    ///     let mut file = File::open("foo.txt").await?;
     ///
-    ///     let status_code = bucket.put_object_stream(&mut file, "/test_file").await?;
+    ///     let status_code = bucket.tokio_put_object_stream(&mut file, "/test_file").await?;
     ///     println!("Code: {}", status_code);
     ///     Ok(())
     /// }
@@ -403,7 +433,7 @@ impl Bucket {
         s3_path: S,
     ) -> Result<u16> {
         let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.put_object_stream(reader, s3_path))?)
+        Ok(rt.block_on(self._put_object_stream(reader, s3_path))?)
     }
 
     //// Get bucket location from S3, async
@@ -831,7 +861,13 @@ impl Bucket {
         max_keys: Option<usize>,
     ) -> Result<(ListBucketResult, u16)> {
         let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.list_page(prefix, delimiter, continuation_token, start_after, max_keys))?)
+        Ok(rt.block_on(self.list_page(
+            prefix,
+            delimiter,
+            continuation_token,
+            start_after,
+            max_keys,
+        ))?)
     }
 
     pub async fn list_page(
@@ -891,7 +927,8 @@ impl Bucket {
         delimiter: Option<String>,
     ) -> Result<Vec<(ListBucketResult, u16)>> {
         let mut results = Vec::new();
-        let mut result = self.list_page_blocking(prefix.clone(), delimiter.clone(), None, None, None)?;
+        let mut result =
+            self.list_page_blocking(prefix.clone(), delimiter.clone(), None, None, None)?;
         loop {
             results.push(result.clone());
             if !result.0.is_truncated {
@@ -899,8 +936,13 @@ impl Bucket {
             }
             match result.0.next_continuation_token {
                 Some(token) => {
-                    result =
-                        self.list_page_blocking(prefix.clone(), delimiter.clone(), Some(token), None, None)?
+                    result = self.list_page_blocking(
+                        prefix.clone(),
+                        delimiter.clone(),
+                        Some(token),
+                        None,
+                        None,
+                    )?
                 }
                 None => break,
             }
@@ -949,7 +991,13 @@ impl Bucket {
 
         loop {
             let (list_bucket_result, _) = the_bucket
-                .list_page(prefix.clone(), delimiter.clone(), continuation_token, None, None)
+                .list_page(
+                    prefix.clone(),
+                    delimiter.clone(),
+                    continuation_token,
+                    None,
+                    None,
+                )
                 .await?;
             continuation_token = list_bucket_result.next_continuation_token.clone();
             results.push(list_bucket_result);
@@ -1117,5 +1165,66 @@ impl Bucket {
     /// API.
     pub fn extra_query_mut(&mut self) -> &mut Query {
         &mut self.extra_query
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use crate::bucket::Bucket;
+    use awscreds::Credentials;
+    use futures::io::Cursor;
+    use std::env;
+
+    #[tokio::test]
+    async fn async_test_put_get_delete_object() {
+        let credentials = Credentials::new(
+            Some(&env::var("EU_ACCESS_KEY_ID").unwrap()),
+            Some(&env::var("EU_SECRET_ACCESS_KEY").unwrap()),
+            None,
+            None,
+            None,
+        ).await
+        .unwrap();
+        let bucket = Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap();
+
+        let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
+        let (_, code) = bucket
+            .put_object("/async_test.file", &test, "application/octet-stream")
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        let (data, code) = bucket.get_object("/async_test.file").await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(data, test);
+        let (_, code) = bucket.delete_object("/async_test.file").await.unwrap();
+        assert_eq!(code, 204);
+    }
+
+    #[tokio::test]
+    async fn streaming_test_put_get_delete_object() {
+        let credentials = Credentials::new(
+            Some(&env::var("EU_ACCESS_KEY_ID").unwrap()),
+            Some(&env::var("EU_SECRET_ACCESS_KEY").unwrap()),
+            None,
+            None,
+            None,
+        ).await
+        .unwrap();
+        let bucket = Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap();
+
+        let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
+        let mut test_cursor = Cursor::new(test.clone());
+        let code = bucket
+            .put_object_stream(&mut test_cursor, "/stream_test.file")
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        let mut writer = Vec::new();
+        let code = bucket.get_object_stream("/stream_test.file", &mut writer).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(test, writer);
+        // let (_, code) = bucket.delete_object("/stream_test.file").await.unwrap();
+        // assert_eq!(code, 204);
     }
 }
