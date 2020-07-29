@@ -60,7 +60,6 @@ pub struct Credentials {
     /// Temporary token issued by AWS service.
     pub security_token: Option<String>,
     pub session_token: Option<String>,
-    _private: (),
 }
 
 impl Credentials {
@@ -96,7 +95,6 @@ impl Credentials {
             secret_key: None,
             security_token: None,
             session_token: None,
-            _private: (),
         })
     }
 
@@ -128,7 +126,6 @@ impl Credentials {
                     secret_key: Some(secret_key.to_string()),
                     security_token,
                     session_token,
-                    _private: (),
                 })
             } else {
                 None
@@ -174,7 +171,6 @@ impl Credentials {
             secret_key: Some(secret_key),
             security_token,
             session_token,
-            _private: (),
         })
     }
 
@@ -229,7 +225,6 @@ impl Credentials {
             secret_key: Some(secret_key),
             security_token,
             session_token: None,
-            _private: (),
         })
     }
 
@@ -286,7 +281,6 @@ impl Credentials {
             secret_key: Some(secret_key?),
             security_token,
             session_token,
-            _private: (),
         })
     }
 }
