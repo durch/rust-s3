@@ -1179,8 +1179,8 @@ mod test {
     #[tokio::test]
     async fn async_test_put_get_delete_object() {
         let credentials = Credentials::new(
-            Some(&env::var("EU_ACCESS_KEY_ID").unwrap()),
-            Some(&env::var("EU_SECRET_ACCESS_KEY").unwrap()),
+            Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
+            Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
             None,
             None,
             None,
@@ -1204,8 +1204,8 @@ mod test {
     #[tokio::test]
     async fn streaming_test_put_get_delete_object() {
         let credentials = Credentials::new(
-            Some(&env::var("EU_ACCESS_KEY_ID").unwrap()),
-            Some(&env::var("EU_SECRET_ACCESS_KEY").unwrap()),
+            Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
+            Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
             None,
             None,
             None,
@@ -1224,7 +1224,7 @@ mod test {
         let code = bucket.get_object_stream("/stream_test.file", &mut writer).await.unwrap();
         assert_eq!(code, 200);
         assert_eq!(test, writer);
-        // let (_, code) = bucket.delete_object("/stream_test.file").await.unwrap();
-        // assert_eq!(code, 204);
+        let (_, code) = bucket.delete_object("/stream_test.file").await.unwrap();
+        assert_eq!(code, 204);
     }
 }
