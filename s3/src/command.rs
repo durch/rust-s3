@@ -1,4 +1,5 @@
 use reqwest::Method;
+use crate::serde_types::CompleteMultipartUploadData;
 
 #[derive(Clone, Debug)]
 pub enum Command<'a> {
@@ -11,7 +12,7 @@ pub enum Command<'a> {
         content_type: &'a str,
     },
     PutObjectTagging {
-        tags: &'a str
+        tags: &'a str,
     },
 
     ListBucket {
@@ -23,19 +24,43 @@ pub enum Command<'a> {
     },
     GetBucketLocation,
     PresignGet {
-        expiry_secs: u32
+        expiry_secs: u32,
     },
     PresignPut {
-        expiry_secs: u32
+        expiry_secs: u32,
+    },
+    InitiateMultipartUpload,
+    UploadPart {
+        part_number: u32,
+        content: &'a [u8],
+        upload_id: &'a str,
+    },
+    AbortMultipartUpload {
+        upload_id: &'a str,
+    },
+    CompleteMultipartUpload {
+        upload_id: &'a str,
+        data: CompleteMultipartUploadData
     }
 }
 
 impl<'a> Command<'a> {
     pub fn http_verb(&self) -> Method {
         match *self {
-            Command::GetObject | Command::ListBucket { .. } | Command::GetBucketLocation | Command::GetObjectTagging | Command::PresignGet { .. } => Method::GET,
-            Command::PutObject { .. } | Command::PutObjectTagging { .. } | Command::PresignPut { .. } => Method::PUT,
-            Command::DeleteObject | Command::DeleteObjectTagging => Method::DELETE,
+            Command::GetObject
+            | Command::ListBucket { .. }
+            | Command::GetBucketLocation
+            | Command::GetObjectTagging
+            | Command::PresignGet { .. } => Method::GET,
+            Command::PutObject { .. }
+            | Command::PutObjectTagging { .. }
+            | Command::PresignPut { .. }
+            | Command::UploadPart { .. } => Method::PUT,
+            Command::DeleteObject
+            | Command::DeleteObjectTagging
+            | Command::AbortMultipartUpload { .. } => Method::DELETE,
+            Command::InitiateMultipartUpload
+            | Command::CompleteMultipartUpload { .. } => Method::POST,
         }
     }
 }

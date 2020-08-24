@@ -22,6 +22,7 @@ simpl::err!(S3Error, {
     Req@reqwest::Error;
     InvalidHeaderName@reqwest::header::InvalidHeaderName;
     InvalidHeaderValue@reqwest::header::InvalidHeaderValue;
+    HttpHeader@http::header::ToStrError;
     Hmac@hmac::crypto_mac::InvalidKeyLength;
     Utf8@std::str::Utf8Error;
     Io@std::io::Error;

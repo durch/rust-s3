@@ -66,10 +66,14 @@ impl<'a> Request<'a> {
         let expiry = match self.command {
             Command::PresignGet { expiry_secs } => expiry_secs,
             Command::PresignPut { expiry_secs } => expiry_secs,
-            _ => unreachable!()
+            _ => unreachable!(),
         };
         let authorization = self.presigned_authorization()?;
-        Ok(format!("{}&X-Amz-Signature={}", self.presigned_url_no_sig(expiry)?, authorization))
+        Ok(format!(
+            "{}&X-Amz-Signature={}",
+            self.presigned_url_no_sig(expiry)?,
+            authorization
+        ))
     }
 
     fn host_header(&self) -> Result<HeaderValue> {
@@ -132,9 +136,11 @@ impl<'a> Request<'a> {
     }
 
     fn content_length(&self) -> usize {
-        match self.command {
+        match &self.command {
             Command::PutObject { content, .. } => content.len(),
             Command::PutObjectTagging { tags } => tags.len(),
+            Command::UploadPart { content, .. } => content.len(),
+            Command::CompleteMultipartUpload { data, .. } => data.len(),
             _ => 0,
         }
     }
@@ -142,12 +148,13 @@ impl<'a> Request<'a> {
     fn content_type(&self) -> String {
         match self.command {
             Command::PutObject { content_type, .. } => content_type.into(),
+            Command::CompleteMultipartUpload { .. } => "application/xml".into(),
             _ => "text/plain".into(),
         }
     }
 
     fn sha256(&self) -> String {
-        match self.command {
+        match &self.command {
             Command::PutObject { content, .. } => {
                 let mut sha = Sha256::default();
                 sha.input(content);
@@ -156,6 +163,11 @@ impl<'a> Request<'a> {
             Command::PutObjectTagging { tags } => {
                 let mut sha = Sha256::default();
                 sha.input(tags.as_bytes());
+                hex::encode(sha.result().as_slice())
+            },
+            Command::CompleteMultipartUpload { data, ..} => {
+                let mut sha = Sha256::default();
+                sha.input(data.to_string().as_bytes());
                 hex::encode(sha.result().as_slice())
             }
             _ => EMPTY_PAYLOAD_SHA.into(),
@@ -192,7 +204,7 @@ impl<'a> Request<'a> {
         let expiry = match self.command {
             Command::PresignGet { expiry_secs } => expiry_secs,
             Command::PresignPut { expiry_secs } => expiry_secs,
-            _ => unreachable!()
+            _ => unreachable!(),
         };
         let canonical_request = signing::canonical_request(
             self.command.http_verb().as_str(),
@@ -393,6 +405,10 @@ impl<'a> Request<'a> {
             let digest = md5::compute(content);
             let hash = base64::encode(digest.as_ref());
             headers.insert("Content-MD5", hash.parse()?);
+        } else if let Command::UploadPart { content, .. } = self.command {
+            let digest = md5::compute(content);
+            let hash = base64::encode(digest.as_ref());
+            headers.insert("Content-MD5", hash.parse()?);
         } else if let Command::GetObject {} = self.command {
             headers.insert(
                 header::ACCEPT,
@@ -466,6 +482,12 @@ impl<'a> Request<'a> {
             Vec::from(content)
         } else if let Command::PutObjectTagging { tags } = self.command {
             Vec::from(tags)
+        } else if let Command::UploadPart { content, .. } = self.command {
+            Vec::from(content)
+        } else if let Command::CompleteMultipartUpload { data, .. } = &self.command {
+            let body = data.to_string();
+            // assert_eq!(body, "body".to_string());
+            body.as_bytes().to_vec()
         } else {
             Vec::new()
         };
@@ -494,9 +516,14 @@ impl<'a> Request<'a> {
     pub async fn response_data_future(&self) -> Result<(Vec<u8>, u16)> {
         let response = self.response_future().await?;
         let status_code = response.status().as_u16();
+        let headers = response.headers().clone();
+        let etag = headers.get("ETag");
         let body = response.bytes().await?;
         let mut body_vec = Vec::new();
         body_vec.extend_from_slice(&body[..]);
+        if let Some(etag) = etag {
+            body_vec = etag.to_str()?.as_bytes().to_vec();
+        }
         Ok((body_vec, status_code))
     }
 
@@ -545,15 +572,8 @@ mod tests {
     // credentials if they exist.
     fn fake_credentials() -> Credentials {
         let access_key = "AKIAIOSFODNN7EXAMPLE";
-        let secert_key =  "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-        Credentials::new_blocking(
-            Some(access_key),
-            Some(secert_key),
-            None,
-            None,
-            None,
-        )
-        .unwrap()
+        let secert_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        Credentials::new_blocking(Some(access_key), Some(secert_key), None, None, None).unwrap()
     }
 
     #[test]
@@ -615,7 +635,7 @@ mod tests {
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
         assert_eq!(*host, "custom-region".to_string());
-        
+
         Ok(())
     }
 }

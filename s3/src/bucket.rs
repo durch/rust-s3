@@ -6,7 +6,9 @@ use tokio::runtime::Runtime;
 
 use crate::command::Command;
 use crate::request::{Headers, Query, Request};
-use crate::serde_types::{BucketLocationResult, ListBucketResult, Tagging};
+use crate::serde_types::{
+    BucketLocationResult, InitiateMultipartUploadResponse, ListBucketResult, Tagging, Part, CompleteMultipartUploadData
+};
 use crate::{Result, S3Error};
 use awscreds::Credentials;
 use awsregion::Region;
@@ -336,15 +338,157 @@ impl Bucket {
         reader: &mut R,
         s3_path: S,
     ) -> Result<u16> {
-        let mut bytes = Vec::new();
-        let read_n = reader.read_to_end(&mut bytes).await?;
-        debug!("Read {} bytes from reader", read_n);
-        let command = Command::PutObject {
-            content: &bytes[..],
-            content_type: "application/octet-stream",
-        };
-        let request = Request::new(self, s3_path.as_ref(), command);
-        Ok(request.response_data_future().await?.1)
+        let chunk_size: usize = 5_300_000; // min is 5_242_880;
+        let command = Command::InitiateMultipartUpload;
+        let path = format!("{}?uploads", s3_path.as_ref());
+        let request = Request::new(self, &path, command);
+        let (data, code) = request.response_data_future().await?;
+        let msg: InitiateMultipartUploadResponse =
+            serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+
+        let mut part_number: u32 = 0;
+        let mut etags = Vec::new();
+        loop {
+            let mut chunk = Vec::with_capacity(chunk_size);
+            loop {
+                let mut buffer = [0; 5000];
+                let mut take = reader.take(5000);
+                let n = take.read(&mut buffer).await?;
+                if n < 5000 {
+                    buffer.reverse();
+                    let mut trim_buffer = buffer
+                        .iter()
+                        .skip_while(|x| **x == 0)
+                        .map(|x| *x)
+                        .collect::<Vec<u8>>();
+                    trim_buffer.reverse();
+                    chunk.extend_from_slice(&trim_buffer);
+                    chunk.shrink_to_fit();
+                    break;
+                } else {
+                    chunk.extend_from_slice(&buffer);
+                    if chunk.len() >= chunk_size {
+                        break;
+                    } else {
+                        continue;
+                    }
+                }
+            }
+
+            if chunk.len() < chunk_size {
+                if part_number == 0 {
+                    // Files is not big enough for multipart upload, going with regular put_object
+                    let abort = Command::AbortMultipartUpload {
+                        upload_id: &msg.upload_id,
+                    };
+                    let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
+                    let abort_request = Request::new(self, &abort_path, abort);
+                    let (_, code) = abort_request.response_data_future().await?;
+                    assert!(code < 300);
+                    self.put_object(
+                        s3_path.as_ref(),
+                        chunk.as_slice(),
+                        "application/octet-stream",
+                    )
+                    .await?;
+                    break;
+                } else {
+                    part_number += 1;
+                    let command = Command::PutObject {
+                        // part_number,
+                        content: &chunk,
+                        content_type: "application/octet-stream"
+                        // upload_id: &msg.upload_id,
+                    };
+                    let path = format!(
+                        "{}?partNumber={}&uploadId={}",
+                        msg.key, part_number, &msg.upload_id
+                    );
+                    let request = Request::new(self, &path, command);
+                    let (data, code) = request.response_data_future().await?;
+                    let etag = std::str::from_utf8(data.as_slice())?;
+                    etags.push(etag.to_string());
+                    // assert_eq!(response, "");
+                    let inner_data = etags.clone().into_iter().enumerate().map(|(i, x)| Part { etag: x, part_number: i as u32 + 1}).collect::<Vec<Part>>();
+                    let data = CompleteMultipartUploadData { parts: inner_data };
+                    let complete = Command::CompleteMultipartUpload { upload_id: &msg.upload_id, data };
+                    let complete_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
+                    let complete_request = Request::new(self, &complete_path, complete);
+                    let (data, code) = complete_request.response_data_future().await?;
+                    let response = std::str::from_utf8(data.as_slice())?;
+                    if code >= 300 {
+                        assert_eq!(response, "");
+                    }
+                }
+            } else {
+                part_number += 1;
+                let command = Command::PutObject {
+                    // part_number,
+                    content: &chunk,
+                    content_type: "application/octet-stream"
+                    // upload_id: &msg.upload_id,
+                };
+                let path = format!(
+                    "{}?partNumber={}&uploadId={}",
+                    msg.key, part_number, &msg.upload_id
+                );
+                let request = Request::new(self, &path, command);
+                let (data, code) = request.response_data_future().await?;
+                let response = std::str::from_utf8(data.as_slice())?;
+                if code >= 300 {
+                    assert_eq!(response, "")
+                }
+                let etag = std::str::from_utf8(data.as_slice())?;
+                etags.push(etag.to_string());
+                // assert_eq!(msg, "");
+            }
+
+            // match reader.read_exact(&mut buffer).await {
+            //     Ok(_) => {
+
+            //     }
+            //     // Means that the reader has less bytes than the buffer
+            //     Err(_) => {
+            //         if part_number == 0 {
+            //             let abort = Command::AbortMultipartUpload { upload_id: &msg.upload_id };
+            //             let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
+            //             let abort_request = Request::new(self, &abort_path, abort);
+            //             let (data, code) = abort_request.response_data_future().await?;
+            //             assert!(code < 300);
+            //             // As minimum chunk size for multipart upload is 5MB we drop to regular put_object here
+            //             let mut buffer = Vec::new();
+            //             let read = reader.read_to_end(&mut buffer).await?;
+            //             self.put_object(s3_path.as_ref(), buffer.as_slice(), "application/octet-stream")
+            //                 .await?;
+            //             break 'outer;
+            //         } else {
+            //             part_number += 1;
+            //             let mut buffer = Vec::new();
+            //             let read = reader.read_to_end(&mut buffer).await?;
+            //             let command = Command::UploadPart {
+            //                 part_number,
+            //                 content: buffer.as_slice(),
+            //                 upload_id: &msg.upload_id
+            //             };
+            //             let request = Request::new(self, &path, command);
+            //             let (data, code) = request.response_data_future().await?;
+            //             break 'outer;
+            //         }
+            //     }
+            // };
+            assert!(chunk.len() > 0);
+        }
+        assert_eq!(code, 200);
+
+        // let read_n = reader.read_to_end(&mut bytes).await?;
+        // debug!("Read {} bytes from reader", read_n);
+        // let command = Command::PutObject {
+        //     content: &bytes[..],
+        //     content_type: "application/octet-stream",
+        // };
+        // let request = Request::new(self, s3_path.as_ref(), command);
+        // Ok(request.response_data_future().await?.1)
+        Ok(code)
     }
 
     async fn _put_object_stream<R: Read, S: AsRef<str>>(
@@ -1173,58 +1317,130 @@ mod test {
 
     use crate::bucket::Bucket;
     use awscreds::Credentials;
-    use futures::io::Cursor;
+    use futures::io::Cursor as FuturesCursor;
     use std::env;
+    use std::io::Cursor;
+
+    // #[tokio::test]
+    // async fn async_test_put_get_delete_object() {
+    //     let credentials = Credentials::new(
+    //         Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
+    //         Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
+    //         None,
+    //         None,
+    //         None,
+    //     )
+    //     .await
+    //     .unwrap();
+    //     let bucket =
+    //         Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap();
+
+    //     let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
+    //     let (_, code) = bucket
+    //         .put_object("/async_test.file", &test, "application/octet-stream")
+    //         .await
+    //         .unwrap();
+    //     assert_eq!(code, 200);
+    //     let (data, code) = bucket.get_object("/async_test.file").await.unwrap();
+    //     assert_eq!(code, 200);
+    //     assert_eq!(data, test);
+    //     let (_, code) = bucket.delete_object("/async_test.file").await.unwrap();
+    //     assert_eq!(code, 204);
+    // }
+
+    // #[tokio::test]
+    // async fn streaming_test_put_get_delete_small_object() {
+    //     let credentials = Credentials::new(
+    //         Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
+    //         Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
+    //         None,
+    //         None,
+    //         None,
+    //     )
+    //     .await
+    //     .unwrap();
+    //     let bucket =
+    //         Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap();
+
+    //     let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
+    //     let mut test_cursor = FuturesCursor::new(test.clone());
+    //     let code = bucket
+    //         .put_object_stream(&mut test_cursor, "/stream_test.file")
+    //         .await
+    //         .unwrap();
+    //     assert_eq!(code, 200);
+    //     let mut writer = Vec::new();
+    //     let code = bucket
+    //         .get_object_stream("/stream_test.file", &mut writer)
+    //         .await
+    //         .unwrap();
+    //     assert_eq!(code, 200);
+    //     assert_eq!(test, writer);
+    //     let (_, code) = bucket.delete_object("/stream_test.file").await.unwrap();
+    //     assert_eq!(code, 204);
+    // }
 
     #[tokio::test]
-    async fn async_test_put_get_delete_object() {
+    async fn streaming_test_put_get_delete_big_object() {
         let credentials = Credentials::new(
             Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
             Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
             None,
             None,
             None,
-        ).await
+        )
+        .await
         .unwrap();
-        let bucket = Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap();
+        let bucket =
+            Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap();
 
-        let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
-        let (_, code) = bucket
-            .put_object("/async_test.file", &test, "application/octet-stream")
-            .await
-            .unwrap();
-        assert_eq!(code, 200);
-        let (data, code) = bucket.get_object("/async_test.file").await.unwrap();
-        assert_eq!(code, 200);
-        assert_eq!(data, test);
-        let (_, code) = bucket.delete_object("/async_test.file").await.unwrap();
-        assert_eq!(code, 204);
-    }
-
-    #[tokio::test]
-    async fn streaming_test_put_get_delete_object() {
-        let credentials = Credentials::new(
-            Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
-            Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
-            None,
-            None,
-            None,
-        ).await
-        .unwrap();
-        let bucket = Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap();
-
-        let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
-        let mut test_cursor = Cursor::new(test.clone());
+        let test: Vec<u8> = (0..6_000_000).map(|_| rand::random::<u8>()).collect();
+        let mut test_cursor = FuturesCursor::new(test.clone());
         let code = bucket
-            .put_object_stream(&mut test_cursor, "/stream_test.file")
+            .put_object_stream(&mut test_cursor, "/stream_test_big.file")
             .await
             .unwrap();
         assert_eq!(code, 200);
         let mut writer = Vec::new();
-        let code = bucket.get_object_stream("/stream_test.file", &mut writer).await.unwrap();
+        let code = bucket
+            .get_object_stream("/stream_test_big.file", &mut writer)
+            .await
+            .unwrap();
         assert_eq!(code, 200);
         assert_eq!(test, writer);
-        let (_, code) = bucket.delete_object("/stream_test.file").await.unwrap();
+        let (_, code) = bucket.delete_object("/stream_test_big.file").await.unwrap();
+        assert_eq!(code, 204);
+    }
+
+    // #[test]
+    fn streaming_blocking_test_put_get_delete_object() {
+        let credentials = Credentials::new_blocking(
+            Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
+            Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        
+        let bucket =
+            Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap();
+
+        let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
+        let mut test_cursor = Cursor::new(test.clone());
+        let code = bucket
+            .put_object_stream_blocking(&mut test_cursor, "/stream_blocking_test.file")
+            .unwrap();
+        assert_eq!(code, 200);
+        let mut writer = Vec::new();
+        let code = bucket
+            .get_object_stream_blocking("/stream_blocking_test.file", &mut writer)
+            .unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(test, writer);
+        let (_, code) = bucket
+            .delete_object_blocking("/stream_blocking_test.file")
+            .unwrap();
         assert_eq!(code, 204);
     }
 }
