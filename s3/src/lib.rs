@@ -4,8 +4,6 @@
 #[macro_use]
 extern crate serde_derive;
 use serde_xml_rs as serde_xml;
-#[macro_use]
-extern crate log;
 
 pub use awscreds as creds;
 pub use awsregion as region;
