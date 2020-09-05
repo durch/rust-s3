@@ -523,16 +523,18 @@ impl<'a> Request<'a> {
         Ok(response)
     }
 
-    pub async fn response_data_future(&self) -> Result<(Vec<u8>, u16)> {
+    pub async fn response_data_future(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
         let response = self.response_future().await?;
         let status_code = response.status().as_u16();
         let headers = response.headers().clone();
-        let etag = headers.get("ETag");
+        let etag_header = headers.get("ETag");
         let body = response.bytes().await?;
         let mut body_vec = Vec::new();
         body_vec.extend_from_slice(&body[..]);
-        if let Some(etag) = etag {
-            body_vec = etag.to_str()?.as_bytes().to_vec();
+        if etag {
+            if let Some(etag) = etag_header {
+                body_vec = etag.to_str()?.as_bytes().to_vec();
+            }
         }
         Ok((body_vec, status_code))
     }

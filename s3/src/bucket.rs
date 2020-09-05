@@ -212,7 +212,7 @@ impl Bucket {
     pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
         let request = Request::new(self, path.as_ref(), command);
-        Ok(request.response_data_future().await?)
+        Ok(request.response_data_future(false).await?)
     }
 
     /// Stream file from S3 path to a local file, generic over T: Write, blocks.
@@ -323,7 +323,7 @@ impl Bucket {
         let command = Command::InitiateMultipartUpload;
         let path = format!("{}?uploads", s3_path.as_ref());
         let request = Request::new(self, &path, command);
-        let (data, code) = request.response_data_future().await?;
+        let (data, code) = request.response_data_future(false).await?;
         let msg: InitiateMultipartUploadResponse =
             serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
 
@@ -364,7 +364,7 @@ impl Bucket {
                     };
                     let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
                     let abort_request = Request::new(self, &abort_path, abort);
-                    let (_, _code) = abort_request.response_data_future().await?;
+                    let (_, _code) = abort_request.response_data_future(false).await?;
                     self.put_object(
                         s3_path.as_ref(),
                         chunk.as_slice(),
@@ -384,7 +384,7 @@ impl Bucket {
                         msg.key, part_number, &msg.upload_id
                     );
                     let request = Request::new(self, &path, command);
-                    let (data, _code) = request.response_data_future().await?;
+                    let (data, _code) = request.response_data_future(true).await?;
                     let etag = std::str::from_utf8(data.as_slice())?;
                     etags.push(etag.to_string());
                     let inner_data = etags
@@ -403,7 +403,7 @@ impl Bucket {
                     };
                     let complete_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
                     let complete_request = Request::new(self, &complete_path, complete);
-                    let (_data, _code) = complete_request.response_data_future().await?;
+                    let (_data, _code) = complete_request.response_data_future(false).await?;
                     // let response = std::str::from_utf8(data.as_slice())?;
                     break;
                 }
@@ -419,7 +419,7 @@ impl Bucket {
                     msg.key, part_number, &msg.upload_id
                 );
                 let request = Request::new(self, &path, command);
-                let (data, _code) = request.response_data_future().await?;
+                let (data, _code) = request.response_data_future(true).await?;
                 let etag = std::str::from_utf8(data.as_slice())?;
                 etags.push(etag.to_string());
             }
@@ -465,7 +465,7 @@ impl Bucket {
             content_type: "application/octet-stream",
         };
         let request = Request::new(self, s3_path.as_ref(), command);
-        Ok(request.response_data_future().await?.1)
+        Ok(request.response_data_future(false).await?.1)
     }
 
     /// Stream file from local path to s3, blockIng.
@@ -522,7 +522,7 @@ impl Bucket {
     /// ```
     pub async fn location(&self) -> Result<(Region, u16)> {
         let request = Request::new(self, "?location", Command::GetBucketLocation);
-        let result = request.response_data_future().await?;
+        let result = request.response_data_future(false).await?;
         let region_string = String::from_utf8_lossy(&result.0);
         let region = match serde_xml::from_reader(region_string.as_bytes()) {
             Ok(r) => {
@@ -595,7 +595,7 @@ impl Bucket {
     pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObject;
         let request = Request::new(self, path.as_ref(), command);
-        Ok(request.response_data_future().await?)
+        Ok(request.response_data_future(false).await?)
     }
 
     /// Delete file from an S3 path, blocks .
@@ -657,7 +657,7 @@ impl Bucket {
             content_type,
         };
         let request = Request::new(self, path.as_ref(), command);
-        Ok(request.response_data_future().await?)
+        Ok(request.response_data_future(true).await?)
     }
 
     /// Put into an S3 bucket, blocks.
@@ -746,7 +746,7 @@ impl Bucket {
         let content = self._tags_xml(&tags);
         let command = Command::PutObjectTagging { tags: &content };
         let request = Request::new(self, path, command);
-        Ok(request.response_data_future().await?)
+        Ok(request.response_data_future(false).await?)
     }
 
     /// Tag an S3 object, blocks.
@@ -807,7 +807,7 @@ impl Bucket {
     pub async fn delete_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObjectTagging;
         let request = Request::new(self, path.as_ref(), command);
-        Ok(request.response_data_future().await?)
+        Ok(request.response_data_future(false).await?)
     }
 
     /// Delete tags from an S3 object, blocks.
@@ -871,7 +871,7 @@ impl Bucket {
     ) -> Result<(Option<Tagging>, u16)> {
         let command = Command::GetObjectTagging {};
         let request = Request::new(self, path.as_ref(), command);
-        let result = request.response_data_future().await?;
+        let result = request.response_data_future(false).await?;
 
         let tagging = if result.1 == 200 {
             let result_string = String::from_utf8_lossy(&result.0);
@@ -950,7 +950,7 @@ impl Bucket {
             max_keys,
         };
         let request = Request::new(self, "/", command);
-        let (response, status_code) = request.response_data_future().await?;
+        let (response, status_code) = request.response_data_future(false).await?;
         match serde_xml::from_reader(response.as_slice()) {
             Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
             Err(_) => {
@@ -1329,29 +1329,25 @@ mod test {
     }
 
     #[tokio::test]
-    async fn streaming_test_put_get_delete_object() {
-        let path = "stream_test";
-        std::fs::remove_file(path).unwrap_or_else(|_| {});
+    async fn test_put_get_delete_object() {
+        let s3_path = "/test.file";
         let bucket = test_bucket().await;
         let test: Vec<u8> = object(3072);
 
-        let mut file = File::create(path).unwrap();
-        file.write_all(&test).unwrap();
-
-        let code = bucket
-            .put_object_stream(path, "/stream_test.file")
+        let (_data, code) = bucket
+            .put_object(s3_path, &test, "application/octet-stream")
+            .await
+            .unwrap();
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(code, 200);
+        let (data, code) = bucket
+            .get_object(s3_path)
             .await
             .unwrap();
         assert_eq!(code, 200);
-        let mut writer = Vec::new();
-        let code = bucket
-            .get_object_stream("/stream_test.file", &mut writer)
-            .await
-            .unwrap();
-        assert_eq!(code, 200);
-        assert_eq!(test, writer);
-        let (_, code) = bucket.delete_object("/stream_test.file").await.unwrap();
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test, data);
+        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
-        std::fs::remove_file(path).unwrap_or_else(|_| {});
     }
 }
