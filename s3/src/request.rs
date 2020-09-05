@@ -19,7 +19,7 @@ use crate::EMPTY_PAYLOAD_SHA;
 use crate::LONG_DATE;
 use crate::{Result, S3Error};
 
-use once_cell::sync::Lazy;
+// use once_cell::sync::Lazy;
 use tokio::io::AsyncWriteExt;
 use tokio::stream::StreamExt;
 
@@ -30,17 +30,17 @@ pub type Headers = HashMap<String, String>;
 /// format.
 pub type Query = HashMap<String, String>;
 
-static CLIENT: Lazy<Client> = Lazy::new(|| {
-    if cfg!(feature = "no-verify-ssl") {
-        Client::builder()
-            .danger_accept_invalid_certs(true)
-            .danger_accept_invalid_hostnames(true)
-            .build()
-            .expect("Could not build dangerous client!")
-    } else {
-        Client::new()
-    }
-});
+// static CLIENT: Lazy<Client> = Lazy::new(|| {
+//     if cfg!(feature = "no-verify-ssl") {
+//         Client::builder()
+//             .danger_accept_invalid_certs(true)
+//             .danger_accept_invalid_hostnames(true)
+//             .build()
+//             .expect("Could not build dangerous client!")
+//     } else {
+//         Client::new()
+//     }
+// });
 
 // Temporary structure for making a request
 pub struct Request<'a> {
@@ -164,8 +164,8 @@ impl<'a> Request<'a> {
                 let mut sha = Sha256::default();
                 sha.input(tags.as_bytes());
                 hex::encode(sha.result().as_slice())
-            },
-            Command::CompleteMultipartUpload { data, ..} => {
+            }
+            Command::CompleteMultipartUpload { data, .. } => {
                 let mut sha = Sha256::default();
                 sha.input(data.to_string().as_bytes());
                 hex::encode(sha.result().as_slice())
@@ -492,7 +492,17 @@ impl<'a> Request<'a> {
             Vec::new()
         };
 
-        let request = CLIENT
+        let client = if cfg!(feature = "no-verify-ssl") {
+            Client::builder()
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true)
+                .build()
+                .expect("Could not build dangerous client!")
+        } else {
+            Client::new()
+        };
+
+        let request = client
             .request(self.command.http_verb(), self.url().as_str())
             .headers(headers.to_owned())
             .body(content.to_owned());

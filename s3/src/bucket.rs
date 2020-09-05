@@ -7,7 +7,8 @@ use tokio::runtime::Runtime;
 use crate::command::Command;
 use crate::request::{Headers, Query, Request};
 use crate::serde_types::{
-    BucketLocationResult, InitiateMultipartUploadResponse, ListBucketResult, Tagging, Part, CompleteMultipartUploadData
+    BucketLocationResult, CompleteMultipartUploadData, InitiateMultipartUploadResponse,
+    ListBucketResult, Part, Tagging,
 };
 use crate::{Result, S3Error};
 use awscreds::Credentials;
@@ -383,8 +384,7 @@ impl Bucket {
                     };
                     let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
                     let abort_request = Request::new(self, &abort_path, abort);
-                    let (_, code) = abort_request.response_data_future().await?;
-                    assert!(code < 300);
+                    let (_, _code) = abort_request.response_data_future().await?;
                     self.put_object(
                         s3_path.as_ref(),
                         chunk.as_slice(),
@@ -397,50 +397,51 @@ impl Bucket {
                     let command = Command::PutObject {
                         // part_number,
                         content: &chunk,
-                        content_type: "application/octet-stream"
-                        // upload_id: &msg.upload_id,
+                        content_type: "application/octet-stream", // upload_id: &msg.upload_id,
                     };
                     let path = format!(
                         "{}?partNumber={}&uploadId={}",
                         msg.key, part_number, &msg.upload_id
                     );
                     let request = Request::new(self, &path, command);
-                    let (data, code) = request.response_data_future().await?;
+                    let (data, _code) = request.response_data_future().await?;
                     let etag = std::str::from_utf8(data.as_slice())?;
                     etags.push(etag.to_string());
-                    // assert_eq!(response, "");
-                    let inner_data = etags.clone().into_iter().enumerate().map(|(i, x)| Part { etag: x, part_number: i as u32 + 1}).collect::<Vec<Part>>();
+                    let inner_data = etags
+                        .clone()
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, x)| Part {
+                            etag: x,
+                            part_number: i as u32 + 1,
+                        })
+                        .collect::<Vec<Part>>();
                     let data = CompleteMultipartUploadData { parts: inner_data };
-                    let complete = Command::CompleteMultipartUpload { upload_id: &msg.upload_id, data };
+                    let complete = Command::CompleteMultipartUpload {
+                        upload_id: &msg.upload_id,
+                        data,
+                    };
                     let complete_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
                     let complete_request = Request::new(self, &complete_path, complete);
-                    let (data, code) = complete_request.response_data_future().await?;
-                    let response = std::str::from_utf8(data.as_slice())?;
-                    if code >= 300 {
-                        assert_eq!(response, "");
-                    }
+                    let (_data, _code) = complete_request.response_data_future().await?;
+                    // let response = std::str::from_utf8(data.as_slice())?;
+                    break;
                 }
             } else {
                 part_number += 1;
                 let command = Command::PutObject {
                     // part_number,
                     content: &chunk,
-                    content_type: "application/octet-stream"
-                    // upload_id: &msg.upload_id,
+                    content_type: "application/octet-stream", // upload_id: &msg.upload_id,
                 };
                 let path = format!(
                     "{}?partNumber={}&uploadId={}",
                     msg.key, part_number, &msg.upload_id
                 );
                 let request = Request::new(self, &path, command);
-                let (data, code) = request.response_data_future().await?;
-                let response = std::str::from_utf8(data.as_slice())?;
-                if code >= 300 {
-                    assert_eq!(response, "")
-                }
+                let (data, _code) = request.response_data_future().await?;
                 let etag = std::str::from_utf8(data.as_slice())?;
                 etags.push(etag.to_string());
-                // assert_eq!(msg, "");
             }
 
             // match reader.read_exact(&mut buffer).await {
@@ -1319,69 +1320,8 @@ mod test {
     use awscreds::Credentials;
     use futures::io::Cursor as FuturesCursor;
     use std::env;
-    use std::io::Cursor;
 
-    // #[tokio::test]
-    // async fn async_test_put_get_delete_object() {
-    //     let credentials = Credentials::new(
-    //         Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
-    //         Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
-    //         None,
-    //         None,
-    //         None,
-    //     )
-    //     .await
-    //     .unwrap();
-    //     let bucket =
-    //         Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap();
-
-    //     let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
-    //     let (_, code) = bucket
-    //         .put_object("/async_test.file", &test, "application/octet-stream")
-    //         .await
-    //         .unwrap();
-    //     assert_eq!(code, 200);
-    //     let (data, code) = bucket.get_object("/async_test.file").await.unwrap();
-    //     assert_eq!(code, 200);
-    //     assert_eq!(data, test);
-    //     let (_, code) = bucket.delete_object("/async_test.file").await.unwrap();
-    //     assert_eq!(code, 204);
-    // }
-
-    // #[tokio::test]
-    // async fn streaming_test_put_get_delete_small_object() {
-    //     let credentials = Credentials::new(
-    //         Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
-    //         Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
-    //         None,
-    //         None,
-    //         None,
-    //     )
-    //     .await
-    //     .unwrap();
-    //     let bucket =
-    //         Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap();
-
-    //     let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
-    //     let mut test_cursor = FuturesCursor::new(test.clone());
-    //     let code = bucket
-    //         .put_object_stream(&mut test_cursor, "/stream_test.file")
-    //         .await
-    //         .unwrap();
-    //     assert_eq!(code, 200);
-    //     let mut writer = Vec::new();
-    //     let code = bucket
-    //         .get_object_stream("/stream_test.file", &mut writer)
-    //         .await
-    //         .unwrap();
-    //     assert_eq!(code, 200);
-    //     assert_eq!(test, writer);
-    //     let (_, code) = bucket.delete_object("/stream_test.file").await.unwrap();
-    //     assert_eq!(code, 204);
-    // }
-
-    #[tokio::test]
-    async fn streaming_test_put_get_delete_big_object() {
+    async fn test_bucket() -> Bucket {
         let credentials = Credentials::new(
             Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
             Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
@@ -1391,10 +1331,18 @@ mod test {
         )
         .await
         .unwrap();
-        let bucket =
-            Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap();
+        Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap()
+    }
 
-        let test: Vec<u8> = (0..6_000_000).map(|_| rand::random::<u8>()).collect();
+    fn object(size: i32) -> Vec<u8> {
+        (0..size).map(|_| rand::random::<u8>()).collect()
+    }
+
+    #[tokio::test]
+    async fn streaming_test_put_get_delete_big_object() {
+        let bucket = test_bucket().await;
+        let test: Vec<u8> = object(6_000_000);
+
         let mut test_cursor = FuturesCursor::new(test.clone());
         let code = bucket
             .put_object_stream(&mut test_cursor, "/stream_test_big.file")
@@ -1412,35 +1360,25 @@ mod test {
         assert_eq!(code, 204);
     }
 
-    // #[test]
-    fn streaming_blocking_test_put_get_delete_object() {
-        let credentials = Credentials::new_blocking(
-            Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
-            Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-        
-        let bucket =
-            Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap();
+    #[tokio::test]
+    async fn streaming_test_put_get_delete_object() {
+        let bucket = test_bucket().await;
+        let test: Vec<u8> = object(3027);
 
-        let test: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
-        let mut test_cursor = Cursor::new(test.clone());
+        let mut test_cursor = FuturesCursor::new(test.clone());
         let code = bucket
-            .put_object_stream_blocking(&mut test_cursor, "/stream_blocking_test.file")
+            .put_object_stream(&mut test_cursor, "/stream_test.file")
+            .await
             .unwrap();
         assert_eq!(code, 200);
         let mut writer = Vec::new();
         let code = bucket
-            .get_object_stream_blocking("/stream_blocking_test.file", &mut writer)
+            .get_object_stream("/stream_test.file", &mut writer)
+            .await
             .unwrap();
         assert_eq!(code, 200);
         assert_eq!(test, writer);
-        let (_, code) = bucket
-            .delete_object_blocking("/stream_blocking_test.file")
-            .unwrap();
+        let (_, code) = bucket.delete_object("/stream_test.file").await.unwrap();
         assert_eq!(code, 204);
     }
 }

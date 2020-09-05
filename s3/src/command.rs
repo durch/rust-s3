@@ -1,5 +1,5 @@
-use reqwest::Method;
 use crate::serde_types::CompleteMultipartUploadData;
+use reqwest::Method;
 
 #[derive(Clone, Debug)]
 pub enum Command<'a> {
@@ -40,8 +40,8 @@ pub enum Command<'a> {
     },
     CompleteMultipartUpload {
         upload_id: &'a str,
-        data: CompleteMultipartUploadData
-    }
+        data: CompleteMultipartUploadData,
+    },
 }
 
 impl<'a> Command<'a> {
@@ -59,8 +59,9 @@ impl<'a> Command<'a> {
             Command::DeleteObject
             | Command::DeleteObjectTagging
             | Command::AbortMultipartUpload { .. } => Method::DELETE,
-            Command::InitiateMultipartUpload
-            | Command::CompleteMultipartUpload { .. } => Method::POST,
+            Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
+                Method::POST
+            }
         }
     }
 }
