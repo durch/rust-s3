@@ -1,6 +1,6 @@
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
-use std::io::{Read, Write};
+// use std::io::{Read, Write};
 use std::mem;
 use tokio::runtime::Runtime;
 
@@ -15,8 +15,9 @@ use awscreds::Credentials;
 use awsregion::Region;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
 use futures::io::AsyncReadExt as AsyncRead;
+
+use async_std::fs::File;
 
 /// # Example
 /// ```
@@ -232,7 +233,7 @@ impl Bucket {
     /// let code = bucket.get_object_stream_blocking("/test.file", &mut output_file).unwrap();
     /// println!("Code: {}", code);
     /// ```
-    pub fn get_object_stream_blocking<T: Write>(&self, path: &str, writer: &mut T) -> Result<u16> {
+    pub fn get_object_stream_blocking<T: std::io::Write>(&self, path: &str, writer: &mut T) -> Result<u16> {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.get_object_stream(path, writer))?)
     }
@@ -262,7 +263,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn get_object_stream<T: Write, S: AsRef<str>>(
+    pub async fn get_object_stream<T: std::io::Write, S: AsRef<str>>(
         &self,
         path: S,
         writer: &mut T,
@@ -308,33 +309,12 @@ impl Bucket {
         Ok(request.tokio_response_data_to_writer_future(writer).await?)
     }
 
-    /// Stream file from local path to s3, async.
-    ///
-    /// # Example:
-    ///
-    /// ```rust,no_run
-    ///
-    /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
-    /// use s3::S3Error;
-    /// use async_std::fs::File;
-    /// use async_std::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
-    ///
-    ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default().await?;
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
-    ///     let mut file = File::open("foo.txt").await?;
-    ///
-    ///     let status_code = bucket.put_object_stream(&mut file, "/test_file").await?;
-    ///     println!("Code: {}", status_code);
-    ///     Ok(())
-    /// }
-    /// ```
-    pub async fn put_object_stream<R: AsyncRead + Unpin, S: AsRef<str>>(
+    pub async fn put_object_stream<S: AsRef<str>>(&self, path: &str, s3_path: S) -> Result<u16> {
+        let mut file = File::open(path).await?;
+        self._put_object_stream(&mut file, s3_path).await
+    }
+
+    async fn _put_object_stream<R: AsyncRead + Unpin, S: AsRef<str>>(
         &self,
         reader: &mut R,
         s3_path: S,
@@ -443,68 +423,8 @@ impl Bucket {
                 let etag = std::str::from_utf8(data.as_slice())?;
                 etags.push(etag.to_string());
             }
-
-            // match reader.read_exact(&mut buffer).await {
-            //     Ok(_) => {
-
-            //     }
-            //     // Means that the reader has less bytes than the buffer
-            //     Err(_) => {
-            //         if part_number == 0 {
-            //             let abort = Command::AbortMultipartUpload { upload_id: &msg.upload_id };
-            //             let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-            //             let abort_request = Request::new(self, &abort_path, abort);
-            //             let (data, code) = abort_request.response_data_future().await?;
-            //             assert!(code < 300);
-            //             // As minimum chunk size for multipart upload is 5MB we drop to regular put_object here
-            //             let mut buffer = Vec::new();
-            //             let read = reader.read_to_end(&mut buffer).await?;
-            //             self.put_object(s3_path.as_ref(), buffer.as_slice(), "application/octet-stream")
-            //                 .await?;
-            //             break 'outer;
-            //         } else {
-            //             part_number += 1;
-            //             let mut buffer = Vec::new();
-            //             let read = reader.read_to_end(&mut buffer).await?;
-            //             let command = Command::UploadPart {
-            //                 part_number,
-            //                 content: buffer.as_slice(),
-            //                 upload_id: &msg.upload_id
-            //             };
-            //             let request = Request::new(self, &path, command);
-            //             let (data, code) = request.response_data_future().await?;
-            //             break 'outer;
-            //         }
-            //     }
-            // };
-            assert!(chunk.len() > 0);
         }
-        assert_eq!(code, 200);
-
-        // let read_n = reader.read_to_end(&mut bytes).await?;
-        // debug!("Read {} bytes from reader", read_n);
-        // let command = Command::PutObject {
-        //     content: &bytes[..],
-        //     content_type: "application/octet-stream",
-        // };
-        // let request = Request::new(self, s3_path.as_ref(), command);
-        // Ok(request.response_data_future().await?.1)
         Ok(code)
-    }
-
-    async fn _put_object_stream<R: Read, S: AsRef<str>>(
-        &self,
-        reader: &mut R,
-        s3_path: S,
-    ) -> Result<u16> {
-        let mut bytes = Vec::new();
-        let _ = reader.read(&mut bytes)?;
-        let command = Command::PutObject {
-            content: &bytes[..],
-            content_type: "application/octet-stream",
-        };
-        let request = Request::new(self, s3_path.as_ref(), command);
-        Ok(request.response_data_future().await?.1)
     }
 
     /// Stream file from local path to s3 using tokio::io, async.
@@ -565,20 +485,19 @@ impl Bucket {
     ///     let region = "us-east-1".parse()?;
     ///     let credentials = Credentials::default_blocking()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
-    ///     let mut file = File::open("foo.txt")?;
     ///
-    ///     let status_code = bucket.put_object_stream_blocking(&mut file, "/test_file")?;
+    ///     let status_code = bucket.put_object_stream_blocking("foo.txt", "/test_file")?;
     ///     println!("Code: {}", status_code);
     ///     Ok(())
     /// }
     /// ```
-    pub fn put_object_stream_blocking<R: Read, S: AsRef<str>>(
+    pub fn put_object_stream_blocking<S: AsRef<str>>(
         &self,
-        reader: &mut R,
+        path: &str,
         s3_path: S,
     ) -> Result<u16> {
         let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self._put_object_stream(reader, s3_path))?)
+        Ok(rt.block_on(self.put_object_stream(path, s3_path))?)
     }
 
     //// Get bucket location from S3, async
@@ -1318,11 +1237,12 @@ mod test {
 
     use crate::bucket::Bucket;
     use awscreds::Credentials;
-    use futures::io::Cursor as FuturesCursor;
     use std::env;
+    use std::fs::File;
+    use std::io::prelude::*;
 
-    async fn test_bucket() -> Bucket {
-        let credentials = Credentials::new(
+    async fn test_credentials() -> Credentials{
+        Credentials::new(
             Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
             Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
             None,
@@ -1330,8 +1250,26 @@ mod test {
             None,
         )
         .await
-        .unwrap();
-        Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), credentials).unwrap()
+        .unwrap()
+    }
+
+    fn test_credentials_blocking() -> Credentials{
+        Credentials::new_blocking(
+            Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
+            Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+    }
+
+    fn test_bucket_blocking() -> Bucket {
+        Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), test_credentials_blocking()).unwrap()
+    }
+
+    async fn test_bucket() -> Bucket {
+        Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), test_credentials().await).unwrap()
     }
 
     fn object(size: i32) -> Vec<u8> {
@@ -1340,12 +1278,16 @@ mod test {
 
     #[tokio::test]
     async fn streaming_test_put_get_delete_big_object() {
+        let path = "stream_test_big";
+        std::fs::remove_file(path).unwrap_or_else(|_| {});
         let bucket = test_bucket().await;
         let test: Vec<u8> = object(6_000_000);
 
-        let mut test_cursor = FuturesCursor::new(test.clone());
+        let mut file = File::create(path).unwrap();
+        file.write_all(&test).unwrap();
+
         let code = bucket
-            .put_object_stream(&mut test_cursor, "/stream_test_big.file")
+            .put_object_stream(path, "/stream_test_big.file")
             .await
             .unwrap();
         assert_eq!(code, 200);
@@ -1358,16 +1300,46 @@ mod test {
         assert_eq!(test, writer);
         let (_, code) = bucket.delete_object("/stream_test_big.file").await.unwrap();
         assert_eq!(code, 204);
+        std::fs::remove_file(path).unwrap_or_else(|_| {});
+    }
+
+    #[test]
+    fn blocking_streaming_test_put_get_delete_object() {
+        let path = "stream_test_big_blocking";
+        std::fs::remove_file(path).unwrap_or_else(|_| {});
+        let bucket = test_bucket_blocking();
+        let test: Vec<u8> = object(3072);
+
+        let mut file = File::create(path).unwrap();
+        file.write_all(&test).unwrap();
+
+        let code = bucket
+            .put_object_stream_blocking(path, "/stream_test_big_blocking.file")
+            .unwrap();
+        assert_eq!(code, 200);
+        let mut writer = Vec::new();
+        let code = bucket
+            .get_object_stream_blocking("/stream_test_big_blocking.file", &mut writer)
+            .unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(test, writer);
+        let (_, code) = bucket.delete_object_blocking("/stream_test_big_blocking.file").unwrap();
+        assert_eq!(code, 204);
+        std::fs::remove_file(path).unwrap_or_else(|_| {});
     }
 
     #[tokio::test]
     async fn streaming_test_put_get_delete_object() {
+        let path = "stream_test";
+        std::fs::remove_file(path).unwrap_or_else(|_| {});
         let bucket = test_bucket().await;
-        let test: Vec<u8> = object(3027);
+        let test: Vec<u8> = object(3072);
 
-        let mut test_cursor = FuturesCursor::new(test.clone());
+        let mut file = File::create(path).unwrap();
+        file.write_all(&test).unwrap();
+
         let code = bucket
-            .put_object_stream(&mut test_cursor, "/stream_test.file")
+            .put_object_stream(path, "/stream_test.file")
             .await
             .unwrap();
         assert_eq!(code, 200);
@@ -1380,5 +1352,6 @@ mod test {
         assert_eq!(test, writer);
         let (_, code) = bucket.delete_object("/stream_test.file").await.unwrap();
         assert_eq!(code, 204);
+        std::fs::remove_file(path).unwrap_or_else(|_| {});
     }
 }
