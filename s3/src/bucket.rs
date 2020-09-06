@@ -368,7 +368,6 @@ impl Bucket {
                     self.put_object(
                         s3_path.as_ref(),
                         chunk.as_slice(),
-                        "application/octet-stream",
                     )
                     .await?;
                     break;
@@ -641,12 +640,12 @@ impl Bucket {
     ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     ///     let content = "I want to go to S3".as_bytes();
-    ///     let (_, code) = bucket.put_object("/test.file", content, "text/plain").await?;
+    ///     let (_, code) = bucket.put_object_with_content_type("/test.file", content, "text/plain").await?;
     ///     assert_eq!(201, code);
     ///     Ok(())
     /// }
     /// ```
-    pub async fn put_object<S: AsRef<str>>(
+    pub async fn put_object_with_content_type<S: AsRef<str>>(
         &self,
         path: S,
         content: &[u8],
@@ -658,6 +657,41 @@ impl Bucket {
         };
         let request = Request::new(self, path.as_ref(), command);
         Ok(request.response_data_future(true).await?)
+    }
+
+    /// Put into an S3 bucket, async.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use awscreds::Credentials;
+    /// use s3::S3Error;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), S3Error> {
+    ///
+    ///     let bucket_name = &"rust-s3-test";
+    ///     let aws_access = &"access_key";
+    ///     let aws_secret = &"secret_key";
+    ///
+    ///     let bucket_name = &"rust-s3-test";
+    ///     let region = "us-east-1".parse().unwrap();
+    ///     let credentials = Credentials::default_blocking().unwrap();
+    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    ///     let content = "I want to go to S3".as_bytes();
+    ///     let (_, code) = bucket.put_object("/test.file", content).await?;
+    ///     assert_eq!(201, code);
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn put_object<S: AsRef<str>>(
+        &self,
+        path: S,
+        content: &[u8],
+    ) -> Result<(Vec<u8>, u16)> {
+        self.put_object_with_content_type(path, content, "application/octet-stream").await
     }
 
     /// Put into an S3 bucket, blocks.
@@ -678,18 +712,50 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// let content = "I want to go to S3".as_bytes();
-    /// let (_, code) = bucket.put_object_blocking("/test.file", content, "text/plain").unwrap();
+    /// let (_, code) = bucket.put_object_blocking("/test.file", content).unwrap();
     /// assert_eq!(201, code);
     /// ```
     pub fn put_object_blocking<S: AsRef<str>>(
         &self,
         path: S,
         content: &[u8],
+    ) -> Result<(Vec<u8>, u16)> {
+        let mut rt = Runtime::new()?;
+        Ok(rt.block_on(self.put_object(path, content))?)
+    }
+
+
+    /// Put into an S3 bucket, blocks.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use awscreds::Credentials;
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let aws_access = &"access_key";
+    /// let aws_secret = &"secret_key";
+    ///
+    /// let bucket_name = &"rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default_blocking().unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// let content = "I want to go to S3".as_bytes();
+    /// let (_, code) = bucket.put_object_blocking("/test.file", content).unwrap();
+    /// assert_eq!(201, code);
+    /// ```
+    pub fn put_object_with_content_type_blocking<S: AsRef<str>>(
+        &self,
+        path: S,
+        content: &[u8],
         content_type: &str,
     ) -> Result<(Vec<u8>, u16)> {
         let mut rt = Runtime::new()?;
-        Ok(rt.block_on(self.put_object(path, content, content_type))?)
+        Ok(rt.block_on(self.put_object_with_content_type(path, content, content_type))?)
     }
+
 
     fn _tags_xml<S: AsRef<str>>(&self, tags: &[(S, S)]) -> String {
         let mut s = String::new();
@@ -1335,7 +1401,7 @@ mod test {
         let test: Vec<u8> = object(3072);
 
         let (_data, code) = bucket
-            .put_object(s3_path, &test, "application/octet-stream")
+            .put_object(s3_path, &test)
             .await
             .unwrap();
         // println!("{}", std::str::from_utf8(&data).unwrap());
@@ -1348,6 +1414,27 @@ mod test {
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test, data);
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
+        assert_eq!(code, 204);
+    }
+
+    #[test]
+    fn test_put_get_delete_object_blocking() {
+        let s3_path = "/test_blocking.file";
+        let bucket = test_bucket_blocking();
+        let test: Vec<u8> = object(3072);
+
+        let (_data, code) = bucket
+            .put_object_blocking(s3_path, &test)
+            .unwrap();
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(code, 200);
+        let (data, code) = bucket
+            .get_object_blocking(s3_path)
+            .unwrap();
+        assert_eq!(code, 200);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test, data);
+        let (_, code) = bucket.delete_object_blocking(s3_path).unwrap();
         assert_eq!(code, 204);
     }
 }
