@@ -81,8 +81,7 @@ pub fn main() -> Result<(), S3Error> {
 
         // Put a "test_file" with the contents of MESSAGE at the root of the
         // bucket.
-        let (_, code) =
-            bucket.put_object_blocking("test_file", MESSAGE.as_bytes(), "text/plain")?;
+        let (_, code) = bucket.put_object_blocking("test_file", MESSAGE.as_bytes())?;
         // println!("{}", bucket.presign_get("test_file", 604801)?);
         assert_eq!(200, code);
 
@@ -107,11 +106,7 @@ pub fn main() -> Result<(), S3Error> {
         // Test with random byte array
 
         let random_bytes: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
-        let (_, code) = bucket.put_object_blocking(
-            "random.bin",
-            random_bytes.as_slice(),
-            "application/octet-stream",
-        )?;
+        let (_, code) = bucket.put_object_blocking("random.bin", random_bytes.as_slice())?;
         assert_eq!(200, code);
         let (data, code) = bucket.get_object_blocking("random.bin")?;
         assert_eq!(code, 200);

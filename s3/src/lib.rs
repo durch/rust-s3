@@ -4,25 +4,23 @@
 #[macro_use]
 extern crate serde_derive;
 use serde_xml_rs as serde_xml;
-#[macro_use]
-extern crate log;
 
-
-pub use awsregion as region;
 pub use awscreds as creds;
+pub use awsregion as region;
 
 pub mod bucket;
 pub mod command;
+pub mod deserializer;
 pub mod request;
 pub mod serde_types;
 pub mod signing;
-pub mod deserializer;
 
 simpl::err!(S3Error, {
     Xml@serde_xml::Error;
     Req@reqwest::Error;
     InvalidHeaderName@reqwest::header::InvalidHeaderName;
     InvalidHeaderValue@reqwest::header::InvalidHeaderValue;
+    HttpHeader@http::header::ToStrError;
     Hmac@hmac::crypto_mac::InvalidKeyLength;
     Utf8@std::str::Utf8Error;
     Io@std::io::Error;

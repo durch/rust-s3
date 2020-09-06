@@ -1,3 +1,13 @@
+#[derive(Deserialize, Debug)]
+pub struct InitiateMultipartUploadResponse {
+    #[serde(rename = "Bucket")]
+    bucket: String,
+    #[serde(rename = "Key")]
+    pub key: String,
+    #[serde(rename = "UploadId")]
+    pub upload_id: String,
+}
+
 /// Owner information for the object
 #[derive(Deserialize, Debug, Clone)]
 pub struct Owner {
@@ -36,13 +46,13 @@ pub struct Object {
 #[derive(Deserialize, Debug, Clone)]
 pub struct Tagging {
     #[serde(rename = "TagSet")]
-    pub tag_set: Vec<Tag>
+    pub tag_set: Vec<Tag>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Tag {
     #[serde(rename = "Tag")]
-    pub kvpair: KVPair
+    pub kvpair: KVPair,
 }
 
 impl Tag {
@@ -63,10 +73,49 @@ pub struct KVPair {
     pub value: String,
 }
 
+use std::fmt;
+
+impl fmt::Display for CompleteMultipartUploadData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut parts = String::new();
+        for part in self.parts.clone() {
+            parts.push_str(&serde_xml_rs::to_string(&part).unwrap())
+        }
+        write!(
+            f,
+            "<CompleteMultipartUpload>{}</CompleteMultipartUpload>",
+            parts
+        )
+    }
+}
+
+impl CompleteMultipartUploadData {
+    pub fn len(&self) -> usize {
+        self.to_string().as_bytes().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.to_string().as_bytes().len() == 0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CompleteMultipartUploadData {
+    pub parts: Vec<Part>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Part {
+    #[serde(rename = "PartNumber")]
+    pub part_number: u32,
+    #[serde(rename = "ETag")]
+    pub etag: String,
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct BucketLocationResult {
     #[serde(rename = "$value")]
-    pub region: String
+    pub region: String,
 }
 
 /// The parsed result of a s3 bucket listing
@@ -97,7 +146,10 @@ pub struct ListBucketResult {
     #[serde(rename = "EncodingType")]
     /// Specifies the encoding method to used
     pub encoding_type: Option<String>,
-    #[serde(rename = "IsTruncated", deserialize_with = "super::deserializer::bool_deserializer")]
+    #[serde(
+        rename = "IsTruncated",
+        deserialize_with = "super::deserializer::bool_deserializer"
+    )]
     ///  Specifies whether (true) or not (false) all of the results were returned.
     ///  If the number of results exceeds that specified by MaxKeys, all of the results
     ///  might not be returned.
