@@ -585,7 +585,7 @@ mod tests {
     fn fake_credentials() -> Credentials {
         let access_key = "AKIAIOSFODNN7EXAMPLE";
         let secert_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-        Credentials::new_blocking(Some(access_key), Some(secert_key), None, None, None).unwrap()
+        Credentials::new(Some(access_key), Some(secert_key), None, None, None).unwrap()
     }
 
     #[test]

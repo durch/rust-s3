@@ -30,9 +30,9 @@ a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the d
 #### Presign
 
 |       |                                                                                                |
-| ----- | ---------------------------------------------------------------------------------------------- |
-| `PUT` | [presign_put](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.presign_put) |
-| `GET` | [presign_get](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.presign_get) |
+|-------|------------------------------------------------------------------------------------------------|
+| `PUT` | [presign_put](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.presign_put) |
+| `GET` | [presign_get](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.presign_get) |
 
 #### GET
 
@@ -40,54 +40,56 @@ There are a few different options for getting an object. `sync` and `async` meth
 while `tokio` methods are generic over `tokio::io::AsyncWriteExt`.
 
 |         |                                                                                                                              |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `async` | [get_object](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.get_object)                                 |
-| `async` | [get_object_stream](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_stream)                   |
-| `sync`  | [get_object_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_blocking)               |
-| `sync`  | [get_object_stream_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_stream_blocking) |
-| `tokio` | [tokio_get_object_stream](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.tokio_get_object_stream)       |
+|---------|------------------------------------------------------------------------------------------------------------------------------|
+| `async` | [get_object](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.get_object)                                 |
+| `async` | [get_object_stream](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_stream)                   |
+| `sync`  | [get_object_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_blocking)               |
+| `sync`  | [get_object_stream_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_stream_blocking) |
+| `tokio` | [tokio_get_object_stream](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.tokio_get_object_stream)       |
 
 #### PUT
 
 Each `GET` method has a `PUT` companion `sync` and `async` methods are generic over `std::io::Read`. `async` `stream` methods are generic over `futures::io::AsyncReadExt`, while `tokio` methods are generic over `tokio::io::AsyncReadExt`.
 
-|         |                                                                                                                              |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `async` | [put_object](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object)                                 |
-| `async` | [put_object_stream](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_stream)                   |
-| `sync`  | [put_object_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_blocking)               |
-| `sync`  | [put_object_stream_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_stream_blocking) |
-| `tokio` | [tokio_put_object_stream](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.tokio_put_object_stream)       |
+|         |                                                                                                                                                    |
+|---------|----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `async` | [put_object](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object)                                                       |
+| `async` | [put_object_with_content_type](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_with_content_type)                   |
+| `async` | [put_object_stream](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_stream)                                         |
+| `sync`  | [put_object_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_blocking)                                     |
+| `sync`  | [put_object_with_content_type_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_with_content_type_blocking) |
+| `sync`  | [put_object_stream_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_stream_blocking)                       |
+| `tokio` | [tokio_put_object_stream](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.tokio_put_object_stream)                             |
 
 #### List
 
-|         |                                                                                                            |
-| ------- | ---------------------------------------------------------------------------------------------------------- |
-| `async` | [list](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.list)                   |
-| `sync`  | [list_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.list_blocking) |
+|         |                                                                                                    |
+|---------|----------------------------------------------------------------------------------------------------|
+| `async` | [list](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.list)                   |
+| `sync`  | [list_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.list_blocking) |
 
 #### DELETE
 
 |         |                                                                                                                      |
-| ------- | -------------------------------------------------------------------------------------------------------------------- |
-| `async` | [delete_object](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.delete_object)                   |
-| `sync`  | [delete_object_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.delete_object_blocking) |
+|---------|----------------------------------------------------------------------------------------------------------------------|
+| `async` | [delete_object](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.delete_object)                   |
+| `sync`  | [delete_object_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.delete_object_blocking) |
 
 #### Location
 
 |         |                                                                                                            |
-| ------- | ---------------------------------------------------------------------------------------------------------- |
-| `async` | [location](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.location)                   |
-| `sync`  | [location_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.location_blocking) |
+|---------|------------------------------------------------------------------------------------------------------------|
+| `async` | [location](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.location)                   |
+| `sync`  | [location_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.location_blocking) |
 
 #### Tagging
 
 |         |                                                                                                                                |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `async` | [put_object_tagging](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_tagging)                   |
-| `sync`  | [put_object_tagging_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_tagging_blocking) |
-| `async` | [get_object_tagging](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_tagging)                   |
-| `sync`  | [get_object_tagging_blocking](https://durch.github.io/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_tagging_blocking) |
+|---------|--------------------------------------------------------------------------------------------------------------------------------|
+| `async` | [put_object_tagging](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_tagging)                   |
+| `sync`  | [put_object_tagging_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_tagging_blocking) |
+| `async` | [get_object_tagging](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_tagging)                   |
+| `sync`  | [get_object_tagging_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_tagging_blocking) |
 
 ### Usage (in `Cargo.toml`)
 

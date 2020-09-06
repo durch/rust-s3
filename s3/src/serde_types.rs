@@ -79,7 +79,7 @@ impl fmt::Display for CompleteMultipartUploadData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut parts = String::new();
         for part in self.parts.clone() {
-            parts.extend(serde_xml_rs::to_string(&part).unwrap().chars())
+            parts.push_str(&serde_xml_rs::to_string(&part).unwrap())
         }
         write!(
             f,
@@ -92,6 +92,10 @@ impl fmt::Display for CompleteMultipartUploadData {
 impl CompleteMultipartUploadData {
     pub fn len(&self) -> usize {
         self.to_string().as_bytes().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.to_string().as_bytes().len() == 0
     }
 }
 
