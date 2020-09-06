@@ -14,8 +14,10 @@ use crate::{Result, S3Error};
 use awscreds::Credentials;
 use awsregion::Region;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use futures::io::AsyncReadExt as AsyncRead;
+use tokio::io::AsyncRead as TokioAsyncRead;
+use tokio::io::AsyncWrite as TokioAsyncWrite;
+use tokio::io::AsyncReadExt as TokioAsyncReadExt;
+use futures::io::{AsyncReadExt, AsyncRead};
 
 use async_std::fs::File;
 
@@ -299,7 +301,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn tokio_get_object_stream<T: AsyncWriteExt + Unpin, S: AsRef<str>>(
+    pub async fn tokio_get_object_stream<T: TokioAsyncWrite + Unpin, S: AsRef<str>>(
         &self,
         path: S,
         writer: &mut T,
@@ -452,7 +454,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn tokio_put_object_stream<R: AsyncReadExt + Unpin, S: AsRef<str>>(
+    pub async fn tokio_put_object_stream<R: TokioAsyncRead + Unpin, S: AsRef<str>>(
         &self,
         reader: &mut R,
         s3_path: S,
