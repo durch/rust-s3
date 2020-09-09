@@ -130,56 +130,42 @@ impl Credentials {
             &[
                 ("Action", "AssumeRoleWithWebIdentity"),
                 ("RoleSessionName", session_name),
-                ("RoleArn", role_arn ),
+                ("RoleArn", role_arn),
                 ("WebIdentityToken", web_identity_token),
-                ("Version", "2011-06-15")
+                ("Version", "2011-06-15"),
             ],
-        ).unwrap();
+        )
+        .unwrap();
         let response = reqwest::blocking::get(url.as_str())?;
         let serde_response =
             serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap();
         // assert!(serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap());
-        Ok(Credentials::new_blocking(
+        Ok(Credentials::new(
             Some(
                 &serde_response
                     .assume_role_with_web_identity_result
                     .credentials
                     .access_key_id,
             ),
-            Some(&serde_response
-                .assume_role_with_web_identity_result
-                .credentials
-                .secret_access_key),
+            Some(
+                &serde_response
+                    .assume_role_with_web_identity_result
+                    .credentials
+                    .secret_access_key,
+            ),
             None,
-            Some(&serde_response.assume_role_with_web_identity_result.credentials.session_token),
-            None
+            Some(
+                &serde_response
+                    .assume_role_with_web_identity_result
+                    .credentials
+                    .session_token,
+            ),
+            None,
         )?)
     }
 
-    pub fn new_blocking(
-        access_key: Option<&str>,
-        secret_key: Option<&str>,
-        security_token: Option<&str>,
-        session_token: Option<&str>,
-        profile: Option<&str>,
-    ) -> Result<Credentials> {
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
-        Ok(rt.block_on(Credentials::new(
-            access_key,
-            secret_key,
-            security_token,
-            session_token,
-            profile,
-        ))?)
-    }
-
-    pub async fn default() -> Result<Credentials> {
-        Ok(Credentials::new(None, None, None, None, None).await?)
-    }
-
-    pub fn default_blocking() -> Result<Credentials> {
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
-        Ok(rt.block_on(Credentials::default())?)
+    pub fn default() -> Result<Credentials> {
+        Ok(Credentials::new(None, None, None, None, None)?)
     }
 
     pub fn anonymous() -> Result<Credentials> {
@@ -193,7 +179,7 @@ impl Credentials {
 
     /// Initialize Credentials directly with key ID, secret key, and optional
     /// token.
-    pub async fn new(
+    pub fn new(
         access_key: Option<&str>,
         secret_key: Option<&str>,
         security_token: Option<&str>,
@@ -201,7 +187,7 @@ impl Credentials {
         profile: Option<&str>,
     ) -> Result<Credentials> {
         if let Ok(c) = Credentials::from_sts_env("aws-creds") {
-            return Ok(c)
+            return Ok(c);
         }
 
         let security_token = if let Some(security_token) = security_token {
@@ -237,7 +223,7 @@ impl Credentials {
                 Ok(c) => Ok(c),
                 Err(_) => match Credentials::from_profile(profile) {
                     Ok(c) => Ok(c),
-                    Err(_) => match Credentials::from_instance_metadata().await {
+                    Err(_) => match Credentials::from_instance_metadata() {
                         Ok(c) => Ok(c),
                         Err(e) => Err(format!("No credentials provided as arguments, in the environment or in the profile file. \n {}", e).as_str().into())
                     }
@@ -275,34 +261,32 @@ impl Credentials {
         Credentials::from_env_specific(None, None, None, None)
     }
 
-    async fn from_instance_metadata() -> Result<Credentials> {
+ fn from_instance_metadata() -> Result<Credentials> {
         if !Credentials::is_ec2() {
             return Err(AwsCredsError::from("Not an EC2 instance"));
         }
         let resp: HashMap<String, String> =
             match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
                 Ok(credentials_path) => Some(
-                    reqwest::get(&format!("http://169.254.170.2{}", credentials_path))
-                        .await?
-                        .json()
-                        .await?,
+                    reqwest::blocking::get(&format!("http://169.254.170.2{}", credentials_path))?
+                        .json()?,
                 ),
                 Err(_) => {
                     let resp: HashMap<String, String> =
-                        reqwest::get("http://169.254.169.254/latest/meta-data/iam/info")
-                            .await?
+                        reqwest::blocking::get("http://169.254.169.254/latest/meta-data/iam/info")
+                            ?
                             .json()
-                            .await?;
+                            ?;
                     if let Some(arn) = resp.get("InstanceProfileArn") {
                         if let Some(role) = arn.split('/').last() {
                             Some(
-                                reqwest::get(&format!(
+                                reqwest::blocking::get(&format!(
                             "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
                             role
                         ))
-                                .await?
+                                ?
                                 .json()
-                                .await?,
+                                ?,
                             )
                         } else {
                             None
