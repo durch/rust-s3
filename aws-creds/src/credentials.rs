@@ -1,8 +1,10 @@
 use crate::{AwsCredsError, Result};
 use ini::Ini;
+use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::env;
 use std::str::FromStr;
+use url::Url;
 
 /// AWS access credentials: access key, secret key, and optional token.
 ///
@@ -62,7 +64,98 @@ pub struct Credentials {
     pub session_token: Option<String>,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct AssumeRoleWithWebIdentityResponse {
+    #[serde(rename = "AssumeRoleWithWebIdentityResult")]
+    pub assume_role_with_web_identity_result: AssumeRoleWithWebIdentityResult,
+    #[serde(rename = "ResponseMetadata")]
+    pub response_metadata: ResponseMetadata,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AssumeRoleWithWebIdentityResult {
+    #[serde(rename = "SubjectFromWebIdentityToken")]
+    pub subject_from_web_identity_token: String,
+    #[serde(rename = "Audience")]
+    pub audience: String,
+    #[serde(rename = "AssumedRoleUser")]
+    pub assumed_role_user: AssumedRoleUser,
+    #[serde(rename = "Credentials")]
+    pub credentials: StsResponseCredentials,
+    #[serde(rename = "Provider")]
+    pub provider: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct StsResponseCredentials {
+    #[serde(rename = "SessionToken")]
+    pub session_token: String,
+    #[serde(rename = "SecretAccessKey")]
+    pub secret_access_key: String,
+    #[serde(rename = "Expiration")]
+    pub expiration: String,
+    #[serde(rename = "AccessKeyId")]
+    pub access_key_id: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AssumedRoleUser {
+    #[serde(rename = "Arn")]
+    pub arn: String,
+    #[serde(rename = "AssumedRoleId")]
+    pub assumed_role_id: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ResponseMetadata {
+    #[serde(rename = "RequestId")]
+    pub request_id: String,
+}
+
 impl Credentials {
+    pub fn from_sts_env(session_name: &str) -> Result<Credentials> {
+        let role_arn = env::var("AWS_ROLE_ARN")?;
+        let web_identity_token_file = env::var("AWS_WEB_IDENTITY_TOKEN_FILE")?;
+        let web_identity_token = std::fs::read_to_string(web_identity_token_file)?;
+        Credentials::from_sts(&role_arn, session_name, &web_identity_token)
+    }
+
+    pub fn from_sts(
+        role_arn: &str,
+        session_name: &str,
+        web_identity_token: &str,
+    ) -> Result<Credentials> {
+        let url = Url::parse_with_params(
+            "https://sts.amazonaws.com/",
+            &[
+                ("Action", "AssumeRoleWithWebIdentity"),
+                ("RoleSessionName", session_name),
+                ("RoleArn", role_arn ),
+                ("WebIdentityToken", web_identity_token),
+                ("Version", "2011-06-15")
+            ],
+        ).unwrap();
+        let response = reqwest::blocking::get(url.as_str())?;
+        let serde_response =
+            serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap();
+        // assert!(serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap());
+        Ok(Credentials::new_blocking(
+            Some(
+                &serde_response
+                    .assume_role_with_web_identity_result
+                    .credentials
+                    .access_key_id,
+            ),
+            Some(&serde_response
+                .assume_role_with_web_identity_result
+                .credentials
+                .secret_access_key),
+            None,
+            Some(&serde_response.assume_role_with_web_identity_result.credentials.session_token),
+            None
+        )?)
+    }
+
     pub fn new_blocking(
         access_key: Option<&str>,
         secret_key: Option<&str>,
@@ -107,6 +200,10 @@ impl Credentials {
         session_token: Option<&str>,
         profile: Option<&str>,
     ) -> Result<Credentials> {
+        if let Ok(c) = Credentials::from_sts_env("aws-creds") {
+            return Ok(c)
+        }
+
         let security_token = if let Some(security_token) = security_token {
             Some(security_token.to_string())
         } else {
