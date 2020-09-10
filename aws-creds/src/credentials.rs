@@ -140,28 +140,28 @@ impl Credentials {
         let serde_response =
             serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap();
         // assert!(serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap());
-        Ok(Credentials::new(
-            Some(
-                &serde_response
+
+        Ok(Credentials {
+            access_key: Some(
+                serde_response
                     .assume_role_with_web_identity_result
                     .credentials
                     .access_key_id,
             ),
-            Some(
-                &serde_response
+            secret_key: Some(
+                serde_response
                     .assume_role_with_web_identity_result
                     .credentials
                     .secret_access_key,
             ),
-            None,
-            Some(
-                &serde_response
+            security_token: None,
+            session_token: Some(
+                serde_response
                     .assume_role_with_web_identity_result
                     .credentials
                     .session_token,
             ),
-            None,
-        )?)
+        })
     }
 
     pub fn default() -> Result<Credentials> {
@@ -261,7 +261,7 @@ impl Credentials {
         Credentials::from_env_specific(None, None, None, None)
     }
 
- fn from_instance_metadata() -> Result<Credentials> {
+    fn from_instance_metadata() -> Result<Credentials> {
         if !Credentials::is_ec2() {
             return Err(AwsCredsError::from("Not an EC2 instance"));
         }
@@ -273,20 +273,16 @@ impl Credentials {
                 ),
                 Err(_) => {
                     let resp: HashMap<String, String> =
-                        reqwest::blocking::get("http://169.254.169.254/latest/meta-data/iam/info")
-                            ?
-                            .json()
-                            ?;
+                        reqwest::blocking::get("http://169.254.169.254/latest/meta-data/iam/info")?
+                            .json()?;
                     if let Some(arn) = resp.get("InstanceProfileArn") {
                         if let Some(role) = arn.split('/').last() {
                             Some(
                                 reqwest::blocking::get(&format!(
                             "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
                             role
-                        ))
-                                ?
-                                .json()
-                                ?,
+                        ))?
+                                .json()?,
                             )
                         } else {
                             None
