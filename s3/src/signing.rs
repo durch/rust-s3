@@ -5,7 +5,7 @@
 use std::str;
 
 use chrono::{DateTime, Utc};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, Mac, NewMac};
 use reqwest::header::HeaderMap;
 use sha2::{Digest, Sha256};
 use url::Url;
@@ -113,12 +113,12 @@ pub fn scope_string(datetime: &DateTime<Utc>, region: &Region) -> String {
 /// applied to sign requests.
 pub fn string_to_sign(datetime: &DateTime<Utc>, region: &Region, canonical_req: &str) -> String {
     let mut hasher = Sha256::default();
-    hasher.input(canonical_req.as_bytes());
+    hasher.update(canonical_req.as_bytes());
     let string_to = format!(
         "AWS4-HMAC-SHA256\n{timestamp}\n{scope}\n{hash}",
         timestamp = datetime.format(LONG_DATETIME),
         scope = scope_string(datetime, region),
-        hash = hex::encode(hasher.result().as_slice())
+        hash = hex::encode(hasher.finalize().as_slice())
     );
     string_to
 }
@@ -133,14 +133,14 @@ pub fn signing_key(
 ) -> Result<Vec<u8>> {
     let secret = format!("AWS4{}", secret_key);
     let mut date_hmac = HmacSha256::new_varkey(secret.as_bytes())?;
-    date_hmac.input(datetime.format(SHORT_DATE).to_string().as_bytes());
-    let mut region_hmac = HmacSha256::new_varkey(&date_hmac.result().code())?;
-    region_hmac.input(region.to_string().as_bytes());
-    let mut service_hmac = HmacSha256::new_varkey(&region_hmac.result().code())?;
-    service_hmac.input(service.as_bytes());
-    let mut signing_hmac = HmacSha256::new_varkey(&service_hmac.result().code())?;
-    signing_hmac.input(b"aws4_request");
-    Ok(signing_hmac.result().code().to_vec())
+    date_hmac.update(datetime.format(SHORT_DATE).to_string().as_bytes());
+    let mut region_hmac = HmacSha256::new_varkey(&date_hmac.finalize().into_bytes())?;
+    region_hmac.update(region.to_string().as_bytes());
+    let mut service_hmac = HmacSha256::new_varkey(&region_hmac.finalize().into_bytes())?;
+    service_hmac.update(service.as_bytes());
+    let mut signing_hmac = HmacSha256::new_varkey(&service_hmac.finalize().into_bytes())?;
+    signing_hmac.update(b"aws4_request");
+    Ok(signing_hmac.finalize().into_bytes().to_vec())
 }
 
 /// Generate the AWS authorization header.
@@ -303,8 +303,8 @@ mod tests {
         let secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
         let signing_key = signing_key(&datetime, secret, &"us-east-1".parse().unwrap(), "s3");
         let mut hmac = Hmac::<Sha256>::new_varkey(&signing_key.unwrap()).unwrap();
-        hmac.input(string_to_sign.as_bytes());
-        assert_eq!(expected, hex::encode(hmac.result().code()));
+        hmac.update(string_to_sign.as_bytes());
+        assert_eq!(expected, hex::encode(hmac.finalize().into_bytes()));
     }
 
     #[test]
