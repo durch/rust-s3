@@ -15,5 +15,4 @@ name = "awsregion"
 path = "src/lib.rs"
 
 [dependencies]
-simpl = "0.1.0-alpha"
-
+simpl = "0.1.0"
