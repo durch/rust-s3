@@ -7,7 +7,7 @@ use std::io::Write;
 use super::bucket::Bucket;
 use super::command::Command;
 use chrono::{DateTime, Utc};
-use hmac::Mac;
+use hmac::{Mac, NewMac};
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Response};
 use sha2::{Digest, Sha256};
@@ -157,18 +157,18 @@ impl<'a> Request<'a> {
         match &self.command {
             Command::PutObject { content, .. } => {
                 let mut sha = Sha256::default();
-                sha.input(content);
-                hex::encode(sha.result().as_slice())
+                sha.update(content);
+                hex::encode(sha.finalize().as_slice())
             }
             Command::PutObjectTagging { tags } => {
                 let mut sha = Sha256::default();
-                sha.input(tags.as_bytes());
-                hex::encode(sha.result().as_slice())
+                sha.update(tags.as_bytes());
+                hex::encode(sha.finalize().as_slice())
             }
             Command::CompleteMultipartUpload { data, .. } => {
                 let mut sha = Sha256::default();
-                sha.input(data.to_string().as_bytes());
-                hex::encode(sha.result().as_slice())
+                sha.update(data.to_string().as_bytes());
+                hex::encode(sha.finalize().as_slice())
             }
             _ => EMPTY_PAYLOAD_SHA.into(),
         }
@@ -238,8 +238,8 @@ impl<'a> Request<'a> {
         let canonical_request = self.presigned_canonical_request(&headers)?;
         let string_to_sign = self.string_to_sign(&canonical_request);
         let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
-        hmac.input(string_to_sign.as_bytes());
-        let signature = hex::encode(hmac.result().code());
+        hmac.update(string_to_sign.as_bytes());
+        let signature = hex::encode(hmac.finalize().into_bytes());
         // let signed_header = signing::signed_header_string(&headers);
         Ok(signature)
     }
@@ -248,8 +248,8 @@ impl<'a> Request<'a> {
         let canonical_request = self.canonical_request(headers);
         let string_to_sign = self.string_to_sign(&canonical_request);
         let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
-        hmac.input(string_to_sign.as_bytes());
-        let signature = hex::encode(hmac.result().code());
+        hmac.update(string_to_sign.as_bytes());
+        let signature = hex::encode(hmac.finalize().into_bytes());
         let signed_header = signing::signed_header_string(headers);
         Ok(signing::authorization_header(
             &self.bucket.access_key().unwrap(),

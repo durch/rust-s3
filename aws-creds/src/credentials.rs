@@ -136,7 +136,7 @@ impl Credentials {
             ],
         )
         .unwrap();
-        let response = reqwest::blocking::get(url.as_str())?;
+        let response = attohttpc::get(url.as_str()).send()?;
         let serde_response =
             serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap();
         // assert!(serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap());
@@ -268,20 +268,23 @@ impl Credentials {
         let resp: HashMap<String, String> =
             match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
                 Ok(credentials_path) => Some(
-                    reqwest::blocking::get(&format!("http://169.254.170.2{}", credentials_path))?
+                    attohttpc::get(&format!("http://169.254.170.2{}", credentials_path))
+                        .send()?
                         .json()?,
                 ),
                 Err(_) => {
                     let resp: HashMap<String, String> =
-                        reqwest::blocking::get("http://169.254.169.254/latest/meta-data/iam/info")?
+                        attohttpc::get("http://169.254.169.254/latest/meta-data/iam/info")
+                            .send()?
                             .json()?;
                     if let Some(arn) = resp.get("InstanceProfileArn") {
                         if let Some(role) = arn.split('/').last() {
                             Some(
-                                reqwest::blocking::get(&format!(
+                                attohttpc::get(&format!(
                             "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
                             role
-                        ))?
+                        ))
+                                .send()?
                                 .json()?,
                             )
                         } else {
