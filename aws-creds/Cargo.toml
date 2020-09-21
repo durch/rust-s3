@@ -26,6 +26,6 @@ serde_derive = "1"
 
 
 [features]
-default = ["rustls-tls"]
+default = ["native-tls"]
 native-tls = ["attohttpc/tls"]
 rustls-tls = ["attohttpc/tls-rustls"]

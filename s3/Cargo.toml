@@ -35,7 +35,7 @@ tokio = {version="0.2", features=["macros", "io-util", "stream"]}
 rand = "0.7"
 simpl = "0.1.0"
 aws-region = "0.22"
-aws-creds = "0.24"
+aws-creds = {version = "0.24", default-features = false}
 log = "0.4"
 percent-encoding = "2"
 async-std = "1"
@@ -47,8 +47,8 @@ cfg-if = "0.1"
 default = ["native-tls"]
 no-verify-ssl = []
 fail-on-err = []
-native-tls = ["reqwest/native-tls"]
-rustls-tls = ["reqwest/rustls-tls"]
+native-tls = ["reqwest/native-tls", "aws-creds/native-tls"]
+rustls-tls = ["reqwest/rustls-tls", "aws-creds/rustls-tls"]
 
 [dev-dependencies]
 tokio = {version="0.2", features=["fs"]}
