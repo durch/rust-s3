@@ -496,9 +496,9 @@ impl<'a> Request<'a> {
             let client = Client::builder().danger_accept_invalid_certs(true);
 
                 cfg_if::cfg_if! {
-                    if #[cfg(feature = "no-verify-ssl")]
+                    if #[cfg(feature = "native-tls")]
                     {
-                        client.danger_accept_invalid_hostnames(true);
+                        let client = client.danger_accept_invalid_hostnames(true);
                     }
 
                 }
