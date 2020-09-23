@@ -59,7 +59,7 @@ Each `GET` method has a `PUT` companion `sync` and `async` methods are generic o
 | `sync`  | [put_object_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_blocking)                                     |
 | `sync`  | [put_object_with_content_type_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_with_content_type_blocking) |
 | `sync`  | [put_object_stream_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_stream_blocking)                       |
-| `tokio` | [tokio_put_object_stream](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.tokio_put_object_stream)                             |
+| `tokio` | :x: [#110](https://github.com/durch/rust-s3/issues) - [tokio_put_object_stream](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.tokio_put_object_stream)                             |
 
 #### List
 
