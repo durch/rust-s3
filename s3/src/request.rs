@@ -211,7 +211,7 @@ impl<'a> Request<'a> {
         let url = Url::parse(&format!(
             "{}{}",
             self.url(true),
-            signing::authorization_query_params_no_sig(
+            &signing::authorization_query_params_no_sig(
                 &self.bucket.access_key().unwrap(),
                 &self.datetime,
                 &self.bucket.region(),

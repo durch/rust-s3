@@ -1450,8 +1450,11 @@ mod test {
         let url = bucket
             .presign_put(s3_path, 86400, Some(custom_headers))
             .unwrap();
+
+        // assert_eq!(url, "");
+
         assert!(url.contains("&custom_header=custom_value"));
-        assert!(url.contains("/test%2Ftest.file?"))
+        assert!(url.contains("/test%2Ftest.file"))
     }
 
     #[test]
