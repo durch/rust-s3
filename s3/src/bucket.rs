@@ -22,6 +22,7 @@ use tokio::io::AsyncWrite as TokioAsyncWrite;
 use reqwest::header::HeaderMap;
 
 use async_std::fs::File;
+use async_std::path::Path;
 
 /// # Example
 /// ```
@@ -335,19 +336,23 @@ impl Bucket {
         Ok(request.tokio_response_data_to_writer_future(writer).await?)
     }
 
-    pub async fn put_object_stream<S: AsRef<str>>(&self, path: &str, s3_path: S) -> Result<u16> {
+    pub async fn put_object_stream(
+        &self,
+        path: impl AsRef<Path>,
+        s3_path: impl AsRef<str>,
+    ) -> Result<u16> {
         let mut file = File::open(path).await?;
-        self._put_object_stream(&mut file, s3_path).await
+        self._put_object_stream(&mut file, s3_path.as_ref()).await
     }
 
-    async fn _put_object_stream<R: AsyncRead + Unpin, S: AsRef<str>>(
+    async fn _put_object_stream<R: AsyncRead + Unpin>(
         &self,
         reader: &mut R,
-        s3_path: S,
+        s3_path: &str,
     ) -> Result<u16> {
         let chunk_size: usize = 5_300_000; // min is 5_242_880;
         let command = Command::InitiateMultipartUpload;
-        let path = format!("{}?uploads", s3_path.as_ref());
+        let path = format!("{}?uploads", s3_path);
         let request = Request::new(self, &path, command);
         let (data, code) = request.response_data_future(false).await?;
         let msg: InitiateMultipartUploadResponse =
@@ -391,7 +396,7 @@ impl Bucket {
                     let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
                     let abort_request = Request::new(self, &abort_path, abort);
                     let (_, _code) = abort_request.response_data_future(false).await?;
-                    self.put_object(s3_path.as_ref(), chunk.as_slice()).await?;
+                    self.put_object(s3_path, chunk.as_slice()).await?;
                     break;
                 } else {
                     part_number += 1;
@@ -512,7 +517,11 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub fn put_object_stream_blocking<S: AsRef<str>>(&self, path: &str, s3_path: S) -> Result<u16> {
+    pub fn put_object_stream_blocking(
+        &self,
+        path: impl AsRef<Path>,
+        s3_path: impl AsRef<str>,
+    ) -> Result<u16> {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.put_object_stream(path, s3_path))?)
     }
