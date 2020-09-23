@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.24.0"
+version = "0.24.1"
 authors = ["Drazen Urch"]
 description = "Tiny Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -23,7 +23,7 @@ base64 = "0.12"
 chrono = "0.4"
 hex = "0.4"
 hmac = "0.9"
-reqwest = {version = "0.10", features = ["json", "stream"]}
+reqwest = {version = "0.10", default-features = false, features = ["json", "stream"]}
 serde_derive = "1"
 serde = "1"
 serde-xml-rs = "0.4"
@@ -35,19 +35,20 @@ tokio = {version="0.2", features=["macros", "io-util", "stream"]}
 rand = "0.7"
 simpl = "0.1.0"
 aws-region = "0.22"
-aws-creds = "0.24"
+aws-creds = { version="0.24.1", default-features = false }
 log = "0.4"
 percent-encoding = "2"
 async-std = "1"
 http = "0.2"
+cfg-if = "0.1"
 
 
 [features]
 default = ["native-tls"]
 no-verify-ssl = []
 fail-on-err = []
-native-tls = ["reqwest/native-tls"]
-rustls-tls = ["reqwest/rustls-tls"]
+native-tls = ["reqwest/native-tls", "aws-creds/native-tls"]
+rustls-tls = ["reqwest/rustls-tls", "aws-creds/rustls-tls"]
 
 [dev-dependencies]
 tokio = {version="0.2", features=["fs"]}
