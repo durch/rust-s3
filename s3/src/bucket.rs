@@ -1453,7 +1453,7 @@ mod test {
 
         // assert_eq!(url, "");
 
-        assert!(url.contains("&custom_header=custom_value"));
+        assert!(url.contains("host%3Bcustom_header"));
         assert!(url.contains("/test%2Ftest.file"))
     }
 

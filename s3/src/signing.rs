@@ -173,24 +173,27 @@ pub fn authorization_query_params_no_sig(
         true,
     );
 
-    let mut query_params = format!(
+    let mut signed_headers = vec!("host".to_string());
+
+    if let Some(custom_headers) = &custom_headers {
+        for k in custom_headers.keys() {
+            signed_headers.push(k.to_string())
+        }
+    }
+
+    let signed_headers_string = uri_encode(&signed_headers.join(";"), true);
+
+    let query_params = format!(
         "?X-Amz-Algorithm=AWS4-HMAC-SHA256\
             &X-Amz-Credential={credentials}\
             &X-Amz-Date={long_date}\
             &X-Amz-Expires={expires}\
-            &X-Amz-SignedHeaders=host",
+            &X-Amz-SignedHeaders={signed_headers}",
         credentials = credentials,
         long_date = datetime.format(LONG_DATETIME).to_string(),
-        expires = expires
+        expires = expires,
+        signed_headers = signed_headers_string
     );
-
-    if let Some(custom_headers) = custom_headers {
-        for (k, v) in custom_headers {
-            if let Some(k) = k {
-                query_params.push_str(&format!("&{}={}", uri_encode(&k.to_string(), true), uri_encode(v.to_str()?, true)))
-            }
-        }
-    }
 
     Ok(query_params)
 }
