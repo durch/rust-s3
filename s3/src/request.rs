@@ -208,6 +208,13 @@ impl<'a> Request<'a> {
     }
 
     fn presigned_url_no_sig(&self, expiry: u32, custom_headers: Option<HeaderMap>) -> Result<Url> {
+        let token = if let Some(security_token) = self.bucket.security_token() {
+            Some(security_token)
+        } else if let Some(session_token) = self.bucket.session_token() {
+            Some(session_token)
+        } else {
+            None
+        };
         let url = Url::parse(&format!(
             "{}{}",
             self.url(true),
@@ -216,7 +223,8 @@ impl<'a> Request<'a> {
                 &self.datetime,
                 &self.bucket.region(),
                 expiry,
-                custom_headers
+                custom_headers,
+                token
             )?
         ))?;
 

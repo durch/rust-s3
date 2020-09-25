@@ -167,6 +167,7 @@ pub fn authorization_query_params_no_sig(
     region: &Region,
     expires: u32,
     custom_headers: Option<HeaderMap>,
+    token: Option<&str>
 ) -> Result<String> {
     let credentials = uri_encode(
         &format!("{}/{}", access_key, scope_string(datetime, region)),
@@ -183,7 +184,7 @@ pub fn authorization_query_params_no_sig(
 
     let signed_headers_string = uri_encode(&signed_headers.join(";"), true);
 
-    let query_params = format!(
+    let mut query_params = format!(
         "?X-Amz-Algorithm=AWS4-HMAC-SHA256\
             &X-Amz-Credential={credentials}\
             &X-Amz-Date={long_date}\
@@ -194,6 +195,10 @@ pub fn authorization_query_params_no_sig(
         expires = expires,
         signed_headers = signed_headers_string
     );
+
+    if let Some(token) = token {
+        query_params.push_str(&format!("&X-Amz-Security-Token={}", uri_encode(token, true)))
+    }
 
     Ok(query_params)
 }
