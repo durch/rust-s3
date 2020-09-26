@@ -9,6 +9,7 @@ use hmac::{Hmac, Mac, NewMac};
 use reqwest::header::HeaderMap;
 use sha2::{Digest, Sha256};
 use url::Url;
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 
 use crate::Result;
 use awsregion::Region;
@@ -18,27 +19,37 @@ const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
 
 pub type HmacSha256 = Hmac<Sha256>;
 
+pub const FRAGMENT: &AsciiSet = &CONTROLS
+        .add(b' ')
+        .add(b'!')
+        .add(b'#')
+        .add(b'$')
+        .add(b'%')
+        .add(b'&')
+        .add(b'\'')
+        .add(b'(')
+        .add(b')')
+        .add(b'*')
+        .add(b'+')
+        .add(b',')
+        .add(b':')
+        .add(b';')
+        .add(b'=')
+        .add(b'?')
+        .add(b'@')
+        .add(b'[')
+        .add(b']');
+
+pub const FRAGMENT_SLASH: &AsciiSet = &FRAGMENT.add(b'/');
+
 /// Encode a URI following the specific requirements of the AWS service.
 // TODO replace with percent_encoding crate
 pub fn uri_encode(string: &str, encode_slash: bool) -> String {
-    let mut result = String::with_capacity(string.len() * 2);
-    for c in string.chars() {
-        match c {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' | '~' | '.' => result.push(c),
-            '/' if encode_slash => result.push_str("%2F"),
-            '/' if !encode_slash => result.push('/'),
-            _ => {
-                result.push('%');
-                result.push_str(
-                    &format!("{}", c)
-                        .bytes()
-                        .map(|b| format!("{:02X}", b))
-                        .collect::<String>(),
-                );
-            }
-        }
+    if encode_slash {
+        utf8_percent_encode(string, FRAGMENT_SLASH).to_string()
+    } else {
+        utf8_percent_encode(string, FRAGMENT).to_string()
     }
-    result
 }
 
 /// Generate a canonical URI string from the given URL.
