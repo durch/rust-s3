@@ -6,10 +6,10 @@ use std::str;
 
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac, NewMac};
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use reqwest::header::HeaderMap;
 use sha2::{Digest, Sha256};
 use url::Url;
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 
 use crate::Result;
 use awsregion::Region;
@@ -19,31 +19,42 @@ const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
 
 pub type HmacSha256 = Hmac<Sha256>;
 
+// https://perishablepress.com/stop-using-unsafe-characters-in-urls/
 pub const FRAGMENT: &AsciiSet = &CONTROLS
-        .add(b' ')
-        .add(b'!')
-        .add(b'#')
-        .add(b'$')
-        .add(b'%')
-        .add(b'&')
-        .add(b'\'')
-        .add(b'(')
-        .add(b')')
-        .add(b'*')
-        .add(b'+')
-        .add(b',')
-        .add(b':')
-        .add(b';')
-        .add(b'=')
-        .add(b'?')
-        .add(b'@')
-        .add(b'[')
-        .add(b']');
+    // URL_RESERVED    
+    .add(b':')
+    .add(b'?')
+    .add(b'#')
+    .add(b'[')
+    .add(b']')
+    .add(b'@')
+    .add(b'!')
+    .add(b'$')
+    .add(b'&')
+    .add(b'\'')
+    .add(b'(')
+    .add(b')')
+    .add(b'*')
+    .add(b'+')
+    .add(b',')
+    .add(b';')
+    .add(b'=')
+    // URL_UNSAFE
+    .add(b'"')
+    .add(b' ')
+    .add(b'<')
+    .add(b'>')
+    .add(b'%')
+    .add(b'{')
+    .add(b'}')
+    .add(b'|')
+    .add(b'\\')
+    .add(b'^')
+    .add(b'`');
 
 pub const FRAGMENT_SLASH: &AsciiSet = &FRAGMENT.add(b'/');
 
 /// Encode a URI following the specific requirements of the AWS service.
-// TODO replace with percent_encoding crate
 pub fn uri_encode(string: &str, encode_slash: bool) -> String {
     if encode_slash {
         utf8_percent_encode(string, FRAGMENT_SLASH).to_string()
@@ -178,14 +189,14 @@ pub fn authorization_query_params_no_sig(
     region: &Region,
     expires: u32,
     custom_headers: Option<HeaderMap>,
-    token: Option<&str>
+    token: Option<&str>,
 ) -> Result<String> {
     let credentials = uri_encode(
         &format!("{}/{}", access_key, scope_string(datetime, region)),
         true,
     );
 
-    let mut signed_headers = vec!("host".to_string());
+    let mut signed_headers = vec!["host".to_string()];
 
     if let Some(custom_headers) = &custom_headers {
         for k in custom_headers.keys() {
@@ -208,7 +219,10 @@ pub fn authorization_query_params_no_sig(
     );
 
     if let Some(token) = token {
-        query_params.push_str(&format!("&X-Amz-Security-Token={}", uri_encode(token, true)))
+        query_params.push_str(&format!(
+            "&X-Amz-Security-Token={}",
+            uri_encode(token, true)
+        ))
     }
 
     Ok(query_params)
