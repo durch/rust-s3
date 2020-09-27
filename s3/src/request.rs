@@ -65,13 +65,23 @@ impl<'a> Request<'a> {
     pub fn presigned(&self) -> Result<String> {
         let expiry = match self.command {
             Command::PresignGet { expiry_secs } => expiry_secs,
-            Command::PresignPut { expiry_secs } => expiry_secs,
+            Command::PresignPut { expiry_secs, .. } => expiry_secs,
             _ => unreachable!(),
         };
-        let authorization = self.presigned_authorization()?;
+        let custom_headers = match &self.command {
+            Command::PresignPut {custom_headers, .. } => {
+                if let Some(custom_headers) = custom_headers {
+                    Some(custom_headers.clone())
+                } else {
+                    None
+                }
+            },
+            _ => None  
+        };
+        let authorization = self.presigned_authorization(custom_headers.clone())?;
         Ok(format!(
             "{}&X-Amz-Signature={}",
-            self.presigned_url_no_sig(expiry)?,
+            self.presigned_url_no_sig(expiry, custom_headers)?,
             authorization
         ))
     }
@@ -83,14 +93,24 @@ impl<'a> Request<'a> {
         })
     }
 
-    fn url(&self) -> Url {
+    fn url(&self, encode_path: bool) -> Url {
         let mut url_str = self.bucket.url();
 
-        if !self.path.starts_with('/') {
-            url_str.push_str("/");
-        }
+        let path = if self.path.starts_with('/') {
+            &self.path[1..]
+        } else {
+            &self.path[..]
+        };
 
-        url_str.push_str(self.path);
+
+        url_str.push_str("/");
+
+        if encode_path {
+            url_str.push_str(&signing::uri_encode(path, true));
+        } else {
+            url_str.push_str(path);
+        }
+    
 
         // Since every part of this URL is either pre-encoded or statically
         // generated, there's really no way this should fail.
@@ -181,34 +201,57 @@ impl<'a> Request<'a> {
     fn canonical_request(&self, headers: &HeaderMap) -> String {
         signing::canonical_request(
             self.command.http_verb().as_str(),
-            &self.url(),
+            &self.url(false),
             headers,
             &self.sha256(),
         )
     }
 
-    fn presigned_url_no_sig(&self, expiry: u32) -> Result<Url> {
-        Ok(Url::parse(&format!(
+    fn presigned_url_no_sig(&self, expiry: u32, custom_headers: Option<HeaderMap>) -> Result<Url> {
+        let token = if let Some(security_token) = self.bucket.security_token() {
+            Some(security_token)
+        } else if let Some(session_token) = self.bucket.session_token() {
+            Some(session_token)
+        } else {
+            None
+        };
+        let url = Url::parse(&format!(
             "{}{}",
-            self.url(),
-            signing::authorization_query_params_no_sig(
+            self.url(true),
+            &signing::authorization_query_params_no_sig(
                 &self.bucket.access_key().unwrap(),
                 &self.datetime,
                 &self.bucket.region(),
-                expiry
-            )
-        ))?)
+                expiry,
+                custom_headers,
+                token
+            )?
+        ))?;
+
+        Ok(url)
     }
 
     fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String> {
         let expiry = match self.command {
             Command::PresignGet { expiry_secs } => expiry_secs,
-            Command::PresignPut { expiry_secs } => expiry_secs,
+            Command::PresignPut { expiry_secs, .. } => expiry_secs,
             _ => unreachable!(),
         };
+
+        let custom_headers = match &self.command {
+            Command::PresignPut {custom_headers, ..} => {
+                if let Some(custom_headers) = custom_headers {
+                    Some(custom_headers.clone())
+                } else {
+                    None
+                }
+            },
+            _ => None
+        };
+
         let canonical_request = signing::canonical_request(
             self.command.http_verb().as_str(),
-            &self.presigned_url_no_sig(expiry)?,
+            &self.presigned_url_no_sig(expiry, custom_headers)?,
             headers,
             "UNSIGNED-PAYLOAD",
         );
@@ -231,10 +274,17 @@ impl<'a> Request<'a> {
         )?)
     }
 
-    fn presigned_authorization(&self) -> Result<String> {
+    fn presigned_authorization(&self, custom_headers: Option<HeaderMap>) -> Result<String> {
         let mut headers = HeaderMap::new();
         let host_header = self.host_header()?;
         headers.insert(header::HOST, host_header);
+        if let Some(custom_headers) = custom_headers {
+            for (k, v) in custom_headers.into_iter() {
+                if let Some(k) = k {
+                    headers.insert(k, v);
+                }
+            }
+        }
         let canonical_request = self.presigned_canonical_request(&headers)?;
         let string_to_sign = self.string_to_sign(&canonical_request);
         let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
@@ -510,7 +560,7 @@ impl<'a> Request<'a> {
         };
 
         let request = client
-            .request(self.command.http_verb(), self.url().as_str())
+            .request(self.command.http_verb(), self.url(false).as_str())
             .headers(headers.to_owned())
             .body(content.to_owned());
 
@@ -602,7 +652,7 @@ mod tests {
         let path = "/my-first/path";
         let request = Request::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url().scheme(), "https");
+        assert_eq!(request.url(false).scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -618,7 +668,7 @@ mod tests {
         let path = "/my-first/path";
         let request = Request::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url().scheme(), "https");
+        assert_eq!(request.url(false).scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -634,7 +684,7 @@ mod tests {
         let path = "/my-second/path";
         let request = Request::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url().scheme(), "http");
+        assert_eq!(request.url(false).scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -649,7 +699,7 @@ mod tests {
         let path = "/my-second/path";
         let request = Request::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url().scheme(), "http");
+        assert_eq!(request.url(false).scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();

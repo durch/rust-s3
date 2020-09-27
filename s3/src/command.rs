@@ -1,5 +1,6 @@
 use crate::serde_types::CompleteMultipartUploadData;
 use reqwest::Method;
+use reqwest::header::HeaderMap;
 
 #[derive(Clone, Debug)]
 pub enum Command<'a> {
@@ -28,6 +29,7 @@ pub enum Command<'a> {
     },
     PresignPut {
         expiry_secs: u32,
+        custom_headers: Option<HeaderMap>
     },
     InitiateMultipartUpload,
     UploadPart {

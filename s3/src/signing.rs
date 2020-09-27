@@ -6,6 +6,7 @@ use std::str;
 
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac, NewMac};
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use reqwest::header::HeaderMap;
 use sha2::{Digest, Sha256};
 use url::Url;
@@ -18,27 +19,48 @@ const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
 
 pub type HmacSha256 = Hmac<Sha256>;
 
+// https://perishablepress.com/stop-using-unsafe-characters-in-urls/
+pub const FRAGMENT: &AsciiSet = &CONTROLS
+    // URL_RESERVED
+    .add(b':')
+    .add(b'?')
+    .add(b'#')
+    .add(b'[')
+    .add(b']')
+    .add(b'@')
+    .add(b'!')
+    .add(b'$')
+    .add(b'&')
+    .add(b'\'')
+    .add(b'(')
+    .add(b')')
+    .add(b'*')
+    .add(b'+')
+    .add(b',')
+    .add(b';')
+    .add(b'=')
+    // URL_UNSAFE
+    .add(b'"')
+    .add(b' ')
+    .add(b'<')
+    .add(b'>')
+    .add(b'%')
+    .add(b'{')
+    .add(b'}')
+    .add(b'|')
+    .add(b'\\')
+    .add(b'^')
+    .add(b'`');
+
+pub const FRAGMENT_SLASH: &AsciiSet = &FRAGMENT.add(b'/');
+
 /// Encode a URI following the specific requirements of the AWS service.
-// TODO replace with percent_encoding crate
 pub fn uri_encode(string: &str, encode_slash: bool) -> String {
-    let mut result = String::with_capacity(string.len() * 2);
-    for c in string.chars() {
-        match c {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' | '~' | '.' => result.push(c),
-            '/' if encode_slash => result.push_str("%2F"),
-            '/' if !encode_slash => result.push('/'),
-            _ => {
-                result.push('%');
-                result.push_str(
-                    &format!("{}", c)
-                        .bytes()
-                        .map(|b| format!("{:02X}", b))
-                        .collect::<String>(),
-                );
-            }
-        }
+    if encode_slash {
+        utf8_percent_encode(string, FRAGMENT_SLASH).to_string()
+    } else {
+        utf8_percent_encode(string, FRAGMENT).to_string()
     }
-    result
 }
 
 /// Generate a canonical URI string from the given URL.
@@ -166,18 +188,44 @@ pub fn authorization_query_params_no_sig(
     datetime: &DateTime<Utc>,
     region: &Region,
     expires: u32,
-) -> String {
-    format!(
+    custom_headers: Option<HeaderMap>,
+    token: Option<&str>,
+) -> Result<String> {
+    let credentials = uri_encode(
+        &format!("{}/{}", access_key, scope_string(datetime, region)),
+        true,
+    );
+
+    let mut signed_headers = vec!["host".to_string()];
+
+    if let Some(custom_headers) = &custom_headers {
+        for k in custom_headers.keys() {
+            signed_headers.push(k.to_string())
+        }
+    }
+
+    let signed_headers_string = uri_encode(&signed_headers.join(";"), true);
+
+    let mut query_params = format!(
         "?X-Amz-Algorithm=AWS4-HMAC-SHA256\
-            &X-Amz-Credential={access_key}/{scope}\
+            &X-Amz-Credential={credentials}\
             &X-Amz-Date={long_date}\
             &X-Amz-Expires={expires}\
-            &X-Amz-SignedHeaders=host",
-        access_key = access_key,
-        scope = scope_string(datetime, region),
+            &X-Amz-SignedHeaders={signed_headers}",
+        credentials = credentials,
         long_date = datetime.format(LONG_DATETIME).to_string(),
-        expires = expires
-    )
+        expires = expires,
+        signed_headers = signed_headers_string
+    );
+
+    if let Some(token) = token {
+        query_params.push_str(&format!(
+            "&X-Amz-Security-Token={}",
+            uri_encode(token, true)
+        ))
+    }
+
+    Ok(query_params)
 }
 
 #[cfg(test)]
@@ -323,5 +371,10 @@ mod tests {
         let deserialized: ListBucketResult =
             serde_xml::from_reader(result_string.as_bytes()).expect("Parse error!");
         assert!(deserialized.is_truncated);
+    }
+
+    #[test]
+    fn test_uri_encode() {
+        assert_eq!(uri_encode(r#"~!@#$%^&*()-_=+[]\{}|;:'",.<>? привет 你好"#, true), "~%21%40%23%24%25%5E%26%2A%28%29-_%3D%2B%5B%5D%5C%7B%7D%7C%3B%3A%27%22%2C.%3C%3E%3F%20%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82%20%E4%BD%A0%E5%A5%BD");
     }
 }

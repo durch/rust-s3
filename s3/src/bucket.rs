@@ -14,10 +14,12 @@ use crate::{Result, S3Error};
 use awscreds::Credentials;
 use awsregion::Region;
 
+use futures::io::{AsyncRead, AsyncReadExt};
 use tokio::io::AsyncRead as TokioAsyncRead;
-use tokio::io::AsyncWrite as TokioAsyncWrite;
 use tokio::io::AsyncReadExt as TokioAsyncReadExt;
-use futures::io::{AsyncReadExt, AsyncRead};
+use tokio::io::AsyncWrite as TokioAsyncWrite;
+
+use reqwest::header::HeaderMap;
 
 use async_std::fs::File;
 
@@ -94,12 +96,30 @@ impl Bucket {
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    /// let url = bucket.presign_put("/test.file", 86400).unwrap();
+    /// let mut custom_headers = reqwest::header::HeaderMap::new();
+    /// custom_headers.insert(
+    ///    reqwest::header::HeaderName::from_static("custom_header"),
+    ///    reqwest::header::HeaderValue::from_str("custom_value").unwrap(),
+    /// );
+    ///
+    /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers)).unwrap();
     /// println!("Presigned url: {}", url);
     /// ```
-    pub fn presign_put<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
+    pub fn presign_put<S: AsRef<str>>(
+        &self,
+        path: S,
+        expiry_secs: u32,
+        custom_headers: Option<HeaderMap>,
+    ) -> Result<String> {
         validate_expiry(expiry_secs)?;
-        let request = Request::new(self, path.as_ref(), Command::PresignPut { expiry_secs });
+        let request = Request::new(
+            self,
+            path.as_ref(),
+            Command::PresignPut {
+                expiry_secs,
+                custom_headers,
+            },
+        );
         Ok(request.presigned()?)
     }
     /// Instantiate a new `Bucket`.
@@ -235,7 +255,11 @@ impl Bucket {
     /// let code = bucket.get_object_stream_blocking("/test.file", &mut output_file).unwrap();
     /// println!("Code: {}", code);
     /// ```
-    pub fn get_object_stream_blocking<T: std::io::Write>(&self, path: &str, writer: &mut T) -> Result<u16> {
+    pub fn get_object_stream_blocking<T: std::io::Write>(
+        &self,
+        path: &str,
+        writer: &mut T,
+    ) -> Result<u16> {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.get_object_stream(path, writer))?)
     }
@@ -367,11 +391,7 @@ impl Bucket {
                     let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
                     let abort_request = Request::new(self, &abort_path, abort);
                     let (_, _code) = abort_request.response_data_future(false).await?;
-                    self.put_object(
-                        s3_path.as_ref(),
-                        chunk.as_slice(),
-                    )
-                    .await?;
+                    self.put_object(s3_path.as_ref(), chunk.as_slice()).await?;
                     break;
                 } else {
                     part_number += 1;
@@ -492,11 +512,7 @@ impl Bucket {
     ///     Ok(())
     /// }
     /// ```
-    pub fn put_object_stream_blocking<S: AsRef<str>>(
-        &self,
-        path: &str,
-        s3_path: S,
-    ) -> Result<u16> {
+    pub fn put_object_stream_blocking<S: AsRef<str>>(&self, path: &str, s3_path: S) -> Result<u16> {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.put_object_stream(path, s3_path))?)
     }
@@ -693,7 +709,8 @@ impl Bucket {
         path: S,
         content: &[u8],
     ) -> Result<(Vec<u8>, u16)> {
-        self.put_object_with_content_type(path, content, "application/octet-stream").await
+        self.put_object_with_content_type(path, content, "application/octet-stream")
+            .await
     }
 
     /// Put into an S3 bucket, blocks.
@@ -726,7 +743,6 @@ impl Bucket {
         Ok(rt.block_on(self.put_object(path, content))?)
     }
 
-
     /// Put into an S3 bucket, blocks.
     ///
     /// # Example
@@ -757,7 +773,6 @@ impl Bucket {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.put_object_with_content_type(path, content, content_type))?)
     }
-
 
     fn _tags_xml<S: AsRef<str>>(&self, tags: &[(S, S)]) -> String {
         let mut s = String::new();
@@ -1309,7 +1324,7 @@ mod test {
     use std::fs::File;
     use std::io::prelude::*;
 
-    fn test_credentials() -> Credentials{
+    fn test_credentials() -> Credentials {
         Credentials::new(
             Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
             Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
@@ -1321,7 +1336,12 @@ mod test {
     }
 
     fn test_bucket() -> Bucket {
-        Bucket::new("rust-s3-test", "eu-central-1".parse().unwrap(), test_credentials()).unwrap()
+        Bucket::new(
+            "rust-s3-test",
+            "eu-central-1".parse().unwrap(),
+            test_credentials(),
+        )
+        .unwrap()
     }
 
     fn object(size: i32) -> Vec<u8> {
@@ -1375,7 +1395,9 @@ mod test {
             .unwrap();
         assert_eq!(code, 200);
         assert_eq!(test, writer);
-        let (_, code) = bucket.delete_object_blocking("/stream_test_big_blocking.file").unwrap();
+        let (_, code) = bucket
+            .delete_object_blocking("/stream_test_big_blocking.file")
+            .unwrap();
         assert_eq!(code, 204);
         std::fs::remove_file(path).unwrap_or_else(|_| {});
     }
@@ -1386,16 +1408,10 @@ mod test {
         let bucket = test_bucket();
         let test: Vec<u8> = object(3072);
 
-        let (_data, code) = bucket
-            .put_object(s3_path, &test)
-            .await
-            .unwrap();
+        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(code, 200);
-        let (data, code) = bucket
-            .get_object(s3_path)
-            .await
-            .unwrap();
+        let (data, code) = bucket.get_object(s3_path).await.unwrap();
         assert_eq!(code, 200);
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test, data);
@@ -1409,18 +1425,52 @@ mod test {
         let bucket = test_bucket();
         let test: Vec<u8> = object(3072);
 
-        let (_data, code) = bucket
-            .put_object_blocking(s3_path, &test)
-            .unwrap();
+        let (_data, code) = bucket.put_object_blocking(s3_path, &test).unwrap();
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(code, 200);
-        let (data, code) = bucket
-            .get_object_blocking(s3_path)
-            .unwrap();
+        let (data, code) = bucket.get_object_blocking(s3_path).unwrap();
         assert_eq!(code, 200);
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test, data);
         let (_, code) = bucket.delete_object_blocking(s3_path).unwrap();
         assert_eq!(code, 204);
+    }
+
+    #[test]
+    fn test_presign_put() {
+        let s3_path = "/test/test.file";
+        let bucket = test_bucket();
+
+        let mut custom_headers = reqwest::header::HeaderMap::new();
+        custom_headers.insert(
+            reqwest::header::HeaderName::from_static("custom_header"),
+            reqwest::header::HeaderValue::from_str("custom_value").unwrap(),
+        );
+
+        let url = bucket
+            .presign_put(s3_path, 86400, Some(custom_headers))
+            .unwrap();
+
+        // assert_eq!(url, "");
+
+        assert!(url.contains("host%3Bcustom_header"));
+        assert!(url.contains("/test%2Ftest.file"))
+    }
+
+    #[test]
+    fn test_presign_get() {
+        let s3_path = "/test/test.file";
+        let bucket = test_bucket();
+
+        let mut custom_headers = reqwest::header::HeaderMap::new();
+        custom_headers.insert(
+            reqwest::header::HeaderName::from_static("custom_header"),
+            reqwest::header::HeaderValue::from_str("custom_value").unwrap(),
+        );
+
+        let url = bucket
+            .presign_get(s3_path, 86400)
+            .unwrap();
+        assert!(url.contains("/test%2Ftest.file?"))
     }
 }
