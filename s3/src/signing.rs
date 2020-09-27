@@ -21,7 +21,7 @@ pub type HmacSha256 = Hmac<Sha256>;
 
 // https://perishablepress.com/stop-using-unsafe-characters-in-urls/
 pub const FRAGMENT: &AsciiSet = &CONTROLS
-    // URL_RESERVED    
+    // URL_RESERVED
     .add(b':')
     .add(b'?')
     .add(b'#')
@@ -371,5 +371,10 @@ mod tests {
         let deserialized: ListBucketResult =
             serde_xml::from_reader(result_string.as_bytes()).expect("Parse error!");
         assert!(deserialized.is_truncated);
+    }
+
+    #[test]
+    fn test_uri_encode() {
+        assert_eq!(uri_encode(r#"~!@#$%^&*()-_=+[]\{}|;:'",.<>? привет 你好"#, true), "~%21%40%23%24%25%5E%26%2A%28%29-_%3D%2B%5B%5D%5C%7B%7D%7C%3B%3A%27%22%2C.%3C%3E%3F%20%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82%20%E4%BD%A0%E5%A5%BD");
     }
 }
