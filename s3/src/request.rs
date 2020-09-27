@@ -543,10 +543,17 @@ impl<'a> Request<'a> {
         };
 
         let client = if cfg!(feature = "no-verify-ssl") {
-            Client::builder()
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true)
-                .build()
+            let client = Client::builder().danger_accept_invalid_certs(true);
+
+                cfg_if::cfg_if! {
+                    if #[cfg(feature = "native-tls")]
+                    {
+                        let client = client.danger_accept_invalid_hostnames(true);
+                    }
+
+                }
+
+                client.build()
                 .expect("Could not build dangerous client!")
         } else {
             Client::new()
