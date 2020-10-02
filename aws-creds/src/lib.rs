@@ -8,7 +8,7 @@ simpl::err!(AwsCredsError, {
     Utf8@std::str::Utf8Error;
     Reqwest@attohttpc::Error;
     Env@std::env::VarError;
-    Ini@ini::ini::Error;
+    Ini@ini::Error;
     Io@std::io::Error;
 });
 

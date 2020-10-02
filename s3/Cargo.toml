@@ -19,7 +19,7 @@ name = "simple_crud"
 path = "bin/simple_crud.rs"
 
 [dependencies]
-base64 = "0.12"
+base64 = "0.13.0"
 chrono = "0.4"
 hex = "0.4"
 hmac = "0.9"
