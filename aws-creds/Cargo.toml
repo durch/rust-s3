@@ -17,7 +17,7 @@ path = "src/lib.rs"
 [dependencies]
 simpl = "0.1.0"
 dirs = "3"
-rust-ini = "0.15"
+rust-ini = "0.16.0"
 attohttpc = { version = "0.15", default-features = false, features = ["json"] }
 url = "2"
 serde-xml-rs = "0.4"
