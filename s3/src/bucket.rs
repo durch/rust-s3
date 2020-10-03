@@ -1329,11 +1329,12 @@ mod test {
 
     use crate::bucket::Bucket;
     use crate::creds::Credentials;
+    use crate::region::Region;
     use std::env;
     use std::fs::File;
     use std::io::prelude::*;
 
-    fn test_credentials() -> Credentials {
+    fn test_aws_credentials() -> Credentials {
         Credentials::new(
             Some(&env::var("EU_AWS_ACCESS_KEY_ID").unwrap()),
             Some(&env::var("EU_AWS_SECRET_ACCESS_KEY").unwrap()),
@@ -1344,11 +1345,34 @@ mod test {
         .unwrap()
     }
 
-    fn test_bucket() -> Bucket {
-        Bucket::new(
+    fn test_gc_credentials() -> Credentials {
+        Credentials::new(
+            Some(&env::var("GC_ACCESS_KEY_ID").unwrap()),
+            Some(&env::var("GC_SECRET_ACCESS_KEY").unwrap()),
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+    }
+
+    fn test_aws_bucket() -> Bucket {
+        Bucket::new_with_path_style(
             "rust-s3-test",
             "eu-central-1".parse().unwrap(),
-            test_credentials(),
+            test_aws_credentials(),
+        )
+        .unwrap()
+    }
+
+    fn test_gc_bucket() -> Bucket {
+        Bucket::new(
+            "rust-s3",
+            Region::Custom {
+                region: "us-east1".to_owned(),
+                endpoint: "https://storage.googleapis.com".to_owned(),
+            },
+            test_gc_credentials(),
         )
         .unwrap()
     }
@@ -1361,7 +1385,7 @@ mod test {
     async fn streaming_test_put_get_delete_big_object() {
         let path = "stream_test_big";
         std::fs::remove_file(path).unwrap_or_else(|_| {});
-        let bucket = test_bucket();
+        let bucket = test_aws_bucket();
         let test: Vec<u8> = object(6_000_000);
 
         let mut file = File::create(path).unwrap();
@@ -1388,7 +1412,7 @@ mod test {
     fn blocking_streaming_test_put_get_delete_object() {
         let path = "stream_test_big_blocking";
         std::fs::remove_file(path).unwrap_or_else(|_| {});
-        let bucket = test_bucket();
+        let bucket = test_aws_bucket();
         let test: Vec<u8> = object(3072);
 
         let mut file = File::create(path).unwrap();
@@ -1414,7 +1438,24 @@ mod test {
     #[tokio::test]
     async fn test_put_get_delete_object() {
         let s3_path = "/test.file";
-        let bucket = test_bucket();
+        let bucket = test_aws_bucket();
+        let test: Vec<u8> = object(3072);
+
+        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(code, 200);
+        let (data, code) = bucket.get_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test, data);
+        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
+        assert_eq!(code, 204);
+    }
+
+    #[tokio::test]
+    async fn gc_test_put_get_delete_object() {
+        let s3_path = "/test.file";
+        let bucket = test_gc_bucket();
         let test: Vec<u8> = object(3072);
 
         let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
@@ -1431,7 +1472,7 @@ mod test {
     #[test]
     fn test_put_get_delete_object_blocking() {
         let s3_path = "/test_blocking.file";
-        let bucket = test_bucket();
+        let bucket = test_aws_bucket();
         let test: Vec<u8> = object(3072);
 
         let (_data, code) = bucket.put_object_blocking(s3_path, &test).unwrap();
@@ -1448,7 +1489,7 @@ mod test {
     #[test]
     fn test_presign_put() {
         let s3_path = "/test/test.file";
-        let bucket = test_bucket();
+        let bucket = test_aws_bucket();
 
         let mut custom_headers = reqwest::header::HeaderMap::new();
         custom_headers.insert(
@@ -1469,7 +1510,7 @@ mod test {
     #[test]
     fn test_presign_get() {
         let s3_path = "/test/test.file";
-        let bucket = test_bucket();
+        let bucket = test_aws_bucket();
 
         let mut custom_headers = reqwest::header::HeaderMap::new();
         custom_headers.insert(
