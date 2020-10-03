@@ -1356,11 +1356,32 @@ mod test {
         .unwrap()
     }
 
+    fn test_wasabi_credentials() -> Credentials {
+        Credentials::new(
+            Some(&env::var("WASABI_ACCESS_KEY_ID").unwrap()),
+            Some(&env::var("WASABI_SECRET_ACCESS_KEY").unwrap()),
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+    }
+
     fn test_aws_bucket() -> Bucket {
-        Bucket::new_with_path_style(
+        Bucket::new(
             "rust-s3-test",
             "eu-central-1".parse().unwrap(),
             test_aws_credentials(),
+        )
+        .unwrap()
+    }
+
+
+    fn test_wasabi_bucket() -> Bucket {
+        Bucket::new(
+            "rust-s3",
+            "wa-eu-central-1".parse().unwrap(),
+            test_wasabi_credentials(),
         )
         .unwrap()
     }
@@ -1456,6 +1477,24 @@ mod test {
     async fn gc_test_put_get_delete_object() {
         let s3_path = "/test.file";
         let bucket = test_gc_bucket();
+        let test: Vec<u8> = object(3072);
+
+        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(code, 200);
+        let (data, code) = bucket.get_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test, data);
+        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
+        assert_eq!(code, 204);
+    }
+
+
+    #[tokio::test]
+    async fn wasabi_test_put_get_delete_object() {
+        let s3_path = "/test.file";
+        let bucket = test_wasabi_bucket();
         let test: Vec<u8> = object(3072);
 
         let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
