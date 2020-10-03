@@ -1403,6 +1403,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn streaming_test_put_get_delete_big_object() {
         let path = "stream_test_big";
         std::fs::remove_file(path).unwrap_or_else(|_| {});
@@ -1430,6 +1431,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn blocking_streaming_test_put_get_delete_object() {
         let path = "stream_test_big_blocking";
         std::fs::remove_file(path).unwrap_or_else(|_| {});
@@ -1457,6 +1459,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_put_get_delete_object() {
         let s3_path = "/test.file";
         let bucket = test_aws_bucket();
@@ -1474,6 +1477,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn gc_test_put_get_delete_object() {
         let s3_path = "/test.file";
         let bucket = test_gc_bucket();
@@ -1492,6 +1496,7 @@ mod test {
 
 
     #[tokio::test]
+    #[ignore]
     async fn wasabi_test_put_get_delete_object() {
         let s3_path = "/test.file";
         let bucket = test_wasabi_bucket();
@@ -1509,6 +1514,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_put_get_delete_object_blocking() {
         let s3_path = "/test_blocking.file";
         let bucket = test_aws_bucket();
@@ -1526,6 +1532,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_presign_put() {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
@@ -1547,6 +1554,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_presign_get() {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();

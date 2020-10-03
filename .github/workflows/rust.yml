@@ -12,16 +12,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - name: Clippy
+      - name: clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: Test
+      - name: test --all-features
         run: cargo test --all-features
-        env:
-          EU_AWS_ACCESS_KEY_ID: ${{ secrets.EU_AWS_ACCESS_KEY_ID }}
-          EU_AWS_SECRET_ACCESS_KEY: ${{ secrets.EU_AWS_SECRET_ACCESS_KEY }}
-      - name: Run simple_crud
+      - name: test --ignored
         if: github.repository == 'durch/rust-s3'
         env:
           EU_AWS_ACCESS_KEY_ID: ${{ secrets.EU_AWS_ACCESS_KEY_ID }}
           EU_AWS_SECRET_ACCESS_KEY: ${{ secrets.EU_AWS_SECRET_ACCESS_KEY }}
-        run: cargo run --bin simple_crud
+          GC_ACCESS_KEY_ID: ${{ secrets.GC_ACCESS_KEY_ID }}
+          GC_SECRET_ACCESS_KEY: ${{ secrets.GC_SECRET_ACCESS_KEY }}
+          WASABI_ACCESS_KEY_ID: ${{ secrets.WASABI_ACCESS_KEY_ID }}
+          WASABI_SECRET_ACCESS_KEY: ${{ secrets.WASABI_SECRET_ACCESS_KEY }}
+        run: cargo test -- --ignored
