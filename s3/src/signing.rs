@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::Result;
-use awsregion::Region;
+use crate::region::Region;
 
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";

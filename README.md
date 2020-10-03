@@ -95,7 +95,7 @@ Each `GET` method has a `PUT` companion `sync` and `async` methods are generic o
 
 ```toml
 [dependencies]
-rust-s3 = "0.22.12"
+rust-s3 = "0.26.0"
 ```
 
 #### Features
@@ -104,14 +104,14 @@ rust-s3 = "0.22.12"
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.12", features = ["no-verify-ssl"]}
+rust-s3 = {version = "0.26.0", features = ["no-verify-ssl"]}
 ```
 
 ##### Fail on HTTP error responses
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.12", features = ["fail-on-err"]}
+rust-s3 = {version = "0.26.0", features = ["fail-on-err"]}
 ```
 
 ##### Different SSL backends
@@ -120,5 +120,5 @@ Default is `reqwest/native-tls`, it is possible to switch to `reqwest/rustls-tls
 
 ```toml
 [dependencies]
-rust-s3 = {version = "0.22.12", features = ["rustls-tls"]}
+rust-s3 = {version = "0.26.0", features = ["rustls-tls"]}
 ```

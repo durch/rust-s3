@@ -11,8 +11,8 @@ use crate::serde_types::{
     ListBucketResult, Part, Tagging,
 };
 use crate::{Result, S3Error};
-use awscreds::Credentials;
-use awsregion::Region;
+use crate::creds::Credentials;
+use crate::region::Region;
 
 use futures::io::{AsyncRead, AsyncReadExt};
 use tokio::io::AsyncRead as TokioAsyncRead;
@@ -31,7 +31,7 @@ use async_std::path::Path;
 /// # env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
 /// # env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
 /// use s3::bucket::Bucket;
-/// use awscreds::Credentials;
+/// use s3::creds::Credentials;
 ///
 /// let bucket_name = "rust-s3-test";
 /// let region = "us-east-1".parse().unwrap();
@@ -69,7 +69,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
@@ -90,7 +90,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
@@ -132,7 +132,7 @@ impl Bucket {
     /// # env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
     /// # env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
@@ -194,7 +194,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
@@ -215,7 +215,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
     /// #[tokio::main]
@@ -244,7 +244,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use std::fs::File;
     ///
     /// let bucket_name = "rust-s3-test";
@@ -272,7 +272,7 @@ impl Bucket {
     /// ```rust,no_run
     ///
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     /// use std::fs::File;
     ///
@@ -307,7 +307,7 @@ impl Bucket {
     /// ```rust,no_run
     ///
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     /// use tokio::fs::File;
     /// use tokio::prelude::*;
@@ -460,7 +460,7 @@ impl Bucket {
     /// ```rust,no_run
     ///
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     /// use tokio::prelude::*;
     /// use tokio::fs::File;
@@ -501,7 +501,7 @@ impl Bucket {
     /// ```rust,no_run
     ///
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     /// use std::fs::File;
     ///
@@ -531,7 +531,7 @@ impl Bucket {
     /// # Example
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
     /// #[tokio::main]
@@ -581,7 +581,7 @@ impl Bucket {
     /// # env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
     /// # env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "eu-central-1".parse().unwrap();
@@ -601,7 +601,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
     /// #[tokio::main]
@@ -630,7 +630,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
@@ -651,7 +651,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
     /// #[tokio::main]
@@ -692,7 +692,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
     /// #[tokio::main]
@@ -728,7 +728,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let aws_access = &"access_key";
@@ -758,7 +758,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let aws_access = &"access_key";
@@ -810,7 +810,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
     /// #[tokio::main]
@@ -847,7 +847,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let aws_access = &"access_key";
@@ -876,7 +876,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
     /// #[tokio::main]
@@ -908,7 +908,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let aws_access = &"access_key";
@@ -933,7 +933,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
     /// #[tokio::main]
@@ -982,7 +982,7 @@ impl Bucket {
     ///
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let aws_access = &"access_key";
@@ -1060,7 +1060,7 @@ impl Bucket {
     /// ```rust,no_run
     /// use std::str;
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = &"rust-s3-test";
     /// let aws_access = &"access_key";
@@ -1115,7 +1115,7 @@ impl Bucket {
     /// extern crate futures;
     /// use std::str;
     /// use s3::bucket::Bucket;
-    /// use awscreds::Credentials;
+    /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
     /// #[tokio::main]
@@ -1328,7 +1328,7 @@ impl Bucket {
 mod test {
 
     use crate::bucket::Bucket;
-    use awscreds::Credentials;
+    use crate::creds::Credentials;
     use std::env;
     use std::fs::File;
     use std::io::prelude::*;
