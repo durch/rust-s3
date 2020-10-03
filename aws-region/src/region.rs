@@ -74,6 +74,14 @@ pub enum Region {
     DoSgp1,
     /// Yandex Object Storage
     Yandex,
+    /// Wasabi us-east-1
+    WaUsEast1,
+    /// Wasabi us-east-2
+    WaUsEast2,
+    /// Wasabi us-west-1
+    WaUsWest1,
+    /// Wasabi eu-central-1
+    WaEuCentral1,
     /// Custom region
     Custom { region: String, endpoint: String },
 }
@@ -106,6 +114,10 @@ impl fmt::Display for Region {
             DoAms3 => write!(f, "ams3"),
             DoSgp1 => write!(f, "sgp1"),
             Yandex => write!(f, "ru-central1"),
+            WaUsEast1 => write!(f, "us-east-1"),
+            WaUsEast2 => write!(f, "us-east-2"),
+            WaUsWest1 => write!(f, "us-west-1"),
+            WaEuCentral1 => write!(f, "eu-central-1"),
             Custom { ref region, .. } => write!(f, "{}", region.to_string()),
         }
     }
@@ -142,6 +154,10 @@ impl FromStr for Region {
             "sgp1" => Ok(DoSgp1),
             "yandex" => Ok(Yandex),
             "ru-central1" => Ok(Yandex),
+            "wa-us-east-1" => Ok(WaUsEast1),
+            "wa-us-east-2" => Ok(WaUsEast2),
+            "wa-us-west-1" => Ok(WaUsWest1),
+            "wa-eu-central-1" => Ok(WaEuCentral1),
             x => Ok(Custom {
                 region: x.to_string(),
                 endpoint: x.to_string(),
@@ -180,6 +196,10 @@ impl Region {
             DoAms3 => String::from("ams3.digitaloceanspaces.com"),
             DoSgp1 => String::from("sgp1.digitaloceanspaces.com"),
             Yandex => String::from("storage.yandexcloud.net"),
+            WaUsEast1 => String::from("s3.us-east-1.wasabisys.com"),
+            WaUsEast2 => String::from("s3.us-east-2.wasabisys.com"),
+            WaUsWest1 => String::from("s3.us-west-1.wasabisys.com"),
+            WaEuCentral1 => String::from("s3.eu-central-1.wasabisys.com"),
             Custom { ref endpoint, .. } => endpoint.to_string(),
         }
     }
