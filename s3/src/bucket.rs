@@ -14,7 +14,7 @@ use crate::{Result, S3Error};
 use crate::creds::Credentials;
 use crate::region::Region;
 
-use futures::io::{AsyncRead, AsyncReadExt};
+use futures::io::AsyncRead;
 use tokio::io::AsyncRead as TokioAsyncRead;
 use tokio::io::AsyncReadExt as TokioAsyncReadExt;
 use tokio::io::AsyncWrite as TokioAsyncWrite;
