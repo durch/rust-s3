@@ -5,16 +5,16 @@ use std::mem;
 use tokio::runtime::Runtime;
 
 use crate::command::Command;
+use crate::creds::Credentials;
+use crate::region::Region;
 use crate::request::{Headers, Query, Request};
 use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, InitiateMultipartUploadResponse,
     ListBucketResult, Part, Tagging,
 };
 use crate::{Result, S3Error};
-use crate::creds::Credentials;
-use crate::region::Region;
 
-use futures::io::{AsyncRead, AsyncReadExt};
+use futures::io::AsyncRead;
 use tokio::io::AsyncRead as TokioAsyncRead;
 use tokio::io::AsyncReadExt as TokioAsyncReadExt;
 use tokio::io::AsyncWrite as TokioAsyncWrite;
@@ -23,6 +23,8 @@ use reqwest::header::HeaderMap;
 
 use async_std::fs::File;
 use async_std::path::Path;
+
+pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
 /// # Example
 /// ```
@@ -336,6 +338,7 @@ impl Bucket {
         Ok(request.tokio_response_data_to_writer_future(writer).await?)
     }
 
+    // TODO doctest
     pub async fn put_object_stream(
         &self,
         path: impl AsRef<Path>,
@@ -350,7 +353,6 @@ impl Bucket {
         reader: &mut R,
         s3_path: &str,
     ) -> Result<u16> {
-        let chunk_size: usize = 5_300_000; // min is 5_242_880;
         let command = Command::InitiateMultipartUpload;
         let path = format!("{}?uploads", s3_path);
         let request = Request::new(self, &path, command);
@@ -361,33 +363,9 @@ impl Bucket {
         let mut part_number: u32 = 0;
         let mut etags = Vec::new();
         loop {
-            let mut chunk = Vec::with_capacity(chunk_size);
-            loop {
-                let mut buffer = [0; 5000];
-                let mut take = reader.take(5000);
-                let n = take.read(&mut buffer).await?;
-                if n < 5000 {
-                    buffer.reverse();
-                    let mut trim_buffer = buffer
-                        .iter()
-                        .skip_while(|x| **x == 0)
-                        .copied()
-                        .collect::<Vec<u8>>();
-                    trim_buffer.reverse();
-                    chunk.extend_from_slice(&trim_buffer);
-                    chunk.shrink_to_fit();
-                    break;
-                } else {
-                    chunk.extend_from_slice(&buffer);
-                    if chunk.len() >= chunk_size {
-                        break;
-                    } else {
-                        continue;
-                    }
-                }
-            }
+            let chunk = crate::utils::read_chunk(reader).await?;
 
-            if chunk.len() < chunk_size {
+            if chunk.len() < CHUNK_SIZE {
                 if part_number == 0 {
                     // Files is not big enough for multipart upload, going with regular put_object
                     let abort = Command::AbortMultipartUpload {
@@ -1376,7 +1354,6 @@ mod test {
         .unwrap()
     }
 
-
     fn test_wasabi_bucket() -> Bucket {
         Bucket::new(
             "rust-s3",
@@ -1398,8 +1375,8 @@ mod test {
         .unwrap()
     }
 
-    fn object(size: i32) -> Vec<u8> {
-        (0..size).map(|_| rand::random::<u8>()).collect()
+    fn object(size: u32) -> Vec<u8> {
+        (0..size).map(|_| 33).collect()
     }
 
     #[tokio::test]
@@ -1408,7 +1385,7 @@ mod test {
         let path = "stream_test_big";
         std::fs::remove_file(path).unwrap_or_else(|_| {});
         let bucket = test_aws_bucket();
-        let test: Vec<u8> = object(6_000_000);
+        let test: Vec<u8> = object(10_000_000);
 
         let mut file = File::create(path).unwrap();
         file.write_all(&test).unwrap();
@@ -1494,7 +1471,6 @@ mod test {
         assert_eq!(code, 204);
     }
 
-
     #[tokio::test]
     #[ignore]
     async fn wasabi_test_put_get_delete_object() {
@@ -1565,9 +1541,7 @@ mod test {
             reqwest::header::HeaderValue::from_str("custom_value").unwrap(),
         );
 
-        let url = bucket
-            .presign_get(s3_path, 86400)
-            .unwrap();
+        let url = bucket.presign_get(s3_path, 86400).unwrap();
         assert!(url.contains("/test%2Ftest.file?"))
     }
 }
