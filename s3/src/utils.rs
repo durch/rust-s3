@@ -5,6 +5,7 @@ use futures::io::{AsyncRead, AsyncReadExt};
 use crate::Result;
 
 
+
 pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
     let mut file = File::open(path).await?;
     let mut digests = Vec::new();
@@ -24,12 +25,13 @@ pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
 }
 
 pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R,) -> Result<Vec<u8>> {
+    const LOCAL_CHUNK_SIZE: usize = 8388;
     let mut chunk = Vec::with_capacity(CHUNK_SIZE);
     loop {
-        let mut buffer = [0; 5000];
-        let mut take = reader.take(5000);
+        let mut buffer = [0; LOCAL_CHUNK_SIZE];
+        let mut take = reader.take(LOCAL_CHUNK_SIZE as u64);
         let n = take.read(&mut buffer).await?;
-        if n < 5000 {
+        if n < LOCAL_CHUNK_SIZE {
             buffer.reverse();
             let mut trim_buffer = buffer
                 .iter()
@@ -75,7 +77,7 @@ mod test {
 
         std::fs::remove_file(path).unwrap_or_else(|_| {});
 
-        assert_eq!(etag, "e0eea6e137ee28451311511bfa58cdea-2");
+        assert_eq!(etag, "ae890066cc055c740b3dc3c8854a643b-2");
     }
     
 }
