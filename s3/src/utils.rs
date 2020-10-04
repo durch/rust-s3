@@ -1,11 +1,20 @@
+use crate::bucket::CHUNK_SIZE;
+use crate::Result;
 use async_std::fs::File;
 use async_std::path::Path;
-use crate::bucket::CHUNK_SIZE;
 use futures::io::{AsyncRead, AsyncReadExt};
-use crate::Result;
 
-
-
+/// # Example
+/// ```rust,no_run
+/// use s3::utils::etag_for_path;
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let path = "test_etag";
+///     let etag = etag_for_path(path).await.unwrap();
+///     println!("{}", etag);
+/// }
+/// ```
 pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
     let mut file = File::open(path).await?;
     let mut digests = Vec::new();
@@ -16,15 +25,19 @@ pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
         digests.extend_from_slice(&digest);
         chunks += 1;
         if chunk.len() < CHUNK_SIZE {
-            break
+            break;
         }
     }
     let digest = format!("{:x}", md5::compute(digests));
-    let etag = format!("{}-{}", digest, chunks);
+    let etag = if chunks <= 1 {
+        digest
+    } else {
+        format!("{}-{}", digest, chunks)
+    };
     Ok(etag)
 }
 
-pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R,) -> Result<Vec<u8>> {
+pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>> {
     const LOCAL_CHUNK_SIZE: usize = 8388;
     let mut chunk = Vec::with_capacity(CHUNK_SIZE);
     loop {
@@ -79,5 +92,4 @@ mod test {
 
         assert_eq!(etag, "ae890066cc055c740b3dc3c8854a643b-2");
     }
-    
 }
