@@ -15,6 +15,8 @@ pub mod request;
 pub mod serde_types;
 pub mod signing;
 
+pub mod utils;
+
 simpl::err!(S3Error, {
     Xml@serde_xml::Error;
     Req@reqwest::Error;
