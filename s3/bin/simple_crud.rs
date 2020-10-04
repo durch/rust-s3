@@ -1,4 +1,3 @@
-extern crate rand;
 extern crate s3;
 
 use std::str;
@@ -105,7 +104,7 @@ pub fn main() -> Result<(), S3Error> {
 
         // Test with random byte array
 
-        let random_bytes: Vec<u8> = (0..3072).map(|_| rand::random::<u8>()).collect();
+        let random_bytes: Vec<u8> = (0..3072).map(|_| 33).collect();
         let (_, code) = bucket.put_object_blocking("random.bin", random_bytes.as_slice())?;
         assert_eq!(200, code);
         let (data, code) = bucket.get_object_blocking("random.bin")?;
