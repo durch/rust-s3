@@ -5,14 +5,14 @@ use std::mem;
 use tokio::runtime::Runtime;
 
 use crate::command::Command;
+use crate::creds::Credentials;
+use crate::region::Region;
 use crate::request::{Headers, Query, Request};
 use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, InitiateMultipartUploadResponse,
     ListBucketResult, Part, Tagging,
 };
 use crate::{Result, S3Error};
-use crate::creds::Credentials;
-use crate::region::Region;
 
 use futures::io::AsyncRead;
 use tokio::io::AsyncRead as TokioAsyncRead;
@@ -347,8 +347,6 @@ impl Bucket {
         let mut file = File::open(path).await?;
         self._put_object_stream(&mut file, s3_path.as_ref()).await
     }
-
-
 
     async fn _put_object_stream<R: AsyncRead + Unpin>(
         &self,
@@ -1356,7 +1354,6 @@ mod test {
         .unwrap()
     }
 
-
     fn test_wasabi_bucket() -> Bucket {
         Bucket::new(
             "rust-s3",
@@ -1474,7 +1471,6 @@ mod test {
         assert_eq!(code, 204);
     }
 
-
     #[tokio::test]
     #[ignore]
     async fn wasabi_test_put_get_delete_object() {
@@ -1545,9 +1541,7 @@ mod test {
             reqwest::header::HeaderValue::from_str("custom_value").unwrap(),
         );
 
-        let url = bucket
-            .presign_get(s3_path, 86400)
-            .unwrap();
+        let url = bucket.presign_get(s3_path, 86400).unwrap();
         assert!(url.contains("/test%2Ftest.file?"))
     }
 }
