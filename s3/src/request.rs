@@ -96,10 +96,7 @@ impl<'a> Request<'a> {
     fn url(&self, encode_path: bool) -> Url {
         let mut url_str = self.bucket.url();
 
-        match self.command {
-            Command::CreateBucket { .. } => return Url::parse(&url_str).unwrap(),
-            _ => {}
-        }
+        if let Command::CreateBucket { .. } = self.command { return Url::parse(&url_str).unwrap() }
 
         let path = if self.path.starts_with('/') {
             &self.path[1..]
