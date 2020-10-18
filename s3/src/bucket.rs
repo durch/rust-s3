@@ -136,6 +136,10 @@ impl Bucket {
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), S3Error> {
+    ///     # // Fake  credentials so we don't access user's real credentials in tests
+    ///     # use std::env;
+    ///     # env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
+    ///     # env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
     ///     let bucket_name = "rust-s3-test";
     ///     let region = "us-east-1".parse().unwrap();
     ///     let credentials = Credentials::default().unwrap();
