@@ -69,14 +69,14 @@ impl<'a> Request<'a> {
             _ => unreachable!(),
         };
         let custom_headers = match &self.command {
-            Command::PresignPut {custom_headers, .. } => {
+            Command::PresignPut { custom_headers, .. } => {
                 if let Some(custom_headers) = custom_headers {
                     Some(custom_headers.clone())
                 } else {
                     None
                 }
-            },
-            _ => None  
+            }
+            _ => None,
         };
         let authorization = self.presigned_authorization(custom_headers.clone())?;
         Ok(format!(
@@ -96,12 +96,16 @@ impl<'a> Request<'a> {
     fn url(&self, encode_path: bool) -> Url {
         let mut url_str = self.bucket.url();
 
+        match self.command {
+            Command::CreateBucket { .. } => return Url::parse(&url_str).unwrap(),
+            _ => {}
+        }
+
         let path = if self.path.starts_with('/') {
             &self.path[1..]
         } else {
             &self.path[..]
         };
-
 
         url_str.push_str("/");
 
@@ -110,7 +114,6 @@ impl<'a> Request<'a> {
         } else {
             url_str.push_str(path);
         }
-    
 
         // Since every part of this URL is either pre-encoded or statically
         // generated, there's really no way this should fail.
@@ -161,6 +164,13 @@ impl<'a> Request<'a> {
             Command::PutObjectTagging { tags } => tags.len(),
             Command::UploadPart { content, .. } => content.len(),
             Command::CompleteMultipartUpload { data, .. } => data.len(),
+            Command::CreateBucket { config } => {
+                if let Some(payload) = config.location_constraint_payload() {
+                    Vec::from(payload).len()
+                } else {
+                    0
+                }
+            }
             _ => 0,
         }
     }
@@ -189,6 +199,16 @@ impl<'a> Request<'a> {
                 let mut sha = Sha256::default();
                 sha.update(data.to_string().as_bytes());
                 hex::encode(sha.finalize().as_slice())
+            }
+            Command::CreateBucket { config } => {
+                if let Some(payload) = config.location_constraint_payload() {
+                    let mut sha = Sha256::default();
+                    sha.update(payload.as_bytes());
+                    hex::encode(sha.finalize().as_slice())
+                } else {
+                    EMPTY_PAYLOAD_SHA.into()
+                }
+                
             }
             _ => EMPTY_PAYLOAD_SHA.into(),
         }
@@ -239,14 +259,14 @@ impl<'a> Request<'a> {
         };
 
         let custom_headers = match &self.command {
-            Command::PresignPut {custom_headers, ..} => {
+            Command::PresignPut { custom_headers, .. } => {
                 if let Some(custom_headers) = custom_headers {
                     Some(custom_headers.clone())
                 } else {
                     None
                 }
-            },
-            _ => None
+            }
+            _ => None,
         };
 
         let canonical_request = signing::canonical_request(
@@ -310,15 +330,7 @@ impl<'a> Request<'a> {
         ))
     }
 
-    fn headers(&self) -> Result<HeaderMap> {
-        // Generate this once, but it's used in more than one place.
-        let sha256 = self.sha256();
-
-        // Start with extra_headers, that way our headers replace anything with
-        // the same name.
-
-        let mut headers = HeaderMap::new();
-
+    fn extra_headers(&self, headers: &mut HeaderMap) -> Result<()> {
         for (k, v) in self.bucket.extra_headers.iter() {
             headers.insert(
                 match HeaderName::from_bytes(k.as_bytes()) {
@@ -340,9 +352,21 @@ impl<'a> Request<'a> {
             );
         }
 
-        let host_header = self.host_header()?;
+        Ok(())
+    }
 
-        headers.insert(header::HOST, host_header);
+    fn headers(&self) -> Result<HeaderMap> {
+        // Generate this once, but it's used in more than one place.
+        let sha256 = self.sha256();
+
+        // Start with extra_headers, that way our headers replace anything with
+        // the same name.
+
+        let mut headers = HeaderMap::new();
+
+        self.extra_headers(&mut headers)?;
+
+        headers.insert(header::HOST, self.host_header()?);
 
         match self.command {
             Command::ListBucket { .. } => {}
@@ -350,101 +374,20 @@ impl<'a> Request<'a> {
             Command::GetObjectTagging => {}
             Command::GetBucketLocation => {}
             _ => {
+                headers.insert(header::CONTENT_TYPE, self.content_type().parse()?);
                 headers.insert(
                     header::CONTENT_LENGTH,
-                    match self.content_length().to_string().parse() {
-                        Ok(content_length) => content_length,
-                        Err(_) => {
-                            return Err(S3Error::from(
-                                format!(
-                                    "Could not parse CONTENT_LENGTH header value {}",
-                                    self.content_length()
-                                )
-                                .as_ref(),
-                            ))
-                        }
-                    },
-                );
-                headers.insert(
-                    header::CONTENT_TYPE,
-                    match self.content_type().parse() {
-                        Ok(content_type) => content_type,
-                        Err(_) => {
-                            return Err(S3Error::from(
-                                format!(
-                                    "Could not parse CONTENT_TYPE header value {}",
-                                    self.content_type()
-                                )
-                                .as_ref(),
-                            ))
-                        }
-                    },
+                    self.content_length().to_string().parse()?,
                 );
             }
         }
-        headers.insert(
-            "X-Amz-Content-Sha256",
-            match sha256.parse() {
-                Ok(value) => value,
-                Err(_) => {
-                    return Err(S3Error::from(
-                        format!(
-                            "Could not parse X-Amz-Content-Sha256 header value {}",
-                            sha256
-                        )
-                        .as_ref(),
-                    ))
-                }
-            },
-        );
-        headers.insert(
-            "X-Amz-Date",
-            match self.long_date().parse() {
-                Ok(value) => value,
-                Err(_) => {
-                    return Err(S3Error::from(
-                        format!(
-                            "Could not parse X-Amz-Date header value {}",
-                            self.long_date()
-                        )
-                        .as_ref(),
-                    ))
-                }
-            },
-        );
+        headers.insert("X-Amz-Content-Sha256", sha256.parse()?);
+        headers.insert("X-Amz-Date", self.long_date().parse()?);
 
         if let Some(session_token) = self.bucket.session_token() {
-            headers.insert(
-                "X-Amz-Security-Token",
-                match session_token.parse() {
-                    Ok(session_token) => session_token,
-                    Err(_) => {
-                        return Err(S3Error::from(
-                            format!(
-                                "Could not parse X-Amz-Security-Token header value {}",
-                                session_token
-                            )
-                            .as_ref(),
-                        ))
-                    }
-                },
-            );
+            headers.insert("X-Amz-Security-Token", session_token.parse()?);
         } else if let Some(security_token) = self.bucket.security_token() {
-            headers.insert(
-                "X-Amz-Security-Token",
-                match security_token.parse() {
-                    Ok(security_token) => security_token,
-                    Err(_) => {
-                        return Err(S3Error::from(
-                            format!(
-                                "Could not parse X-Amz-Security-Token header value {}",
-                                security_token
-                            )
-                            .as_ref(),
-                        ))
-                    }
-                },
-            );
+            headers.insert("X-Amz-Security-Token", security_token.parse()?);
         }
 
         if let Command::PutObjectTagging { tags } = self.command {
@@ -465,26 +408,14 @@ impl<'a> Request<'a> {
                 HeaderValue::from_str("application/octet-stream")?,
             );
             // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
+        } else if let Command::CreateBucket { ref config} = self.command {
+            config.add_headers(&mut headers)?;
         }
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided
         if self.bucket.secret_key().is_some() {
             let authorization = self.authorization(&headers)?;
-            headers.insert(
-                header::AUTHORIZATION,
-                match authorization.parse() {
-                    Ok(authorization) => authorization,
-                    Err(_) => {
-                        return Err(S3Error::from(
-                            format!(
-                                "Could not parse AUTHORIZATION header value {}",
-                                authorization
-                            )
-                            .as_ref(),
-                        ))
-                    }
-                },
-            );
+            headers.insert(header::AUTHORIZATION, authorization.parse()?);
         }
 
         // The format of RFC2822 is somewhat malleable, so including it in
@@ -493,21 +424,7 @@ impl<'a> Request<'a> {
         // range and can't be used again e.g. reply attacks. Adding this header
         // after the generation of the Authorization header leaves it out of
         // the signed headers.
-        headers.insert(
-            header::DATE,
-            match self.datetime.to_rfc2822().parse() {
-                Ok(date) => date,
-                Err(_) => {
-                    return Err(S3Error::from(
-                        format!(
-                            "Could not parse DATE header value {}",
-                            self.datetime.to_rfc2822()
-                        )
-                        .as_ref(),
-                    ))
-                }
-            },
-        );
+        headers.insert(header::DATE, self.datetime.to_rfc2822().parse()?);
 
         Ok(headers)
     }
@@ -538,6 +455,12 @@ impl<'a> Request<'a> {
             let body = data.to_string();
             // assert_eq!(body, "body".to_string());
             body.as_bytes().to_vec()
+        } else if let Command::CreateBucket { config } = &self.command {
+            if let Some(payload) = config.location_constraint_payload() {
+                Vec::from(payload)
+            } else {
+                Vec::new()
+            }
         } else {
             Vec::new()
         };
@@ -545,16 +468,15 @@ impl<'a> Request<'a> {
         let client = if cfg!(feature = "no-verify-ssl") {
             let client = Client::builder().danger_accept_invalid_certs(true);
 
-                cfg_if::cfg_if! {
-                    if #[cfg(feature = "native-tls")]
-                    {
-                        let client = client.danger_accept_invalid_hostnames(true);
-                    }
-
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "native-tls")]
+                {
+                    let client = client.danger_accept_invalid_hostnames(true);
                 }
 
-                client.build()
-                .expect("Could not build dangerous client!")
+            }
+
+            client.build().expect("Could not build dangerous client!")
         } else {
             Client::new()
         };

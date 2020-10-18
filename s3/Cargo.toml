@@ -39,7 +39,8 @@ log = "0.4"
 percent-encoding = "2"
 async-std = "1"
 http = "0.2"
-cfg-if = "0.1"
+cfg-if = "1"
+uuid = "0.8"
 
 
 [features]
@@ -51,3 +52,4 @@ rustls-tls = ["reqwest/rustls-tls", "aws-creds/rustls-tls"]
 
 [dev-dependencies]
 tokio = {version="0.2", features=["fs"]}
+uuid = { version="0.8", features=["v4"]}

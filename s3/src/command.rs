@@ -1,4 +1,5 @@
 use crate::serde_types::CompleteMultipartUploadData;
+use crate::bucket_ops::BucketConfiguration;
 use reqwest::Method;
 use reqwest::header::HeaderMap;
 
@@ -44,6 +45,8 @@ pub enum Command<'a> {
         upload_id: &'a str,
         data: CompleteMultipartUploadData,
     },
+    CreateBucket { config: BucketConfiguration },
+    DeleteBucket
 }
 
 impl<'a> Command<'a> {
@@ -57,10 +60,12 @@ impl<'a> Command<'a> {
             Command::PutObject { .. }
             | Command::PutObjectTagging { .. }
             | Command::PresignPut { .. }
-            | Command::UploadPart { .. } => Method::PUT,
+            | Command::UploadPart { .. }
+            | Command::CreateBucket { .. } => Method::PUT,
             Command::DeleteObject
             | Command::DeleteObjectTagging
-            | Command::AbortMultipartUpload { .. } => Method::DELETE,
+            | Command::AbortMultipartUpload { .. } 
+            | Command::DeleteBucket => Method::DELETE,
             Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
                 Method::POST
             }

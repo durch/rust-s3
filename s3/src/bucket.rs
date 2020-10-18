@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::mem;
 use tokio::runtime::Runtime;
 
+use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
 use crate::command::Command;
 use crate::creds::Credentials;
 use crate::region::Region;
@@ -125,14 +126,75 @@ impl Bucket {
         );
         Ok(request.presigned()?)
     }
-    /// Instantiate a new `Bucket`.
+    /// Create a new `Bucket` and instantiate it
     ///
     /// # Example
     /// ```
-    /// # // Fake  credentials so we don't access user's real credentials in tests
-    /// # use std::env;
-    /// # env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
-    /// # env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+    /// use s3::{Bucket, BucketConfiguration};
+    /// use s3::creds::Credentials;
+    /// use s3::S3Error;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), S3Error> {
+    ///     let bucket_name = "rust-s3-test";
+    ///     let region = "us-east-1".parse().unwrap();
+    ///     let credentials = Credentials::default().unwrap();
+    ///     let config = BucketConfiguration::default();
+    ///
+    ///     let create_bucket_response = Bucket::create(bucket_name, region, credentials, config).await.unwrap();
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn create(
+        name: &str,
+        region: Region,
+        credentials: Credentials,
+        mut config: BucketConfiguration,
+    ) -> Result<CreateBucketResponse> {
+        config.set_region(region.clone());
+        let command = Command::CreateBucket { config };
+        let bucket = Bucket::new(name, region, credentials)?;
+        let request = Request::new(&bucket, "", command);
+        let (data, response_code) = request.response_data_future(false).await?;
+        let response_text = std::str::from_utf8(&data)?;
+        Ok(CreateBucketResponse {
+            bucket,
+            response_text: response_text.to_string(),
+            response_code,
+        })
+    }
+
+    /// Delete existing `Bucket`
+    ///
+    /// # Example
+    /// ```
+    /// use s3::Bucket;
+    /// use s3::creds::Credentials;
+    /// use s3::S3Error;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), S3Error> {
+    ///     let bucket_name = "rust-s3-test";
+    ///     let region = "us-east-1".parse().unwrap();
+    ///     let credentials = Credentials::default().unwrap();
+    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    ///     bucket.delete().await.unwrap();
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn delete(&self) -> Result<u16> {
+        let command = Command::DeleteBucket;
+        let request = Request::new(self, "", command);
+        let (_, response_code) = request.response_data_future(false).await?;
+        Ok(response_code)
+    }
+
+    /// Instantiate an existing `Bucket`.
+    ///
+    /// # Example
+    /// ```
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     ///
@@ -1305,9 +1367,10 @@ impl Bucket {
 #[cfg(test)]
 mod test {
 
-    use crate::bucket::Bucket;
     use crate::creds::Credentials;
     use crate::region::Region;
+    use crate::Bucket;
+    use crate::BucketConfiguration;
     use std::env;
     use std::fs::File;
     use std::io::prelude::*;
@@ -1543,5 +1606,68 @@ mod test {
 
         let url = bucket.presign_get(s3_path, 86400).unwrap();
         assert!(url.contains("/test%2Ftest.file?"))
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_bucket_create_delete_default_region() {
+        let config = BucketConfiguration::default();
+        let response = Bucket::create(
+            &uuid::Uuid::new_v4().to_string(),
+            "us-east-1".parse().unwrap(),
+            test_aws_credentials(),
+            config,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(&response.response_text, "");
+
+        assert_eq!(response.response_code, 200);
+
+        let response_code = response.bucket.delete().await.unwrap();
+        assert!(response_code < 300);
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_bucket_create_delete_non_default_region() {
+        let config = BucketConfiguration::default();
+        let response = Bucket::create(
+            &uuid::Uuid::new_v4().to_string(),
+            "eu-central-1".parse().unwrap(),
+            test_aws_credentials(),
+            config,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(&response.response_text, "");
+
+        assert_eq!(response.response_code, 200);
+
+        let response_code = response.bucket.delete().await.unwrap();
+        assert!(response_code < 300);
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_bucket_create_delete_non_default_region_public() {
+        let config = BucketConfiguration::public();
+        let response = Bucket::create(
+            &uuid::Uuid::new_v4().to_string(),
+            "eu-central-1".parse().unwrap(),
+            test_aws_credentials(),
+            config,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(&response.response_text, "");
+
+        assert_eq!(response.response_code, 200);
+
+        let response_code = response.bucket.delete().await.unwrap();
+        assert!(response_code < 300);
     }
 }
