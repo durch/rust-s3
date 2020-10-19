@@ -46,7 +46,27 @@ pub type Query = HashMap<String, String>;
 impl std::convert::From<reqwest::Error> for S3Error {
     fn from(e: reqwest::Error) -> S3Error {
         S3Error {
-            description: Some(String::from(format!("{}", e))),
+            description: Some(format!("{}", e)),
+            data: None,
+            source: None
+        }
+    }
+}
+
+impl std::convert::From<reqwest::header::InvalidHeaderName> for S3Error {
+    fn from(e: reqwest::header::InvalidHeaderName) -> S3Error {
+        S3Error {
+            description: Some(format!("{}", e)),
+            data: None,
+            source: None
+        }
+    }
+}
+
+impl std::convert::From<reqwest::header::InvalidHeaderValue> for S3Error {
+    fn from(e: reqwest::header::InvalidHeaderValue) -> S3Error {
+        S3Error {
+            description: Some(format!("{}", e)),
             data: None,
             source: None
         }

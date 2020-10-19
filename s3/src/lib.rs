@@ -22,9 +22,6 @@ pub mod utils;
 
 simpl::err!(S3Error, {
     Xml@serde_xml::Error;
-    // Req@reqwest::Error;
-    InvalidHeaderName@reqwest::header::InvalidHeaderName;
-    InvalidHeaderValue@reqwest::header::InvalidHeaderValue;
     HttpHeader@http::header::ToStrError;
     Hmac@hmac::crypto_mac::InvalidKeyLength;
     Utf8@std::str::Utf8Error;
@@ -32,7 +29,6 @@ simpl::err!(S3Error, {
     Region@awsregion::AwsRegionError;
     Creds@awscreds::AwsCredsError;
     UrlParse@url::ParseError;
-    // Atto@attohttpc::Error;
 });
 
 const LONG_DATE: &str = "%Y%m%dT%H%M%SZ";

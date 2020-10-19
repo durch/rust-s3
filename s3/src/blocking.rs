@@ -42,7 +42,17 @@ pub type Query = HashMap<String, String>;
 impl std::convert::From<attohttpc::Error> for S3Error {
     fn from(e: attohttpc::Error) -> S3Error {
         S3Error {
-            description: Some(String::from(format!("{}", e))),
+            description: Some(format!("{}", e)),
+            data: None,
+            source: None
+        }
+    }
+}
+
+impl std::convert::From<http::header::InvalidHeaderValue> for S3Error {
+    fn from(e: http::header::InvalidHeaderValue) -> S3Error {
+        S3Error {
+            description: Some(format!("{}", e)),
             data: None,
             source: None
         }
@@ -575,7 +585,7 @@ impl<'a> Request<'a> {
 
         for (name, value) in headers {
             if let Some(name) = name {
-                &session.header(name, value);
+                session.header(name, value);
             }
             
         }

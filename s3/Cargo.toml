@@ -14,9 +14,9 @@ edition = "2018"
 name = "s3"
 path = "src/lib.rs"
 
-[[bin]]
-name = "simple_crud"
-path = "bin/simple_crud.rs"
+# [[bin]]
+# name = "simple_crud"
+# path = "bin/simple_crud.rs"
 
 [dependencies]
 base64 = "0.13.0"
@@ -30,8 +30,8 @@ serde-xml-rs = "0.4"
 sha2 = "0.9"
 md5 = "0.7"
 url = "2"
-futures = "0.3"
-tokio = {version="0.2", features=["macros", "io-util", "stream"]}
+futures = {version = "0.3", optional = true}
+tokio = {version="0.2", features=["macros", "io-util", "stream"], optional = true}
 simpl = "0.1.0"
 aws-region = "0.22"
 aws-creds = { version="0.24.1", default-features = false }
@@ -44,7 +44,7 @@ attohttpc = {version = "0.16", optional = true}
 
 
 [features]
-async = ["reqwest"]
+async = ["reqwest", "tokio", "futures"]
 sync = ["attohttpc"]
 default = ["native-tls", "async"]
 no-verify-ssl = []

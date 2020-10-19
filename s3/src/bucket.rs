@@ -1,21 +1,15 @@
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
-// use std::io::{Read, Write};
 use std::mem;
 
 use crate::command::Command;
 use crate::creds::Credentials;
 use crate::region::Region;
+
 #[cfg(feature = "async")]
 use crate::request::{Headers, Query, Request};
-#[cfg(feature = "sync")]
-use crate::blocking::{Request, Query, Headers};
-use crate::serde_types::{
-    BucketLocationResult, CompleteMultipartUploadData, InitiateMultipartUploadResponse,
-    ListBucketResult, Part, Tagging,
-};
-use crate::{Result, S3Error};
-
+#[cfg(feature = "async")]
+use reqwest::header::HeaderMap;
 #[cfg(feature = "async")]
 use futures::io::AsyncRead;
 #[cfg(feature = "async")]
@@ -24,14 +18,24 @@ use tokio::io::AsyncRead as TokioAsyncRead;
 use tokio::io::AsyncReadExt as TokioAsyncReadExt;
 #[cfg(feature = "async")]
 use tokio::io::AsyncWrite as TokioAsyncWrite;
-
 #[cfg(feature = "async")]
 use async_std::fs::File;
 #[cfg(feature = "async")]
 use async_std::path::Path;
 
 #[cfg(feature = "sync")]
+use crate::blocking::{Request, Query, Headers};
+#[cfg(feature = "sync")]
+use attohttpc::header::HeaderMap;
+#[cfg(feature = "sync")]
 use std::io::Read;
+
+
+use crate::serde_types::{
+    BucketLocationResult, CompleteMultipartUploadData, InitiateMultipartUploadResponse,
+    ListBucketResult, Part, Tagging,
+};
+use crate::{Result, S3Error};
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
@@ -95,6 +99,7 @@ impl Bucket {
         let request = Request::new(self, path.as_ref(), Command::PresignGet { expiry_secs });
         Ok(request.presigned()?)
     }
+
     /// Get a presigned url for putting object to a given path
     ///
     /// # Example:
@@ -117,6 +122,48 @@ impl Bucket {
     /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers)).unwrap();
     /// println!("Presigned url: {}", url);
     /// ```
+    #[cfg(feature = "async")]
+    pub fn presign_put<S: AsRef<str>>(
+        &self,
+        path: S,
+        expiry_secs: u32,
+        custom_headers: Option<HeaderMap>,
+    ) -> Result<String> {
+        validate_expiry(expiry_secs)?;
+        let request = Request::new(
+            self,
+            path.as_ref(),
+            Command::PresignPut {
+                expiry_secs,
+                custom_headers,
+            },
+        );
+        Ok(request.presigned()?)
+    }
+
+    /// Get a presigned url for putting object to a given path
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default().unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// let mut custom_headers = attohttpc::header::HeaderMap::new();
+    /// custom_headers.insert(
+    ///    attohttpc::header::HeaderName::from_static("custom_header"),
+    ///    attohttpc::header::HeaderValue::from_str("custom_value").unwrap(),
+    /// );
+    ///
+    /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers)).unwrap();
+    /// println!("Presigned url: {}", url);
+    /// ```
+    #[cfg(feature = "sync")]
     pub fn presign_put<S: AsRef<str>>(
         &self,
         path: S,
@@ -494,7 +541,6 @@ impl Bucket {
                     let etag = std::str::from_utf8(data.as_slice())?;
                     etags.push(etag.to_string());
                     let inner_data = etags
-                        .clone()
                         .into_iter()
                         .enumerate()
                         .map(|(i, x)| Part {
@@ -1683,16 +1729,21 @@ mod test {
         assert_eq!(code, 204);
     }
 
+    #[cfg(feature = "async")]
+    use reqwest::header::{HeaderName, HeaderValue, HeaderMap};
+    #[cfg(feature = "sync")]
+    use attohttpc::header::{HeaderName, HeaderValue, HeaderMap};
+
     #[test]
     #[ignore]
     fn test_presign_put() {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
 
-        let mut custom_headers = reqwest::header::HeaderMap::new();
+        let mut custom_headers = HeaderMap::new();
         custom_headers.insert(
-            reqwest::header::HeaderName::from_static("custom_header"),
-            reqwest::header::HeaderValue::from_str("custom_value").unwrap(),
+            HeaderName::from_static("custom_header"),
+            HeaderValue::from_str("custom_value").unwrap(),
         );
 
         let url = bucket
@@ -1711,10 +1762,10 @@ mod test {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
 
-        let mut custom_headers = reqwest::header::HeaderMap::new();
+        let mut custom_headers = HeaderMap::new();
         custom_headers.insert(
-            reqwest::header::HeaderName::from_static("custom_header"),
-            reqwest::header::HeaderValue::from_str("custom_value").unwrap(),
+            HeaderName::from_static("custom_header"),
+            HeaderValue::from_str("custom_value").unwrap(),
         );
 
         let url = bucket.presign_get(s3_path, 86400).unwrap();

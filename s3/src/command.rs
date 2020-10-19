@@ -1,5 +1,8 @@
 use crate::serde_types::CompleteMultipartUploadData;
+#[cfg(feature = "async")]
 use reqwest::header::HeaderMap;
+#[cfg(feature = "sync")]
+use attohttpc::header::HeaderMap;
 
 pub enum HttpMethod {
     Delete,

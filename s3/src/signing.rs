@@ -7,7 +7,10 @@ use std::str;
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac, NewMac};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+#[cfg(feature = "async")]
 use reqwest::header::HeaderMap;
+#[cfg(feature = "sync")]
+use attohttpc::header::HeaderMap;
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -233,7 +236,10 @@ mod tests {
     use std::str;
 
     use chrono::{TimeZone, Utc};
+    #[cfg(feature = "async")]
     use reqwest::header::{HeaderMap, HeaderValue};
+    #[cfg(feature = "sync")]
+    use attohttpc::header::{HeaderMap, HeaderValue};
     use url::Url;
 
     use super::*;

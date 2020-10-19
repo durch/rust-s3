@@ -1,8 +1,12 @@
 use crate::bucket::CHUNK_SIZE;
 use crate::Result;
+#[cfg(feature = "async")]
 use async_std::fs::File;
+#[cfg(feature = "async")]
 use async_std::path::Path;
+#[cfg(feature = "async")]
 use futures::io::{AsyncRead, AsyncReadExt};
+#[cfg(feature = "sync")]
 use std::io::Read;
 
 /// # Example
@@ -16,6 +20,7 @@ use std::io::Read;
 ///     println!("{}", etag);
 /// }
 /// ```
+#[cfg(feature = "async")]
 pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
     let mut file = File::open(path).await?;
     let mut digests = Vec::new();
@@ -38,6 +43,7 @@ pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
     Ok(etag)
 }
 
+#[cfg(feature = "async")]
 pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>> {
     const LOCAL_CHUNK_SIZE: usize = 8388;
     let mut chunk = Vec::with_capacity(CHUNK_SIZE);
@@ -68,6 +74,7 @@ pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>>
     Ok(chunk)
 }
 
+#[cfg(feature = "sync")]
 pub fn read_chunk_blocking<R: Read>(reader: &mut R) -> Result<Vec<u8>> {
     const LOCAL_CHUNK_SIZE: usize = 8388;
     let mut chunk = Vec::with_capacity(CHUNK_SIZE);
@@ -99,6 +106,7 @@ pub fn read_chunk_blocking<R: Read>(reader: &mut R) -> Result<Vec<u8>> {
 }
 
 #[cfg(test)]
+#[cfg(feature = "async")]
 mod test {
     use crate::utils::etag_for_path;
     use std::fs::File;
@@ -109,6 +117,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[cfg(feature = "async")]
     async fn test_etag() {
         let path = "test_etag";
         std::fs::remove_file(path).unwrap_or_else(|_| {});
