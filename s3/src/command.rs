@@ -1,6 +1,25 @@
 use crate::serde_types::CompleteMultipartUploadData;
-use reqwest::Method;
 use reqwest::header::HeaderMap;
+
+pub enum HttpMethod {
+    Delete,
+    Get,
+    Put,
+    Post
+}
+
+use std::fmt;
+
+impl fmt::Display for HttpMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            HttpMethod::Delete => write!(f, "DELETE"),
+            HttpMethod::Get => write!(f, "GET"),
+            HttpMethod::Post => write!(f, "POST"),
+            HttpMethod::Put => write!(f, "PUT")
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum Command<'a> {
@@ -47,22 +66,22 @@ pub enum Command<'a> {
 }
 
 impl<'a> Command<'a> {
-    pub fn http_verb(&self) -> Method {
+    pub fn http_verb(&self) -> HttpMethod {
         match *self {
             Command::GetObject
             | Command::ListBucket { .. }
             | Command::GetBucketLocation
             | Command::GetObjectTagging
-            | Command::PresignGet { .. } => Method::GET,
+            | Command::PresignGet { .. } => HttpMethod::Get,
             Command::PutObject { .. }
             | Command::PutObjectTagging { .. }
             | Command::PresignPut { .. }
-            | Command::UploadPart { .. } => Method::PUT,
+            | Command::UploadPart { .. } => HttpMethod::Put,
             Command::DeleteObject
             | Command::DeleteObjectTagging
-            | Command::AbortMultipartUpload { .. } => Method::DELETE,
+            | Command::AbortMultipartUpload { .. } => HttpMethod::Delete,
             Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
-                Method::POST
+                HttpMethod::Post
             }
         }
     }

@@ -23,7 +23,7 @@ base64 = "0.13.0"
 chrono = "0.4"
 hex = "0.4"
 hmac = "0.9"
-reqwest = {version = "0.10", default-features = false, features = ["json", "stream"]}
+reqwest = {version = "0.10", default-features = false, features = ["json", "stream"], optional = true}
 serde_derive = "1"
 serde = "1"
 serde-xml-rs = "0.4"
@@ -40,10 +40,13 @@ percent-encoding = "2"
 async-std = "1"
 http = "0.2"
 cfg-if = "0.1"
+attohttpc = {version = "0.16", optional = true}
 
 
 [features]
-default = ["native-tls"]
+async = ["reqwest"]
+sync = ["attohttpc"]
+default = ["native-tls", "async"]
 no-verify-ssl = []
 fail-on-err = []
 native-tls = ["reqwest/native-tls", "aws-creds/native-tls"]

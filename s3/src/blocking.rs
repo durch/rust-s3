@@ -8,8 +8,8 @@ use super::bucket::Bucket;
 use super::command::Command;
 use chrono::{DateTime, Utc};
 use hmac::{Mac, NewMac};
-use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
-use reqwest::{Client, Response};
+use attohttpc::header::{self, HeaderMap, HeaderName, HeaderValue};
+use attohttpc::Response;
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -19,10 +19,6 @@ use crate::EMPTY_PAYLOAD_SHA;
 use crate::LONG_DATE;
 use crate::{Result, S3Error};
 use crate::command::HttpMethod;
-
-// use once_cell::sync::Lazy;
-use tokio::io::AsyncWriteExt;
-use tokio::stream::StreamExt;
 
 /// Collection of HTTP headers sent to S3 service, in key/value format.
 pub type Headers = HashMap<String, String>;
@@ -43,8 +39,8 @@ pub type Query = HashMap<String, String>;
 //     }
 // });
 
-impl std::convert::From<reqwest::Error> for S3Error {
-    fn from(e: reqwest::Error) -> S3Error {
+impl std::convert::From<attohttpc::Error> for S3Error {
+    fn from(e: attohttpc::Error) -> S3Error {
         S3Error {
             description: Some(String::from(format!("{}", e))),
             data: None,
@@ -531,7 +527,7 @@ impl<'a> Request<'a> {
     //     Ok(futures::executor::block_on(self.response_data_to_writer_future(writer))?)
     // }
 
-    pub async fn response_future(&self) -> Result<Response> {
+    pub fn response(&self) -> Result<Response> {
         // Build headers
         let headers = match self.headers() {
             Ok(headers) => headers,
@@ -553,43 +549,54 @@ impl<'a> Request<'a> {
             Vec::new()
         };
 
-        let client = if cfg!(feature = "no-verify-ssl") {
-            let client = Client::builder().danger_accept_invalid_certs(true);
+        // let client = if cfg!(feature = "no-verify-ssl") {
+        //     let client = Client::builder().danger_accept_invalid_certs(true);
 
-                cfg_if::cfg_if! {
-                    if #[cfg(feature = "native-tls")]
-                    {
-                        let client = client.danger_accept_invalid_hostnames(true);
-                    }
+        //         cfg_if::cfg_if! {
+        //             if #[cfg(feature = "native-tls")]
+        //             {
+        //                 let client = client.danger_accept_invalid_hostnames(true);
+        //             }
 
-                }
+        //         }
 
-                client.build()
-                .expect("Could not build dangerous client!")
-        } else {
-            Client::new()
+        //         client.build()
+        //         .expect("Could not build dangerous client!")
+        // } else {
+        //     Client::new()
+        // };
+
+        // let request = client
+        //     .request(self.command.http_verb(), self.url(false).as_str())
+        //     .headers(headers.to_owned())
+        //     .body(content.to_owned());
+
+        let mut session = attohttpc::Session::new();
+
+        for (name, value) in headers {
+            if let Some(name) = name {
+                &session.header(name, value);
+            }
+            
+        }
+
+        let request = match self.command.http_verb() {
+            HttpMethod::Get => session.get(self.url(false)),
+            HttpMethod::Delete => session.delete(self.url(false)),
+            HttpMethod::Put => session.put(self.url(false)),
+            HttpMethod::Post => session.post(self.url(false))
         };
 
-        let method = match self.command.http_verb() {
-            HttpMethod::Delete => reqwest::Method::DELETE,
-            HttpMethod::Get => reqwest::Method::GET,
-            HttpMethod::Post => reqwest::Method::POST,
-            HttpMethod::Put => reqwest::Method::PUT
-        };
+        let response = request.bytes(&content).send()?;
 
-        let request = client
-            .request(method, self.url(false).as_str())
-            .headers(headers.to_owned())
-            .body(content.to_owned());
-
-        let response = request.send().await?;
+        // let response = request.send()?;
 
         if cfg!(feature = "fail-on-err") && response.status().as_u16() >= 400 {
             return Err(S3Error::from(
                 format!(
                     "Request failed with code {}\n{}",
                     response.status().as_u16(),
-                    response.text().await?
+                    response.text()?
                 )
                 .as_str(),
             ));
@@ -598,12 +605,12 @@ impl<'a> Request<'a> {
         Ok(response)
     }
 
-    pub async fn response_data_future(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
-        let response = self.response_future().await?;
+    pub fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
+        let response = self.response()?;
         let status_code = response.status().as_u16();
         let headers = response.headers().clone();
         let etag_header = headers.get("ETag");
-        let body = response.bytes().await?;
+        let body = response.bytes()?;
         let mut body_vec = Vec::new();
         body_vec.extend_from_slice(&body[..]);
         if etag {
@@ -614,34 +621,16 @@ impl<'a> Request<'a> {
         Ok((body_vec, status_code))
     }
 
-    pub async fn response_data_to_writer_future<'b, T: Write>(
+    pub fn response_data_to_writer<'b, T: Write>(
         &self,
         writer: &'b mut T,
     ) -> Result<u16> {
-        let response = self.response_future().await?;
+        let response = self.response()?;
 
         let status_code = response.status();
-        let mut stream = response.bytes_stream();
+        let stream = response.bytes()?;
 
-        while let Some(item) = stream.next().await {
-            writer.write_all(&item?)?;
-        }
-
-        Ok(status_code.as_u16())
-    }
-
-    pub async fn tokio_response_data_to_writer_future<'b, T: AsyncWriteExt + Unpin>(
-        &self,
-        writer: &'b mut T,
-    ) -> Result<u16> {
-        let response = self.response_future().await?;
-
-        let status_code = response.status();
-        let mut stream = response.bytes_stream();
-
-        while let Some(item) = stream.next().await {
-            writer.write_all(&item?).await?;
-        }
+        writer.write_all(&stream)?;
 
         Ok(status_code.as_u16())
     }
@@ -651,7 +640,7 @@ impl<'a> Request<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request::Request;
+    use crate::blocking::Request;
     use crate::Result;
     use awscreds::Credentials;
 

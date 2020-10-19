@@ -3,6 +3,7 @@ use crate::Result;
 use async_std::fs::File;
 use async_std::path::Path;
 use futures::io::{AsyncRead, AsyncReadExt};
+use std::io::Read;
 
 /// # Example
 /// ```rust,no_run
@@ -44,6 +45,36 @@ pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>>
         let mut buffer = [0; LOCAL_CHUNK_SIZE];
         let mut take = reader.take(LOCAL_CHUNK_SIZE as u64);
         let n = take.read(&mut buffer).await?;
+        if n < LOCAL_CHUNK_SIZE {
+            buffer.reverse();
+            let mut trim_buffer = buffer
+                .iter()
+                .skip_while(|x| **x == 0)
+                .copied()
+                .collect::<Vec<u8>>();
+            trim_buffer.reverse();
+            chunk.extend_from_slice(&trim_buffer);
+            chunk.shrink_to_fit();
+            break;
+        } else {
+            chunk.extend_from_slice(&buffer);
+            if chunk.len() >= CHUNK_SIZE {
+                break;
+            } else {
+                continue;
+            }
+        }
+    }
+    Ok(chunk)
+}
+
+pub fn read_chunk_blocking<R: Read>(reader: &mut R) -> Result<Vec<u8>> {
+    const LOCAL_CHUNK_SIZE: usize = 8388;
+    let mut chunk = Vec::with_capacity(CHUNK_SIZE);
+    loop {
+        let mut buffer = [0; LOCAL_CHUNK_SIZE];
+        let mut take = reader.take(LOCAL_CHUNK_SIZE as u64);
+        let n = take.read(&mut buffer)?;
         if n < LOCAL_CHUNK_SIZE {
             buffer.reverse();
             let mut trim_buffer = buffer

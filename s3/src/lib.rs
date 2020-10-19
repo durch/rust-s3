@@ -11,7 +11,10 @@ pub use awsregion as region;
 pub mod bucket;
 pub mod command;
 pub mod deserializer;
+#[cfg(feature = "async")]
 pub mod request;
+#[cfg(feature = "sync")]
+pub mod blocking;
 pub mod serde_types;
 pub mod signing;
 
@@ -19,7 +22,7 @@ pub mod utils;
 
 simpl::err!(S3Error, {
     Xml@serde_xml::Error;
-    Req@reqwest::Error;
+    // Req@reqwest::Error;
     InvalidHeaderName@reqwest::header::InvalidHeaderName;
     InvalidHeaderValue@reqwest::header::InvalidHeaderValue;
     HttpHeader@http::header::ToStrError;
@@ -29,6 +32,7 @@ simpl::err!(S3Error, {
     Region@awsregion::AwsRegionError;
     Creds@awscreds::AwsCredsError;
     UrlParse@url::ParseError;
+    // Atto@attohttpc::Error;
 });
 
 const LONG_DATE: &str = "%Y%m%dT%H%M%SZ";
