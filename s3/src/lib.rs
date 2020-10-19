@@ -8,12 +8,17 @@ use serde_xml_rs as serde_xml;
 pub use awscreds as creds;
 pub use awsregion as region;
 
+pub use bucket::Bucket;
+pub use bucket_ops::BucketConfiguration;
+pub use region::Region;
+
 pub mod bucket;
 pub mod command;
 pub mod deserializer;
 pub mod request;
 pub mod serde_types;
 pub mod signing;
+pub mod bucket_ops;
 
 pub mod utils;
 
