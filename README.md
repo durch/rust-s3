@@ -32,7 +32,7 @@ a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the d
 |          |                                                                               |
 |----------|-------------------------------------------------------------------------------|
 | `create` | [async](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.create)   |
-| `delete` | [async]((https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.delete)) |
+| `delete` | [async]((https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.delete) |
 
 #### Presign
 
