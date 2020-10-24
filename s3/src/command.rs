@@ -4,6 +4,9 @@ use reqwest::header::HeaderMap;
 #[cfg(feature = "sync")]
 use attohttpc::header::HeaderMap;
 
+use sha2::{Digest, Sha256};
+use crate::EMPTY_PAYLOAD_SHA;
+
 pub enum HttpMethod {
     Delete,
     Get,
@@ -86,6 +89,45 @@ impl<'a> Command<'a> {
             Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
                 HttpMethod::Post
             }
+        }
+    }
+
+    pub fn content_length(&self) -> usize {
+        match &self {
+            Command::PutObject { content, .. } => content.len(),
+            Command::PutObjectTagging { tags } => tags.len(),
+            Command::UploadPart { content, .. } => content.len(),
+            Command::CompleteMultipartUpload { data, .. } => data.len(),
+            _ => 0,
+        }
+    }
+
+    pub fn content_type(&self) -> String {
+        match self {
+            Command::PutObject { content_type, .. } => content_type.to_string(),
+            Command::CompleteMultipartUpload { .. } => "application/xml".into(),
+            _ => "text/plain".into(),
+        }
+    }
+
+    pub fn sha256(&self) -> String {
+        match &self {
+            Command::PutObject { content, .. } => {
+                let mut sha = Sha256::default();
+                sha.update(content);
+                hex::encode(sha.finalize().as_slice())
+            }
+            Command::PutObjectTagging { tags } => {
+                let mut sha = Sha256::default();
+                sha.update(tags.as_bytes());
+                hex::encode(sha.finalize().as_slice())
+            }
+            Command::CompleteMultipartUpload { data, .. } => {
+                let mut sha = Sha256::default();
+                sha.update(data.to_string().as_bytes());
+                hex::encode(sha.finalize().as_slice())
+            }
+            _ => EMPTY_PAYLOAD_SHA.into(),
         }
     }
 }

@@ -10,12 +10,10 @@ use chrono::{DateTime, Utc};
 use hmac::{Mac, NewMac};
 use attohttpc::header::{self, HeaderMap, HeaderName, HeaderValue};
 use attohttpc::Response;
-use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::signing;
 
-use crate::EMPTY_PAYLOAD_SHA;
 use crate::LONG_DATE;
 use crate::{Result, S3Error};
 use crate::command::HttpMethod;
@@ -172,45 +170,6 @@ impl<'a> Request<'a> {
         url
     }
 
-    fn content_length(&self) -> usize {
-        match &self.command {
-            Command::PutObject { content, .. } => content.len(),
-            Command::PutObjectTagging { tags } => tags.len(),
-            Command::UploadPart { content, .. } => content.len(),
-            Command::CompleteMultipartUpload { data, .. } => data.len(),
-            _ => 0,
-        }
-    }
-
-    fn content_type(&self) -> String {
-        match self.command {
-            Command::PutObject { content_type, .. } => content_type.into(),
-            Command::CompleteMultipartUpload { .. } => "application/xml".into(),
-            _ => "text/plain".into(),
-        }
-    }
-
-    fn sha256(&self) -> String {
-        match &self.command {
-            Command::PutObject { content, .. } => {
-                let mut sha = Sha256::default();
-                sha.update(content);
-                hex::encode(sha.finalize().as_slice())
-            }
-            Command::PutObjectTagging { tags } => {
-                let mut sha = Sha256::default();
-                sha.update(tags.as_bytes());
-                hex::encode(sha.finalize().as_slice())
-            }
-            Command::CompleteMultipartUpload { data, .. } => {
-                let mut sha = Sha256::default();
-                sha.update(data.to_string().as_bytes());
-                hex::encode(sha.finalize().as_slice())
-            }
-            _ => EMPTY_PAYLOAD_SHA.into(),
-        }
-    }
-
     fn long_date(&self) -> String {
         self.datetime.format(LONG_DATE).to_string()
     }
@@ -220,7 +179,7 @@ impl<'a> Request<'a> {
             &self.command.http_verb().to_string(),
             &self.url(false),
             headers,
-            &self.sha256(),
+            &self.command.sha256(),
         )
     }
 
@@ -329,7 +288,7 @@ impl<'a> Request<'a> {
 
     fn headers(&self) -> Result<HeaderMap> {
         // Generate this once, but it's used in more than one place.
-        let sha256 = self.sha256();
+        let sha256 = self.command.sha256();
 
         // Start with extra_headers, that way our headers replace anything with
         // the same name.
@@ -369,13 +328,13 @@ impl<'a> Request<'a> {
             _ => {
                 headers.insert(
                     header::CONTENT_LENGTH,
-                    match self.content_length().to_string().parse() {
+                    match self.command.content_length().to_string().parse() {
                         Ok(content_length) => content_length,
                         Err(_) => {
                             return Err(S3Error::from(
                                 format!(
                                     "Could not parse CONTENT_LENGTH header value {}",
-                                    self.content_length()
+                                    self.command.content_length()
                                 )
                                 .as_ref(),
                             ))
@@ -384,13 +343,13 @@ impl<'a> Request<'a> {
                 );
                 headers.insert(
                     header::CONTENT_TYPE,
-                    match self.content_type().parse() {
+                    match self.command.content_type().parse() {
                         Ok(content_type) => content_type,
                         Err(_) => {
                             return Err(S3Error::from(
                                 format!(
                                     "Could not parse CONTENT_TYPE header value {}",
-                                    self.content_type()
+                                    self.command.content_type()
                                 )
                                 .as_ref(),
                             ))
