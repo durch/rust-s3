@@ -13,9 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: clippy
-        run: make clippy
+        run: cd s3 && make clippy
       - name: test
-        run: make ci
+        run: cd s3 && make ci
       - name: test --ignored
         if: github.repository == 'durch/rust-s3'
         env:
@@ -25,4 +25,4 @@ jobs:
           GC_SECRET_ACCESS_KEY: ${{ secrets.GC_SECRET_ACCESS_KEY }}
           WASABI_ACCESS_KEY_ID: ${{ secrets.WASABI_ACCESS_KEY_ID }}
           WASABI_SECRET_ACCESS_KEY: ${{ secrets.WASABI_SECRET_ACCESS_KEY }}
-        run: make test
+        run: cd s3 && make test
