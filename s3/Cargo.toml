@@ -41,11 +41,12 @@ async-std = "1"
 http = "0.2"
 cfg-if = "1"
 attohttpc = {version = "0.16", optional = true}
+maybe-async = {version = "0.2"}
 
 
 [features]
 async = ["reqwest", "tokio", "futures"]
-sync = ["attohttpc"]
+sync = ["attohttpc", "maybe-async/is_sync"]
 default = ["native-tls", "async"]
 no-verify-ssl = []
 fail-on-err = []

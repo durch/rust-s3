@@ -502,14 +502,14 @@ impl<'a> Request<'a> {
     }
 
     // pub fn response_data(&self) -> Result<(Vec<u8>, u16)> {
-    //     Ok(futures::executor::block_on(self.response_data_future())?)
+    //     Ok(futures::executor::block_on(self.response_data())?)
     // }
 
     // pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16> {
-    //     Ok(futures::executor::block_on(self.response_data_to_writer_future(writer))?)
+    //     Ok(futures::executor::block_on(self.response_data_to_writer(writer))?)
     // }
 
-    pub async fn response_future(&self) -> Result<Response> {
+    pub async fn response(&self) -> Result<Response> {
         // Build headers
         let headers = match self.headers() {
             Ok(headers) => headers,
@@ -576,8 +576,8 @@ impl<'a> Request<'a> {
         Ok(response)
     }
 
-    pub async fn response_data_future(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
-        let response = self.response_future().await?;
+    pub async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
+        let response = self.response().await?;
         let status_code = response.status().as_u16();
         let headers = response.headers().clone();
         let etag_header = headers.get("ETag");
@@ -592,11 +592,11 @@ impl<'a> Request<'a> {
         Ok((body_vec, status_code))
     }
 
-    pub async fn response_data_to_writer_future<'b, T: Write>(
+    pub async fn response_data_to_writer<'b, T: Write>(
         &self,
         writer: &'b mut T,
     ) -> Result<u16> {
-        let response = self.response_future().await?;
+        let response = self.response().await?;
 
         let status_code = response.status();
         let mut stream = response.bytes_stream();
@@ -608,11 +608,11 @@ impl<'a> Request<'a> {
         Ok(status_code.as_u16())
     }
 
-    pub async fn tokio_response_data_to_writer_future<'b, T: AsyncWriteExt + Unpin>(
+    pub async fn tokio_response_data_to_writer<'b, T: AsyncWriteExt + Unpin>(
         &self,
         writer: &'b mut T,
     ) -> Result<u16> {
-        let response = self.response_future().await?;
+        let response = self.response().await?;
 
         let status_code = response.status();
         let mut stream = response.bytes_stream();
