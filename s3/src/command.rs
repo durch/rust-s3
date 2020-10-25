@@ -4,6 +4,7 @@ use reqwest::header::HeaderMap;
 
 #[derive(Clone, Debug)]
 pub enum Command<'a> {
+	HeadObject,
     DeleteObject,
     DeleteObjectTagging,
     GetObject,
@@ -64,6 +65,9 @@ impl<'a> Command<'a> {
             Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
                 Method::POST
             }
+            Command::HeadObject => {
+				Method::HEAD
+			}
         }
     }
 }

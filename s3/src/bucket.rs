@@ -9,8 +9,8 @@ use crate::creds::Credentials;
 use crate::region::Region;
 use crate::request::{Headers, Query, Request};
 use crate::serde_types::{
-    BucketLocationResult, CompleteMultipartUploadData, InitiateMultipartUploadResponse,
-    ListBucketResult, Part, Tagging,
+    BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
+    InitiateMultipartUploadResponse, ListBucketResult, Part, Tagging,
 };
 use crate::{Result, S3Error};
 
@@ -621,6 +621,23 @@ impl Bucket {
     pub fn delete_object_blocking<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.delete_object(path))?)
+    }
+
+    /// Head object from S3, async.
+    ///
+    pub async fn head_object<S: AsRef<str>>(&self, path: S) -> Result<(HeadObjectResult, u16)> {
+        let command = Command::HeadObject;
+        let request = Request::new(self, path.as_ref(), command);
+        let (headers, status) = request.response_header_future().await?;
+        let header_object = HeadObjectResult::from(&headers);
+        Ok((header_object, status))
+    }
+
+    /// Head object from S3, blocks.
+    ///
+    pub fn head_object_blocking<S: AsRef<str>>(&self, path: S) -> Result<(HeadObjectResult, u16)> {
+        let mut rt = Runtime::new()?;
+        Ok(rt.block_on(self.head_object(path))?)
     }
 
     /// Put into an S3 bucket, async.

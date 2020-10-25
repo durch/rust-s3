@@ -626,6 +626,13 @@ impl<'a> Request<'a> {
         }
 
         Ok(status_code.as_u16())
+	}
+	
+	pub async fn response_header_future(&self) -> Result<(HeaderMap, u16)> {
+        let response = self.response_future().await?;
+        let status_code = response.status().as_u16();
+        let headers = response.headers().clone();
+        Ok((headers, status_code))
     }
 }
 
