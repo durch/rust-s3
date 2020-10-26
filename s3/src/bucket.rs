@@ -1566,8 +1566,8 @@ mod test {
         // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object_blocking(s3_path).unwrap();
         assert_eq!(code, 204);
-	}
-	
+    }
+    
     #[test]
     #[ignore]
     fn test_presign_put() {
