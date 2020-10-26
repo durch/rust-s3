@@ -1493,11 +1493,11 @@ mod test {
         let (data, code) = bucket.get_object(s3_path).await.unwrap();
         assert_eq!(code, 200);
         // println!("{}", std::str::from_utf8(&data).unwrap());
-		assert_eq!(test, data);
-		let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-		assert_eq!(code, 200);
-		assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
-		// println!("{:?}", head_object_result);
+        assert_eq!(test, data);
+        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
+        // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
     }
@@ -1515,11 +1515,11 @@ mod test {
         let (data, code) = bucket.get_object(s3_path).await.unwrap();
         assert_eq!(code, 200);
         // println!("{}", std::str::from_utf8(&data).unwrap());
-		assert_eq!(test, data);
-		let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-		assert_eq!(code, 200);
-		assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
-		// println!("{:?}", head_object_result);
+        assert_eq!(test, data);
+        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
+        // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
     }
@@ -1537,11 +1537,11 @@ mod test {
         let (data, code) = bucket.get_object(s3_path).await.unwrap();
         assert_eq!(code, 200);
         // println!("{}", std::str::from_utf8(&data).unwrap());
-		assert_eq!(test, data);
-		let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-		assert_eq!(code, 200);
-		assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
-		// println!("{:?}", head_object_result);
+        assert_eq!(test, data);
+        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
+        // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
     }
@@ -1559,11 +1559,11 @@ mod test {
         let (data, code) = bucket.get_object_blocking(s3_path).unwrap();
         assert_eq!(code, 200);
         // println!("{}", std::str::from_utf8(&data).unwrap());
-		assert_eq!(test, data);
-		let (head_object_result, code) = bucket.head_object_blocking(s3_path).unwrap();
-		assert_eq!(code, 200);
-		assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
-		// println!("{:?}", head_object_result);
+        assert_eq!(test, data);
+        let (head_object_result, code) = bucket.head_object_blocking(s3_path).unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
+        // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object_blocking(s3_path).unwrap();
         assert_eq!(code, 204);
 	}
