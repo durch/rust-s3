@@ -176,60 +176,94 @@ pub struct CommonPrefix {
 // Taken from https://github.com/rusoto/rusoto
 #[derive(Deserialize, Debug, Default, Clone)]
 pub struct HeadObjectResult {
-    /// <p>Indicates that a range of bytes was specified.</p>
+    #[serde(rename = "AcceptRanges")]
+    /// Indicates that a range of bytes was specified.
     pub accept_ranges: Option<String>,
-    /// <p>Specifies caching behavior along the request/reply chain.</p>
+    #[serde(rename = "CacheControl")]
+    /// Specifies caching behavior along the request/reply chain.
     pub cache_control: Option<String>,
-    /// <p>Specifies presentational information for the object.</p>
+    #[serde(rename = "ContentDisposition")]
+    /// Specifies presentational information for the object.
     pub content_disposition: Option<String>,
-    /// <p>Specifies what content encodings have been applied to the object and thus what decoding mechanisms must be applied to obtain the media-type referenced by the Content-Type header field.</p>
+    #[serde(rename = "ContentEncoding")]
+    /// Specifies what content encodings have been applied to the object and thus what decoding mechanisms must be applied to obtain the media-type referenced by the Content-Type header field.
     pub content_encoding: Option<String>,
-    /// <p>The language the content is in.</p>
+    #[serde(rename = "ContentLanguage")]
+    /// The language the content is in.
     pub content_language: Option<String>,
-    /// <p>Size of the body in bytes.</p>
+    #[serde(rename = "ContentLength")]
+    /// Size of the body in bytes.
     pub content_length: Option<i64>,
-    /// <p>A standard MIME type describing the format of the object data.</p>
+    #[serde(rename = "ContentType")]
+    /// A standard MIME type describing the format of the object data.
     pub content_type: Option<String>,
-    /// <p>Specifies whether the object retrieved was (true) or was not (false) a Delete Marker. If false, this response header does not appear in the response.</p>
+    #[serde(rename = "DeleteMarker")]
+    /// Specifies whether the object retrieved was (true) or was not (false) a Delete Marker.
     pub delete_marker: Option<bool>,
-    /// <p>An ETag is an opaque identifier assigned by a web server to a specific version of a resource found at a URL.</p>
+    #[serde(rename = "ETag")]
+    /// An ETag is an opaque identifier assigned by a web server to a specific version of a resource found at a URL.
     pub e_tag: Option<String>,
-    /// <p>If the object expiration is configured (see PUT Bucket lifecycle), the response includes this header. It includes the expiry-date and rule-id key-value pairs providing object expiration information. The value of the rule-id is URL encoded.</p>
+    #[serde(rename = "Expiration")]
+    /// If the object expiration is configured, the response includes this header. It includes the expiry-date and rule-id key-value pairs providing object expiration information.
+    /// The value of the rule-id is URL encoded.
     pub expiration: Option<String>,
-    /// <p>The date and time at which the object is no longer cacheable.</p>
+    #[serde(rename = "Expires")]
+    /// The date and time at which the object is no longer cacheable.
     pub expires: Option<String>,
-    /// <p>Last modified date of the object</p>
+    #[serde(rename = "LastModified")]
+    /// Last modified date of the object
     pub last_modified: Option<String>,
-    /// <p>A map of metadata to store with the object in S3.</p>
+    #[serde(rename = "Metadata", default)]
+    /// A map of metadata to store with the object in S3.
     pub metadata: Option<::std::collections::HashMap<String, String>>,
-    /// <p>This is set to the number of metadata entries not returned in <code>x-amz-meta</code> headers. This can happen if you create metadata using an API like SOAP that supports more flexible metadata than the REST API. For example, using SOAP, you can create metadata whose values are not legal HTTP headers.</p>
+    #[serde(rename = "MissingMeta")]
+    /// This is set to the number of metadata entries not returned in x-amz-meta headers. This can happen if you create metadata using an API like SOAP that supports more flexible metadata than
+    /// the REST API. For example, using SOAP, you can create metadata whose values are not legal HTTP headers.
     pub missing_meta: Option<i64>,
-    /// <p>Specifies whether a legal hold is in effect for this object. This header is only returned if the requester has the <code>s3:GetObjectLegalHold</code> permission. This header is not returned if the specified version of this object has never had a legal hold applied. For more information about S3 Object Lock, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/object-lock.html">Object Lock</a>.</p>
+    #[serde(rename = "ObjectLockLegalHoldStatus")]
+    /// Specifies whether a legal hold is in effect for this object. This header is only returned if the requester has the s3:GetObjectLegalHold permission.
+    /// This header is not returned if the specified version of this object has never had a legal hold applied.
     pub object_lock_legal_hold_status: Option<String>,
-    /// <p>The Object Lock mode, if any, that's in effect for this object. This header is only returned if the requester has the <code>s3:GetObjectRetention</code> permission. For more information about S3 Object Lock, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/object-lock.html">Object Lock</a>. </p>
+    #[serde(rename = "ObjectLockMode")]
+    /// The Object Lock mode, if any, that's in effect for this object.
     pub object_lock_mode: Option<String>,
-    /// <p>The date and time when the Object Lock retention period expires. This header is only returned if the requester has the <code>s3:GetObjectRetention</code> permission.</p>
+    #[serde(rename = "ObjectLockRetainUntilDate")]
+    /// The date and time when the Object Lock retention period expires.
+    /// This header is only returned if the requester has the s3:GetObjectRetention permission.
     pub object_lock_retain_until_date: Option<String>,
-    /// <p>The count of parts this object has.</p>
+    #[serde(rename = "PartsCount")]
+    /// The count of parts this object has.
     pub parts_count: Option<i64>,
-    /// <p>Amazon S3 can return this header if your request involves a bucket that is either a source or destination in a replication rule.</p> <p>In replication, you have a source bucket on which you configure replication and destination bucket where Amazon S3 stores object replicas. When you request an object (<code>GetObject</code>) or object metadata (<code>HeadObject</code>) from these buckets, Amazon S3 will return the <code>x-amz-replication-status</code> header in the response as follows:</p> <ul> <li> <p>If requesting an object from the source bucket — Amazon S3 will return the <code>x-amz-replication-status</code> header if the object in your request is eligible for replication.</p> <p> For example, suppose that in your replication configuration, you specify object prefix <code>TaxDocs</code> requesting Amazon S3 to replicate objects with key prefix <code>TaxDocs</code>. Any objects you upload with this key name prefix, for example <code>TaxDocs/document1.pdf</code>, are eligible for replication. For any object request with this key name prefix, Amazon S3 will return the <code>x-amz-replication-status</code> header with value PENDING, COMPLETED or FAILED indicating object replication status.</p> </li> <li> <p>If requesting an object from the destination bucket — Amazon S3 will return the <code>x-amz-replication-status</code> header with value REPLICA if the object in your request is a replica that Amazon S3 created.</p> </li> </ul> <p>For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/NotificationHowTo.html">Replication</a>.</p>
+    #[serde(rename = "ReplicationStatus")]
+    /// If your request involves a bucket that is either a source or destination in a replication rule.
     pub replication_status: Option<String>,
+    #[serde(rename = "RequestCharged")]
     pub request_charged: Option<String>,
-    /// <p>If the object is an archived object (an object whose storage class is GLACIER), the response includes this header if either the archive restoration is in progress (see <a>RestoreObject</a> or an archive copy is already restored.</p> <p> If an archive copy is already restored, the header value indicates when Amazon S3 is scheduled to delete the object copy. For example:</p> <p> <code>x-amz-restore: ongoing-request="false", expiry-date="Fri, 23 Dec 2012 00:00:00 GMT"</code> </p> <p>If the object restoration is in progress, the header returns the value <code>ongoing-request="true"</code>.</p> <p>For more information about archiving objects, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/object-lifecycle-mgmt.html#lifecycle-transition-general-considerations">Transitioning Objects: General Considerations</a>.</p>
+    #[serde(rename = "Restore")]
+    /// If the object is an archived object (an object whose storage class is GLACIER), the response includes this header if either the archive restoration is in progress or an archive copy is already restored.
+    /// If an archive copy is already restored, the header value indicates when Amazon S3 is scheduled to delete the object copy.
     pub restore: Option<String>,
-    /// <p>If server-side encryption with a customer-provided encryption key was requested, the response will include this header confirming the encryption algorithm used.</p>
+    #[serde(rename = "SseCustomerAlgorithm")]
+    /// If server-side encryption with a customer-provided encryption key was requested, the response will include this header confirming the encryption algorithm used.
     pub sse_customer_algorithm: Option<String>,
-    /// <p>If server-side encryption with a customer-provided encryption key was requested, the response will include this header to provide round-trip message integrity verification of the customer-provided encryption key.</p>
+    #[serde(rename = "SseCustomerKeyMd5")]
+    /// If server-side encryption with a customer-provided encryption key was requested, the response will include this header to provide round-trip message integrity verification of the customer-provided encryption key.
     pub sse_customer_key_md5: Option<String>,
-    /// <p>If present, specifies the ID of the AWS Key Management Service (AWS KMS) symmetric customer managed customer master key (CMK) that was used for the object.</p>
+    #[serde(rename = "SsekmsKeyId")]
+    /// If present, specifies the ID of the AWS Key Management Service (AWS KMS) symmetric customer managed customer master key (CMK) that was used for the object.
     pub ssekms_key_id: Option<String>,
-    /// <p>If the object is stored using server-side encryption either with an AWS KMS customer master key (CMK) or an Amazon S3-managed encryption key, the response includes this header with the value of the server-side encryption algorithm used when storing this object in Amazon S3 (for example, AES256, aws:kms).</p>
+    #[serde(rename = "ServerSideEncryption")]
+    /// If the object is stored using server-side encryption either with an AWS KMS customer master key (CMK) or an Amazon S3-managed encryption key,
+    /// The response includes this header with the value of the server-side encryption algorithm used when storing this object in Amazon S3 (for example, AES256, aws:kms).
     pub server_side_encryption: Option<String>,
-    /// <p>Provides storage class information of the object. Amazon S3 returns this header for all objects except for S3 Standard storage class objects.</p> <p>For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/storage-class-intro.html">Storage Classes</a>.</p>
+    #[serde(rename = "StorageClass")]
+    /// Provides storage class information of the object. Amazon S3 returns this header for all objects except for S3 Standard storage class objects.
     pub storage_class: Option<String>,
-    /// <p>Version of the object.</p>
+    #[serde(rename = "VersionId")]
+    /// Version of the object.
     pub version_id: Option<String>,
-    /// <p>If the bucket is configured as a website, redirects requests for this object to another object in the same bucket or to an external URL. Amazon S3 stores the value of this header in the object metadata.</p>
+    #[serde(rename = "WebsiteRedirectLocation")]
+    /// If the bucket is configured as a website, redirects requests for this object to another object in the same bucket or to an external URL. Amazon S3 stores the value of this header in the object metadata.
     pub website_redirect_location: Option<String>,
 }
 

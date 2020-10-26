@@ -624,7 +624,23 @@ impl Bucket {
     }
 
     /// Head object from S3, async.
+    /// # Example:
     ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use s3::S3Error;
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), S3Error> {
+    ///     let bucket_name = &"rust-s3-test";
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default()?;
+    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///     let (head_object_result, code) = bucket.head_object("/test.png").await.unwrap();
+    ///     assert_eq!(head_object_result.content_type.unwrap() , "image/png".to_owned());
+    ///     Ok(())
+    /// }
+    /// ```
     pub async fn head_object<S: AsRef<str>>(&self, path: S) -> Result<(HeadObjectResult, u16)> {
         let command = Command::HeadObject;
         let request = Request::new(self, path.as_ref(), command);
@@ -634,7 +650,19 @@ impl Bucket {
     }
 
     /// Head object from S3, blocks.
+    /// # Example:
     ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use s3::S3Error;
+    /// let bucket_name = &"rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let (head_object_result, code) = bucket.head_object_blocking("/test.png").unwrap();
+    /// assert_eq!(head_object_result.content_type.unwrap() , "image/png".to_owned());
+    /// ```
     pub fn head_object_blocking<S: AsRef<str>>(&self, path: S) -> Result<(HeadObjectResult, u16)> {
         let mut rt = Runtime::new()?;
         Ok(rt.block_on(self.head_object(path))?)
