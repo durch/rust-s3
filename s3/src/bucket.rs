@@ -657,9 +657,9 @@ impl Bucket {
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     /// let bucket_name = &"rust-s3-test";
-    /// let region = "us-east-1".parse()?;
-    /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default().unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// let (head_object_result, code) = bucket.head_object_blocking("/test.png").unwrap();
     /// assert_eq!(head_object_result.content_type.unwrap() , "image/png".to_owned());
     /// ```
