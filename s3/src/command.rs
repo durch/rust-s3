@@ -4,7 +4,7 @@ use reqwest::header::HeaderMap;
 
 #[derive(Clone, Debug)]
 pub enum Command<'a> {
-	HeadObject,
+    HeadObject,
     DeleteObject,
     DeleteObjectTagging,
     GetObject,
@@ -66,8 +66,8 @@ impl<'a> Command<'a> {
                 Method::POST
             }
             Command::HeadObject => {
-				Method::HEAD
-			}
+                Method::HEAD
+            }
         }
     }
 }
