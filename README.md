@@ -16,7 +16,7 @@ Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully c
 ### Intro
 
 Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Wasabi, Yandex, Minio or Google Cloud Storage.
-Supports `put`, `get`, `list`, `delete`, operations on `tags` and `location`. 
+Supports: `put`, `get`, `list`, `delete`, operations on `tags` and `location`, well as `head`. 
 
 Additionally a dedicated `presign_get` `Bucket` method is available. This means you can upload to s3, and give the link to select people without having to worry about publicly accessible files on S3. This also means that you can give people 
 a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the duration of the presigned URL.
@@ -29,9 +29,9 @@ a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the d
 
 #### Buckets
 
-|          |                                                                               |
-|----------|-------------------------------------------------------------------------------|
-| `create` | [async](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.create)   |
+|          |                                                                             |
+|----------|-----------------------------------------------------------------------------|
+| `create` | [async](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.create) |
 | `delete` | [async](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.delete) |
 
 #### Presign
@@ -98,11 +98,18 @@ Each `GET` method has a `PUT` companion `sync` and `async` methods are generic o
 | `async` | [get_object_tagging](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_tagging)                   |
 | `sync`  | [get_object_tagging_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_tagging_blocking) |
 
+#### Head
+
+|         |                                                                                                          |
+|---------|----------------------------------------------------------------------------------------------------------|
+| `async` | [head_object](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.head_object)                   |
+| `sync`  | [head_object_blocking](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.head_object_blocking) |
+
 ### Usage (in `Cargo.toml`)
 
 ```toml
 [dependencies]
-rust-s3 = "0.26.0"
+rust-s3 = "0.26"
 ```
 
 #### Features
