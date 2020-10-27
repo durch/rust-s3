@@ -101,7 +101,7 @@ impl From<&http::HeaderMap> for HeadObjectResult {
         let mut values = ::std::collections::HashMap::new();
         for (key, value) in headers.iter() {
             if key.as_str().starts_with("x-amz-meta-") {
-                if let Some(value) = value.to_str().ok() {
+                if let Ok(value) = value.to_str() {
                     values.insert(
                         key.as_str()["x-amz-meta-".len()..].to_owned(),
                         value.to_owned(),
