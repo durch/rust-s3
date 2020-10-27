@@ -1,8 +1,8 @@
 [package]
 name = "rust-s3"
-version = "0.26.2"
+version = "0.26.3"
 authors = ["Drazen Urch"]
-description = "Tiny Rust library for working with Amazon S3 and compatible object storage APIs"
+description = "Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
 readme = "README.md"
 keywords = ["S3", "Wasabi", "Minio", "Yandex", "GCP"]
