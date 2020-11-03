@@ -234,13 +234,7 @@ fn yandex_object_storage() {
 
     let yandex_region = "ru-central1".parse::<Region>().unwrap();
 
-    assert_eq!(
-        yandex.endpoint(),
-        yandex_region.endpoint()
-    );
+    assert_eq!(yandex.endpoint(), yandex_region.endpoint());
 
-    assert_eq!(
-        yandex.to_string(),
-        yandex_region.to_string()
-    );
+    assert_eq!(yandex.to_string(), yandex_region.to_string());
 }

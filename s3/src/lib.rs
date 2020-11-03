@@ -13,12 +13,12 @@ pub use bucket_ops::BucketConfiguration;
 pub use region::Region;
 
 pub mod bucket;
+pub mod bucket_ops;
 pub mod command;
 pub mod deserializer;
 pub mod request;
 pub mod serde_types;
 pub mod signing;
-pub mod bucket_ops;
 
 pub mod utils;
 

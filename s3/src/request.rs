@@ -96,7 +96,9 @@ impl<'a> Request<'a> {
     fn url(&self, encode_path: bool) -> Url {
         let mut url_str = self.bucket.url();
 
-        if let Command::CreateBucket { .. } = self.command { return Url::parse(&url_str).unwrap() }
+        if let Command::CreateBucket { .. } = self.command {
+            return Url::parse(&url_str).unwrap();
+        }
 
         let path = if self.path.starts_with('/') {
             &self.path[1..]
@@ -205,7 +207,6 @@ impl<'a> Request<'a> {
                 } else {
                     EMPTY_PAYLOAD_SHA.into()
                 }
-                
             }
             _ => EMPTY_PAYLOAD_SHA.into(),
         }
@@ -404,8 +405,8 @@ impl<'a> Request<'a> {
                 header::ACCEPT,
                 HeaderValue::from_str("application/octet-stream")?,
             );
-            // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
-        } else if let Command::CreateBucket { ref config} = self.command {
+        // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
+        } else if let Command::CreateBucket { ref config } = self.command {
             config.add_headers(&mut headers)?;
         }
 
@@ -546,7 +547,7 @@ impl<'a> Request<'a> {
 
         Ok(status_code.as_u16())
     }
-    
+
     pub async fn response_header_future(&self) -> Result<(HeaderMap, u16)> {
         let response = self.response_future().await?;
         let status_code = response.status().as_u16();

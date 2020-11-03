@@ -1560,7 +1560,10 @@ mod test {
         assert_eq!(test, data);
         let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
         assert_eq!(code, 200);
-        assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
+        assert_eq!(
+            head_object_result.content_type.unwrap(),
+            "application/octet-stream".to_owned()
+        );
         // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
@@ -1582,7 +1585,10 @@ mod test {
         assert_eq!(test, data);
         let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
         assert_eq!(code, 200);
-        assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
+        assert_eq!(
+            head_object_result.content_type.unwrap(),
+            "application/octet-stream".to_owned()
+        );
         // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
@@ -1604,7 +1610,10 @@ mod test {
         assert_eq!(test, data);
         let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
         assert_eq!(code, 200);
-        assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
+        assert_eq!(
+            head_object_result.content_type.unwrap(),
+            "application/octet-stream".to_owned()
+        );
         // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
@@ -1626,12 +1635,15 @@ mod test {
         assert_eq!(test, data);
         let (head_object_result, code) = bucket.head_object_blocking(s3_path).unwrap();
         assert_eq!(code, 200);
-        assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
+        assert_eq!(
+            head_object_result.content_type.unwrap(),
+            "application/octet-stream".to_owned()
+        );
         // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object_blocking(s3_path).unwrap();
         assert_eq!(code, 204);
     }
-    
+
     #[test]
     #[ignore]
     fn test_presign_put() {
