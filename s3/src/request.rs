@@ -4,26 +4,18 @@ extern crate md5;
 use std::collections::HashMap;
 use std::io::Write;
 
-use super::bucket::Bucket;
-use super::command::Command;
 use chrono::{DateTime, Utc};
-use hmac::{Mac, NewMac};
-use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
+use maybe_async::maybe_async;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Response};
-use url::Url;
 
-use crate::signing;
-
-use crate::LONG_DATE;
-use crate::{Result, S3Error};
+use crate::bucket::Bucket;
+use crate::command::Command;
 use crate::command::HttpMethod;
+use crate::request_trait::Request;
+use crate::{Result, S3Error};
 
-// use once_cell::sync::Lazy;
-use tokio::io::AsyncWriteExt;
 use tokio::stream::StreamExt;
-
-/// Collection of HTTP headers sent to S3 service, in key/value format.
-pub type Headers = HashMap<String, String>;
 
 /// Collection of HTTP query parameters sent to S3 service, in key/value
 /// format.
@@ -46,7 +38,7 @@ impl std::convert::From<reqwest::Error> for S3Error {
         S3Error {
             description: Some(format!("{}", e)),
             data: None,
-            source: None
+            source: None,
         }
     }
 }
@@ -56,7 +48,7 @@ impl std::convert::From<reqwest::header::InvalidHeaderName> for S3Error {
         S3Error {
             description: Some(format!("{}", e)),
             data: None,
-            source: None
+            source: None,
         }
     }
 }
@@ -66,13 +58,13 @@ impl std::convert::From<reqwest::header::InvalidHeaderValue> for S3Error {
         S3Error {
             description: Some(format!("{}", e)),
             data: None,
-            source: None
+            source: None,
         }
     }
 }
 
 // Temporary structure for making a request
-pub struct Request<'a> {
+pub struct Reqwest<'a> {
     pub bucket: &'a Bucket,
     pub path: &'a str,
     pub command: Command<'a>,
@@ -80,436 +72,27 @@ pub struct Request<'a> {
     pub sync: bool,
 }
 
-impl<'a> Request<'a> {
-    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> Request<'b> {
-        Request {
-            bucket,
-            path,
-            command,
-            datetime: Utc::now(),
-            sync: false,
-        }
+#[maybe_async(?Send)]
+impl<'a> Request for Reqwest<'a> {
+    type Response = reqwest::Response;
+
+    fn command(&self) -> Command {
+        self.command.clone()
     }
 
-    pub fn presigned(&self) -> Result<String> {
-        let expiry = match self.command {
-            Command::PresignGet { expiry_secs } => expiry_secs,
-            Command::PresignPut { expiry_secs, .. } => expiry_secs,
-            _ => unreachable!(),
-        };
-        let custom_headers = match &self.command {
-            Command::PresignPut {custom_headers, .. } => {
-                if let Some(custom_headers) = custom_headers {
-                    Some(custom_headers.clone())
-                } else {
-                    None
-                }
-            },
-            _ => None  
-        };
-        let authorization = self.presigned_authorization(custom_headers.clone())?;
-        Ok(format!(
-            "{}&X-Amz-Signature={}",
-            self.presigned_url_no_sig(expiry, custom_headers)?,
-            authorization
-        ))
+    fn path(&self) -> String {
+        self.path.to_string()
     }
 
-    fn host_header(&self) -> Result<HeaderValue> {
-        let host = self.bucket.host();
-        HeaderValue::from_str(&host).map_err(|_e| {
-            S3Error::from(format!("Could not parse HOST header value {}", host).as_ref())
-        })
+    fn datetime(&self) -> DateTime<Utc> {
+        self.datetime
     }
 
-    fn url(&self, encode_path: bool) -> Url {
-        let mut url_str = self.bucket.url();
-
-        let path = if self.path.starts_with('/') {
-            &self.path[1..]
-        } else {
-            &self.path[..]
-        };
-
-        url_str.push_str("/");
-
-        if encode_path {
-            url_str.push_str(&signing::uri_encode(path, true));
-        } else {
-            url_str.push_str(path);
-        }
-    
-
-        // Since every part of this URL is either pre-encoded or statically
-        // generated, there's really no way this should fail.
-        let mut url = Url::parse(&url_str).expect("static URL parsing");
-
-        for (key, value) in &self.bucket.extra_query {
-            url.query_pairs_mut().append_pair(key, value);
-        }
-
-        if let Command::ListBucket {
-            prefix,
-            delimiter,
-            continuation_token,
-            start_after,
-            max_keys,
-        } = self.command.clone()
-        {
-            let mut query_pairs = url.query_pairs_mut();
-            delimiter.map(|d| query_pairs.append_pair("delimiter", &d));
-            query_pairs.append_pair("prefix", &prefix);
-            query_pairs.append_pair("list-type", "2");
-            if let Some(token) = continuation_token {
-                query_pairs.append_pair("continuation-token", &token);
-            }
-            if let Some(start_after) = start_after {
-                query_pairs.append_pair("start-after", &start_after);
-            }
-            if let Some(max_keys) = max_keys {
-                query_pairs.append_pair("max-keys", &max_keys.to_string());
-            }
-        }
-
-        match self.command {
-            Command::PutObjectTagging { .. }
-            | Command::GetObjectTagging
-            | Command::DeleteObjectTagging => {
-                url.query_pairs_mut().append_pair("tagging", "");
-            }
-            _ => {}
-        }
-
-        url
+    fn bucket(&self) -> Bucket {
+        self.bucket.clone()
     }
 
-    fn long_date(&self) -> String {
-        self.datetime.format(LONG_DATE).to_string()
-    }
-
-    fn canonical_request(&self, headers: &HeaderMap) -> String {
-        signing::canonical_request(
-            &self.command.http_verb().to_string(),
-            &self.url(false),
-            headers,
-            &self.command.sha256(),
-        )
-    }
-
-    fn presigned_url_no_sig(&self, expiry: u32, custom_headers: Option<HeaderMap>) -> Result<Url> {
-        let token = if let Some(security_token) = self.bucket.security_token() {
-            Some(security_token)
-        } else if let Some(session_token) = self.bucket.session_token() {
-            Some(session_token)
-        } else {
-            None
-        };
-        let url = Url::parse(&format!(
-            "{}{}",
-            self.url(true),
-            &signing::authorization_query_params_no_sig(
-                &self.bucket.access_key().unwrap(),
-                &self.datetime,
-                &self.bucket.region(),
-                expiry,
-                custom_headers,
-                token
-            )?
-        ))?;
-
-        Ok(url)
-    }
-
-    fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String> {
-        let expiry = match self.command {
-            Command::PresignGet { expiry_secs } => expiry_secs,
-            Command::PresignPut { expiry_secs, .. } => expiry_secs,
-            _ => unreachable!(),
-        };
-
-        let custom_headers = match &self.command {
-            Command::PresignPut {custom_headers, ..} => {
-                if let Some(custom_headers) = custom_headers {
-                    Some(custom_headers.clone())
-                } else {
-                    None
-                }
-            },
-            _ => None
-        };
-
-        let canonical_request = signing::canonical_request(
-            &self.command.http_verb().to_string(),
-            &self.presigned_url_no_sig(expiry, custom_headers)?,
-            headers,
-            "UNSIGNED-PAYLOAD",
-        );
-        Ok(canonical_request)
-    }
-
-    fn string_to_sign(&self, request: &str) -> String {
-        signing::string_to_sign(&self.datetime, &self.bucket.region(), request)
-    }
-
-    fn signing_key(&self) -> Result<Vec<u8>> {
-        Ok(signing::signing_key(
-            &self.datetime,
-            &self
-                .bucket
-                .secret_key()
-                .expect("Secret key must be provided to sign headers, found None"),
-            &self.bucket.region(),
-            "s3",
-        )?)
-    }
-
-    fn presigned_authorization(&self, custom_headers: Option<HeaderMap>) -> Result<String> {
-        let mut headers = HeaderMap::new();
-        let host_header = self.host_header()?;
-        headers.insert(header::HOST, host_header);
-        if let Some(custom_headers) = custom_headers {
-            for (k, v) in custom_headers.into_iter() {
-                if let Some(k) = k {
-                    headers.insert(k, v);
-                }
-            }
-        }
-        let canonical_request = self.presigned_canonical_request(&headers)?;
-        let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
-        hmac.update(string_to_sign.as_bytes());
-        let signature = hex::encode(hmac.finalize().into_bytes());
-        // let signed_header = signing::signed_header_string(&headers);
-        Ok(signature)
-    }
-
-    fn authorization(&self, headers: &HeaderMap) -> Result<String> {
-        let canonical_request = self.canonical_request(headers);
-        let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
-        hmac.update(string_to_sign.as_bytes());
-        let signature = hex::encode(hmac.finalize().into_bytes());
-        let signed_header = signing::signed_header_string(headers);
-        Ok(signing::authorization_header(
-            &self.bucket.access_key().unwrap(),
-            &self.datetime,
-            &self.bucket.region(),
-            &signed_header,
-            &signature,
-        ))
-    }
-
-    fn headers(&self) -> Result<HeaderMap> {
-        // Generate this once, but it's used in more than one place.
-        let sha256 = self.command.sha256();
-
-        // Start with extra_headers, that way our headers replace anything with
-        // the same name.
-
-        let mut headers = HeaderMap::new();
-
-        for (k, v) in self.bucket.extra_headers.iter() {
-            headers.insert(
-                match HeaderName::from_bytes(k.as_bytes()) {
-                    Ok(name) => name,
-                    Err(e) => {
-                        return Err(S3Error::from(
-                            format!("Could not parse {} to HeaderName.\n {}", k, e).as_ref(),
-                        ))
-                    }
-                },
-                match HeaderValue::from_bytes(v.as_bytes()) {
-                    Ok(value) => value,
-                    Err(e) => {
-                        return Err(S3Error::from(
-                            format!("Could not parse {} to HeaderValue.\n {}", v, e).as_ref(),
-                        ))
-                    }
-                },
-            );
-        }
-
-        let host_header = self.host_header()?;
-
-        headers.insert(header::HOST, host_header);
-
-        match self.command {
-            Command::ListBucket { .. } => {}
-            Command::GetObject => {}
-            Command::GetObjectTagging => {}
-            Command::GetBucketLocation => {}
-            _ => {
-                headers.insert(
-                    header::CONTENT_LENGTH,
-                    match self.command.content_length().to_string().parse() {
-                        Ok(content_length) => content_length,
-                        Err(_) => {
-                            return Err(S3Error::from(
-                                format!(
-                                    "Could not parse CONTENT_LENGTH header value {}",
-                                    self.command.content_length()
-                                )
-                                .as_ref(),
-                            ))
-                        }
-                    },
-                );
-                headers.insert(
-                    header::CONTENT_TYPE,
-                    match self.command.content_type().parse() {
-                        Ok(content_type) => content_type,
-                        Err(_) => {
-                            return Err(S3Error::from(
-                                format!(
-                                    "Could not parse CONTENT_TYPE header value {}",
-                                    self.command.content_type()
-                                )
-                                .as_ref(),
-                            ))
-                        }
-                    },
-                );
-            }
-        }
-        headers.insert(
-            "X-Amz-Content-Sha256",
-            match sha256.parse() {
-                Ok(value) => value,
-                Err(_) => {
-                    return Err(S3Error::from(
-                        format!(
-                            "Could not parse X-Amz-Content-Sha256 header value {}",
-                            sha256
-                        )
-                        .as_ref(),
-                    ))
-                }
-            },
-        );
-        headers.insert(
-            "X-Amz-Date",
-            match self.long_date().parse() {
-                Ok(value) => value,
-                Err(_) => {
-                    return Err(S3Error::from(
-                        format!(
-                            "Could not parse X-Amz-Date header value {}",
-                            self.long_date()
-                        )
-                        .as_ref(),
-                    ))
-                }
-            },
-        );
-
-        if let Some(session_token) = self.bucket.session_token() {
-            headers.insert(
-                "X-Amz-Security-Token",
-                match session_token.parse() {
-                    Ok(session_token) => session_token,
-                    Err(_) => {
-                        return Err(S3Error::from(
-                            format!(
-                                "Could not parse X-Amz-Security-Token header value {}",
-                                session_token
-                            )
-                            .as_ref(),
-                        ))
-                    }
-                },
-            );
-        } else if let Some(security_token) = self.bucket.security_token() {
-            headers.insert(
-                "X-Amz-Security-Token",
-                match security_token.parse() {
-                    Ok(security_token) => security_token,
-                    Err(_) => {
-                        return Err(S3Error::from(
-                            format!(
-                                "Could not parse X-Amz-Security-Token header value {}",
-                                security_token
-                            )
-                            .as_ref(),
-                        ))
-                    }
-                },
-            );
-        }
-
-        if let Command::PutObjectTagging { tags } = self.command {
-            let digest = md5::compute(tags);
-            let hash = base64::encode(digest.as_ref());
-            headers.insert("Content-MD5", hash.parse()?);
-        } else if let Command::PutObject { content, .. } = self.command {
-            let digest = md5::compute(content);
-            let hash = base64::encode(digest.as_ref());
-            headers.insert("Content-MD5", hash.parse()?);
-        } else if let Command::UploadPart { content, .. } = self.command {
-            let digest = md5::compute(content);
-            let hash = base64::encode(digest.as_ref());
-            headers.insert("Content-MD5", hash.parse()?);
-        } else if let Command::GetObject {} = self.command {
-            headers.insert(
-                header::ACCEPT,
-                HeaderValue::from_str("application/octet-stream")?,
-            );
-            // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
-        }
-
-        // This must be last, as it signs the other headers, omitted if no secret key is provided
-        if self.bucket.secret_key().is_some() {
-            let authorization = self.authorization(&headers)?;
-            headers.insert(
-                header::AUTHORIZATION,
-                match authorization.parse() {
-                    Ok(authorization) => authorization,
-                    Err(_) => {
-                        return Err(S3Error::from(
-                            format!(
-                                "Could not parse AUTHORIZATION header value {}",
-                                authorization
-                            )
-                            .as_ref(),
-                        ))
-                    }
-                },
-            );
-        }
-
-        // The format of RFC2822 is somewhat malleable, so including it in
-        // signed headers can cause signature mismatches. We do include the
-        // X-Amz-Date header, so requests are still properly limited to a date
-        // range and can't be used again e.g. reply attacks. Adding this header
-        // after the generation of the Authorization header leaves it out of
-        // the signed headers.
-        headers.insert(
-            header::DATE,
-            match self.datetime.to_rfc2822().parse() {
-                Ok(date) => date,
-                Err(_) => {
-                    return Err(S3Error::from(
-                        format!(
-                            "Could not parse DATE header value {}",
-                            self.datetime.to_rfc2822()
-                        )
-                        .as_ref(),
-                    ))
-                }
-            },
-        );
-
-        Ok(headers)
-    }
-
-    // pub fn response_data(&self) -> Result<(Vec<u8>, u16)> {
-    //     Ok(futures::executor::block_on(self.response_data())?)
-    // }
-
-    // pub fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16> {
-    //     Ok(futures::executor::block_on(self.response_data_to_writer(writer))?)
-    // }
-
-    pub async fn response(&self) -> Result<Response> {
+    async fn response(&self) -> Result<Response> {
         // Build headers
         let headers = match self.headers() {
             Ok(headers) => headers,
@@ -534,16 +117,15 @@ impl<'a> Request<'a> {
         let client = if cfg!(feature = "no-verify-ssl") {
             let client = Client::builder().danger_accept_invalid_certs(true);
 
-                cfg_if::cfg_if! {
-                    if #[cfg(feature = "native-tls")]
-                    {
-                        let client = client.danger_accept_invalid_hostnames(true);
-                    }
-
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "native-tls")]
+                {
+                    let client = client.danger_accept_invalid_hostnames(true);
                 }
 
-                client.build()
-                .expect("Could not build dangerous client!")
+            }
+
+            client.build().expect("Could not build dangerous client!")
         } else {
             Client::new()
         };
@@ -552,12 +134,22 @@ impl<'a> Request<'a> {
             HttpMethod::Delete => reqwest::Method::DELETE,
             HttpMethod::Get => reqwest::Method::GET,
             HttpMethod::Post => reqwest::Method::POST,
-            HttpMethod::Put => reqwest::Method::PUT
+            HttpMethod::Put => reqwest::Method::PUT,
         };
+
+        let mut header_map = HeaderMap::new();
+
+        for (k, v) in headers.into_iter() {
+            header_map.insert(
+                HeaderName::from_bytes(k.as_bytes())?,
+                HeaderValue::from_bytes(v.as_bytes())?,
+            );
+        }
 
         let request = client
             .request(method, self.url(false).as_str())
-            .headers(headers.to_owned())
+            // TODO convert this
+            .headers(header_map)
             .body(content.to_owned());
 
         let response = request.send().await?;
@@ -576,7 +168,7 @@ impl<'a> Request<'a> {
         Ok(response)
     }
 
-    pub async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
+    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
         let response = self.response().await?;
         let status_code = response.status().as_u16();
         let headers = response.headers().clone();
@@ -592,10 +184,7 @@ impl<'a> Request<'a> {
         Ok((body_vec, status_code))
     }
 
-    pub async fn response_data_to_writer<'b, T: Write>(
-        &self,
-        writer: &'b mut T,
-    ) -> Result<u16> {
+    async fn response_data_to_writer<'b, T: Write>(&self, writer: &'b mut T) -> Result<u16> {
         let response = self.response().await?;
 
         let status_code = response.status();
@@ -607,21 +196,17 @@ impl<'a> Request<'a> {
 
         Ok(status_code.as_u16())
     }
+}
 
-    pub async fn tokio_response_data_to_writer<'b, T: AsyncWriteExt + Unpin>(
-        &self,
-        writer: &'b mut T,
-    ) -> Result<u16> {
-        let response = self.response().await?;
-
-        let status_code = response.status();
-        let mut stream = response.bytes_stream();
-
-        while let Some(item) = stream.next().await {
-            writer.write_all(&item?).await?;
+impl<'a> Reqwest<'a> {
+    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> Reqwest<'b> {
+        Reqwest {
+            bucket,
+            path,
+            command,
+            datetime: Utc::now(),
+            sync: false,
         }
-
-        Ok(status_code.as_u16())
     }
 }
 
@@ -629,7 +214,8 @@ impl<'a> Request<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request::Request;
+    use crate::request::Reqwest;
+    use crate::request_trait::Request;
     use crate::Result;
     use awscreds::Credentials;
 
@@ -646,7 +232,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = Request::new(&bucket, path, Command::GetObject);
+        let request = Reqwest::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url(false).scheme(), "https");
 
@@ -662,7 +248,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new_with_path_style("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = Request::new(&bucket, path, Command::GetObject);
+        let request = Reqwest::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url(false).scheme(), "https");
 
@@ -678,7 +264,7 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = Request::new(&bucket, path, Command::GetObject);
+        let request = Reqwest::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url(false).scheme(), "http");
 
@@ -693,7 +279,7 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = Request::new(&bucket, path, Command::GetObject);
+        let request = Reqwest::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url(false).scheme(), "http");
 

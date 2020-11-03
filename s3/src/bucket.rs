@@ -6,34 +6,33 @@ use crate::command::Command;
 use crate::creds::Credentials;
 use crate::region::Region;
 
+pub type Headers = HashMap<String, String>;
+
 #[cfg(feature = "async")]
-use crate::request::{Headers, Query, Request};
+use crate::request::Query;
 #[cfg(feature = "async")]
-use reqwest::header::HeaderMap;
+use crate::request::Reqwest as RequestImpl;
 #[cfg(feature = "async")]
-use futures::io::AsyncRead;
-#[cfg(feature = "async")]
-use tokio::io::AsyncRead as TokioAsyncRead;
-#[cfg(feature = "async")]
-use tokio::io::AsyncReadExt as TokioAsyncReadExt;
-#[cfg(feature = "async")]
-use tokio::io::AsyncWrite as TokioAsyncWrite;
+// use tokio::io::AsyncWrite as TokioAsyncWrite;
 #[cfg(feature = "async")]
 use async_std::fs::File;
 #[cfg(feature = "async")]
 use async_std::path::Path;
+#[cfg(feature = "async")]
+use futures::io::AsyncRead;
 
 #[cfg(feature = "sync")]
-use crate::blocking::{Request, Query, Headers};
+use crate::blocking::Query;
 #[cfg(feature = "sync")]
-use attohttpc::header::HeaderMap;
+use crate::blocking::AttoRequest as RequestImpl;
+#[cfg(feature = "sync")]
+use std::fs::File;
 #[cfg(feature = "sync")]
 use std::io::Read;
 #[cfg(feature = "sync")]
 use std::path::Path;
-#[cfg(feature = "sync")]
-use std::fs::File;
 
+use crate::request_trait::Request;
 use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, InitiateMultipartUploadResponse,
     ListBucketResult, Part, Tagging,
@@ -99,7 +98,7 @@ impl Bucket {
     /// ```
     pub fn presign_get<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
         validate_expiry(expiry_secs)?;
-        let request = Request::new(self, path.as_ref(), Command::PresignGet { expiry_secs });
+        let request = RequestImpl::new(self, path.as_ref(), Command::PresignGet { expiry_secs });
         Ok(request.presigned()?)
     }
 
@@ -110,16 +109,17 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
+    /// use std::collections::HashMap;
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    /// let mut custom_headers = reqwest::header::HeaderMap::new();
+    /// let mut custom_headers = HashMap::new();
     /// custom_headers.insert(
-    ///    reqwest::header::HeaderName::from_static("custom_header"),
-    ///    reqwest::header::HeaderValue::from_str("custom_value").unwrap(),
+    ///    "custom_header".to_string(),
+    ///    "custom_value".to_string(),
     /// );
     ///
     /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers)).unwrap();
@@ -129,10 +129,10 @@ impl Bucket {
         &self,
         path: S,
         expiry_secs: u32,
-        custom_headers: Option<HeaderMap>,
+        custom_headers: Option<Headers>,
     ) -> Result<String> {
         validate_expiry(expiry_secs)?;
-        let request = Request::new(
+        let request = RequestImpl::new(
             self,
             path.as_ref(),
             Command::PresignPut {
@@ -233,7 +233,7 @@ impl Bucket {
     #[maybe_async::maybe_async]
     pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestImpl::new(self, path.as_ref(), command);
         Ok(request.response_data(false).await?)
     }
 
@@ -269,45 +269,8 @@ impl Bucket {
         writer: &mut T,
     ) -> Result<u16> {
         let command = Command::GetObject;
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestImpl::new(self, path.as_ref(), command);
         Ok(request.response_data_to_writer(writer).await?)
-    }
-
-    /// Stream file from S3 path to a local file, generic over T: Write, async.
-    ///
-    /// # Example:
-    ///
-    /// ```rust,no_run
-    ///
-    /// use s3::bucket::Bucket;
-    /// use s3::creds::Credentials;
-    /// use s3::S3Error;
-    /// use tokio::fs::File;
-    /// use tokio::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
-    ///
-    ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default()?;
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
-    ///     let mut output_file = File::create("output_file").await.expect("Unable to create file");
-    ///
-    ///     let status_code = bucket.tokio_get_object_stream("/test.file", &mut output_file).await?;
-    ///     println!("Code: {}", status_code);
-    ///     Ok(())
-    /// }
-    /// ```
-    #[cfg(feature = "async")]
-    pub async fn tokio_get_object_stream<T: TokioAsyncWrite + Unpin, S: AsRef<str>>(
-        &self,
-        path: S,
-        writer: &mut T,
-    ) -> Result<u16> {
-        let command = Command::GetObject;
-        let request = Request::new(self, path.as_ref(), command);
-        Ok(request.tokio_response_data_to_writer(writer).await?)
     }
 
     // TODO doctest
@@ -329,7 +292,7 @@ impl Bucket {
     ) -> Result<u16> {
         let command = Command::InitiateMultipartUpload;
         let path = format!("{}?uploads", s3_path);
-        let request = Request::new(self, &path, command);
+        let request = RequestImpl::new(self, &path, command);
         let (data, code) = request.response_data(false).await?;
         let msg: InitiateMultipartUploadResponse =
             serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
@@ -346,7 +309,7 @@ impl Bucket {
                         upload_id: &msg.upload_id,
                     };
                     let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let abort_request = Request::new(self, &abort_path, abort);
+                    let abort_request = RequestImpl::new(self, &abort_path, abort);
                     let (_, _code) = abort_request.response_data(false).await?;
                     self.put_object(s3_path, chunk.as_slice()).await?;
                     break;
@@ -361,7 +324,7 @@ impl Bucket {
                         "{}?partNumber={}&uploadId={}",
                         msg.key, part_number, &msg.upload_id
                     );
-                    let request = Request::new(self, &path, command);
+                    let request = RequestImpl::new(self, &path, command);
                     let (data, _code) = request.response_data(true).await?;
                     let etag = std::str::from_utf8(data.as_slice())?;
                     etags.push(etag.to_string());
@@ -380,7 +343,7 @@ impl Bucket {
                         data,
                     };
                     let complete_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let complete_request = Request::new(self, &complete_path, complete);
+                    let complete_request = RequestImpl::new(self, &complete_path, complete);
                     let (_data, _code) = complete_request.response_data(false).await?;
                     // let response = std::str::from_utf8(data.as_slice())?;
                     break;
@@ -396,7 +359,7 @@ impl Bucket {
                     "{}?partNumber={}&uploadId={}",
                     msg.key, part_number, &msg.upload_id
                 );
-                let request = Request::new(self, &path, command);
+                let request = RequestImpl::new(self, &path, command);
                 let (data, _code) = request.response_data(true).await?;
                 let etag = std::str::from_utf8(data.as_slice())?;
                 etags.push(etag.to_string());
@@ -406,14 +369,10 @@ impl Bucket {
     }
 
     #[maybe_async::sync_impl]
-    fn _put_object_stream<R: Read>(
-        &self,
-        reader: &mut R,
-        s3_path: &str,
-    ) -> Result<u16> {
+    fn _put_object_stream<R: Read>(&self, reader: &mut R, s3_path: &str) -> Result<u16> {
         let command = Command::InitiateMultipartUpload;
         let path = format!("{}?uploads", s3_path);
-        let request = Request::new(self, &path, command);
+        let request = RequestImpl::new(self, &path, command);
         let (data, code) = request.response_data(false)?;
         let msg: InitiateMultipartUploadResponse =
             serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
@@ -430,7 +389,7 @@ impl Bucket {
                         upload_id: &msg.upload_id,
                     };
                     let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let abort_request = Request::new(self, &abort_path, abort);
+                    let abort_request = RequestImpl::new(self, &abort_path, abort);
                     let (_, _code) = abort_request.response_data(false)?;
                     self.put_object(s3_path, chunk.as_slice())?;
                     break;
@@ -445,7 +404,7 @@ impl Bucket {
                         "{}?partNumber={}&uploadId={}",
                         msg.key, part_number, &msg.upload_id
                     );
-                    let request = Request::new(self, &path, command);
+                    let request = RequestImpl::new(self, &path, command);
                     let (data, _code) = request.response_data(true)?;
                     let etag = std::str::from_utf8(data.as_slice())?;
                     etags.push(etag.to_string());
@@ -463,7 +422,7 @@ impl Bucket {
                         data,
                     };
                     let complete_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let complete_request = Request::new(self, &complete_path, complete);
+                    let complete_request = RequestImpl::new(self, &complete_path, complete);
                     let (_data, _code) = complete_request.response_data(false)?;
                     // let response = std::str::from_utf8(data.as_slice())?;
                     break;
@@ -479,55 +438,13 @@ impl Bucket {
                     "{}?partNumber={}&uploadId={}",
                     msg.key, part_number, &msg.upload_id
                 );
-                let request = Request::new(self, &path, command);
+                let request = RequestImpl::new(self, &path, command);
                 let (data, _code) = request.response_data(true)?;
                 let etag = std::str::from_utf8(data.as_slice())?;
                 etags.push(etag.to_string());
             }
         }
         Ok(code)
-    }
-
-    /// Stream file from local path to s3 using tokio::io, async.
-    ///
-    /// # Example:
-    ///
-    /// ```rust,no_run
-    ///
-    /// use s3::bucket::Bucket;
-    /// use s3::creds::Credentials;
-    /// use s3::S3Error;
-    /// use tokio::prelude::*;
-    /// use tokio::fs::File;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
-    ///
-    ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default()?;
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
-    ///     let mut file = File::open("foo.txt").await?;
-    ///
-    ///     let status_code = bucket.tokio_put_object_stream(&mut file, "/test_file").await?;
-    ///     println!("Code: {}", status_code);
-    ///     Ok(())
-    /// }
-    /// ```
-    #[cfg(feature = "async")]
-    pub async fn tokio_put_object_stream<R: TokioAsyncRead + Unpin, S: AsRef<str>>(
-        &self,
-        reader: &mut R,
-        s3_path: S,
-    ) -> Result<u16> {
-        let mut bytes = Vec::new();
-        reader.read(&mut bytes).await?;
-        let command = Command::PutObject {
-            content: &bytes[..],
-            content_type: "application/octet-stream",
-        };
-        let request = Request::new(self, s3_path.as_ref(), command);
-        Ok(request.response_data(false).await?.1)
     }
 
     //// Get bucket location from S3, async
@@ -552,7 +469,7 @@ impl Bucket {
     /// ```
     #[maybe_async::maybe_async]
     pub async fn location(&self) -> Result<(Region, u16)> {
-        let request = Request::new(self, "?location", Command::GetBucketLocation);
+        let request = RequestImpl::new(self, "?location", Command::GetBucketLocation);
         let result = request.response_data(false).await?;
         let region_string = String::from_utf8_lossy(&result.0);
         let region = match serde_xml::from_reader(region_string.as_bytes()) {
@@ -603,11 +520,9 @@ impl Bucket {
     #[maybe_async::maybe_async]
     pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObject;
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestImpl::new(self, path.as_ref(), command);
         Ok(request.response_data(false).await?)
     }
-
-   
 
     /// Put into an S3 bucket, async.
     ///
@@ -647,10 +562,9 @@ impl Bucket {
             content,
             content_type,
         };
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestImpl::new(self, path.as_ref(), command);
         Ok(request.response_data(true).await?)
     }
-  
 
     /// Put into an S3 bucket, async.
     ///
@@ -744,7 +658,7 @@ impl Bucket {
     ) -> Result<(Vec<u8>, u16)> {
         let content = self._tags_xml(&tags);
         let command = Command::PutObjectTagging { tags: &content };
-        let request = Request::new(self, path, command);
+        let request = RequestImpl::new(self, path, command);
         Ok(request.response_data(false).await?)
     }
 
@@ -777,7 +691,7 @@ impl Bucket {
     #[maybe_async::maybe_async]
     pub async fn delete_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObjectTagging;
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestImpl::new(self, path.as_ref(), command);
         Ok(request.response_data(false).await?)
     }
 
@@ -817,7 +731,7 @@ impl Bucket {
         path: S,
     ) -> Result<(Option<Tagging>, u16)> {
         let command = Command::GetObjectTagging {};
-        let request = Request::new(self, path.as_ref(), command);
+        let request = RequestImpl::new(self, path.as_ref(), command);
         let result = request.response_data(false).await?;
 
         let tagging = if result.1 == 200 {
@@ -847,7 +761,7 @@ impl Bucket {
             start_after,
             max_keys,
         };
-        let request = Request::new(self, "/", command);
+        let request = RequestImpl::new(self, "/", command);
         let (response, status_code) = request.response_data(false).await?;
         match serde_xml::from_reader(response.as_slice()) {
             Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
@@ -1083,6 +997,7 @@ mod test {
     use crate::bucket::Bucket;
     use crate::creds::Credentials;
     use crate::region::Region;
+    use std::collections::HashMap;
     use std::env;
     use std::fs::File;
     use std::io::prelude::*;
@@ -1288,10 +1203,10 @@ mod test {
         assert_eq!(code, 204);
     }
 
-    #[cfg(feature = "async")]
-    use reqwest::header::{HeaderName, HeaderValue, HeaderMap};
     #[cfg(feature = "sync")]
-    use attohttpc::header::{HeaderName, HeaderValue, HeaderMap};
+    use attohttpc::header::{HeaderMap, HeaderName, HeaderValue};
+    #[cfg(feature = "async")]
+    use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
     #[test]
     #[ignore]
@@ -1299,11 +1214,8 @@ mod test {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
 
-        let mut custom_headers = HeaderMap::new();
-        custom_headers.insert(
-            HeaderName::from_static("custom_header"),
-            HeaderValue::from_str("custom_value").unwrap(),
-        );
+        let mut custom_headers = HashMap::new();
+        custom_headers.insert("custom_header".to_string(), "custom_value".to_string());
 
         let url = bucket
             .presign_put(s3_path, 86400, Some(custom_headers))

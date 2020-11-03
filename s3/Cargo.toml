@@ -42,6 +42,7 @@ http = "0.2"
 cfg-if = "1"
 attohttpc = {version = "0.16", optional = true}
 maybe-async = {version = "0.2"}
+async-trait = "0.1"
 
 
 [features]

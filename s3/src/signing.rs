@@ -7,15 +7,12 @@ use std::str;
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac, NewMac};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
-#[cfg(feature = "async")]
-use reqwest::header::HeaderMap;
-#[cfg(feature = "sync")]
-use attohttpc::header::HeaderMap;
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use crate::Result;
+use crate::bucket::Headers;
 use crate::region::Region;
+use crate::Result;
 
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
@@ -85,17 +82,13 @@ pub fn canonical_query_string(uri: &Url) -> String {
 }
 
 /// Generate a canonical header string from the provided headers.
-pub fn canonical_header_string(headers: &HeaderMap) -> String {
+pub fn canonical_header_string(headers: &Headers) -> String {
     let mut keyvalues = headers
         .iter()
-        .filter_map(|(key, value)| {
+        .map(|(key, value)| {
             // Values that are not strings are silently dropped (AWS wouldn't
             // accept them anyway)
-            if let Ok(value_inner) = value.to_str() {
-                Some(key.as_str().to_lowercase() + ":" + value_inner.trim())
-            } else {
-                None
-            }
+            key.as_str().to_lowercase() + ":" + value.trim()
         })
         .collect::<Vec<String>>();
     keyvalues.sort();
@@ -103,7 +96,7 @@ pub fn canonical_header_string(headers: &HeaderMap) -> String {
 }
 
 /// Generate a signed header string from the provided headers.
-pub fn signed_header_string(headers: &HeaderMap) -> String {
+pub fn signed_header_string(headers: &Headers) -> String {
     let mut keys = headers
         .keys()
         .map(|key| key.as_str().to_lowercase())
@@ -113,7 +106,7 @@ pub fn signed_header_string(headers: &HeaderMap) -> String {
 }
 
 /// Generate a canonical request.
-pub fn canonical_request(method: &str, url: &Url, headers: &HeaderMap, sha256: &str) -> String {
+pub fn canonical_request(method: &str, url: &Url, headers: &Headers, sha256: &str) -> String {
     format!(
         "{method}\n{uri}\n{query_string}\n{headers}\n\n{signed}\n{sha256}",
         method = method,
@@ -191,7 +184,7 @@ pub fn authorization_query_params_no_sig(
     datetime: &DateTime<Utc>,
     region: &Region,
     expires: u32,
-    custom_headers: Option<HeaderMap>,
+    custom_headers: Option<&Headers>,
     token: Option<&str>,
 ) -> Result<String> {
     let credentials = uri_encode(
@@ -233,13 +226,9 @@ pub fn authorization_query_params_no_sig(
 
 #[cfg(test)]
 mod tests {
-    use std::str;
-
     use chrono::{TimeZone, Utc};
-    #[cfg(feature = "async")]
-    use reqwest::header::{HeaderMap, HeaderValue};
-    #[cfg(feature = "sync")]
-    use attohttpc::header::{HeaderMap, HeaderValue};
+    use std::collections::HashMap;
+    use std::str;
     use url::Url;
 
     use super::*;
@@ -288,10 +277,10 @@ mod tests {
 
     #[test]
     fn test_headers_encode() {
-        let mut headers = HeaderMap::new();
-        headers.insert("X-Amz-Date", HeaderValue::from_static("20130708T220855Z"));
-        headers.insert("FOO", HeaderValue::from_static("bAr"));
-        headers.insert("host", HeaderValue::from_static("s3.amazonaws.com"));
+        let mut headers = HashMap::new();
+        headers.insert("X-Amz-Date".to_string(), "20130708T220855Z".to_string());
+        headers.insert("FOO".to_string(), "bAr".to_string());
+        headers.insert("host".to_string(), "s3.amazonaws.com".to_string());
         let canonical = canonical_header_string(&headers);
         let expected = "foo:bAr\nhost:s3.amazonaws.com\nx-amz-date:20130708T220855Z";
         assert_eq!(expected, canonical);
@@ -335,17 +324,14 @@ mod tests {
     #[test]
     fn test_signing() {
         let url = Url::parse("https://examplebucket.s3.amazonaws.com/test.txt").unwrap();
-        let mut headers = HeaderMap::new();
-        headers.insert("X-Amz-Date", HeaderValue::from_static("20130524T000000Z"));
-        headers.insert("range", HeaderValue::from_static("bytes=0-9"));
+        let mut headers = HashMap::new();
+        headers.insert("X-Amz-Date".to_string(), "20130524T000000Z".to_string());
+        headers.insert("range".to_string(), "bytes=0-9".to_string());
         headers.insert(
-            "host",
-            HeaderValue::from_static("examplebucket.s3.amazonaws.com"),
+            "host".to_string(),
+            "examplebucket.s3.amazonaws.com".to_string(),
         );
-        headers.insert(
-            "X-Amz-Content-Sha256",
-            HeaderValue::from_static(EXPECTED_SHA),
-        );
+        headers.insert("X-Amz-Content-Sha256".to_string(), EXPECTED_SHA.to_string());
         let canonical = canonical_request("GET", &url, &headers, EXPECTED_SHA);
         assert_eq!(EXPECTED_CANONICAL_REQUEST, canonical);
 

@@ -1,8 +1,5 @@
 use crate::serde_types::CompleteMultipartUploadData;
-#[cfg(feature = "async")]
-use reqwest::header::HeaderMap;
-#[cfg(feature = "sync")]
-use attohttpc::header::HeaderMap;
+use crate::bucket::Headers;
 
 use sha2::{Digest, Sha256};
 use crate::EMPTY_PAYLOAD_SHA;
@@ -54,7 +51,7 @@ pub enum Command<'a> {
     },
     PresignPut {
         expiry_secs: u32,
-        custom_headers: Option<HeaderMap>
+        custom_headers: Option<Headers>
     },
     InitiateMultipartUpload,
     UploadPart {

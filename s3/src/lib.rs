@@ -19,6 +19,7 @@ pub mod serde_types;
 pub mod signing;
 
 pub mod utils;
+pub mod request_trait;
 
 simpl::err!(S3Error, {
     Xml@serde_xml::Error;
