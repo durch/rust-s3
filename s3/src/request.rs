@@ -1,7 +1,6 @@
 extern crate base64;
 extern crate md5;
 
-use std::collections::HashMap;
 use std::io::Write;
 
 use chrono::{DateTime, Utc};
@@ -16,22 +15,6 @@ use crate::request_trait::Request;
 use crate::{Result, S3Error};
 
 use tokio::stream::StreamExt;
-
-/// Collection of HTTP query parameters sent to S3 service, in key/value
-/// format.
-pub type Query = HashMap<String, String>;
-
-// static CLIENT: Lazy<Client> = Lazy::new(|| {
-//     if cfg!(feature = "no-verify-ssl") {
-//         Client::builder()
-//             .danger_accept_invalid_certs(true)
-//             .danger_accept_invalid_hostnames(true)
-//             .build()
-//             .expect("Could not build dangerous client!")
-//     } else {
-//         Client::new()
-//     }
-// });
 
 impl std::convert::From<reqwest::Error> for S3Error {
     fn from(e: reqwest::Error) -> S3Error {

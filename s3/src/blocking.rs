@@ -1,7 +1,6 @@
 extern crate base64;
 extern crate md5;
 
-use std::collections::HashMap;
 use std::io::Write;
 
 use attohttpc::header::{HeaderName};
@@ -13,13 +12,6 @@ use chrono::{DateTime, Utc};
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
 use crate::{Result, S3Error};
-
-/// Collection of HTTP headers sent to S3 service, in key/value format.
-pub type Headers = HashMap<String, String>;
-
-/// Collection of HTTP query parameters sent to S3 service, in key/value
-/// format.
-pub type Query = HashMap<String, String>;
 
 // static CLIENT: Lazy<Client> = Lazy::new(|| {
 //     if cfg!(feature = "no-verify-ssl") {

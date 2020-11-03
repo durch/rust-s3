@@ -7,9 +7,8 @@ use crate::creds::Credentials;
 use crate::region::Region;
 
 pub type Headers = HashMap<String, String>;
+pub type Query = HashMap<String, String>;
 
-#[cfg(feature = "async")]
-use crate::request::Query;
 #[cfg(feature = "async")]
 use crate::request::Reqwest as RequestImpl;
 #[cfg(feature = "async")]
@@ -21,8 +20,6 @@ use async_std::path::Path;
 #[cfg(feature = "async")]
 use futures::io::AsyncRead;
 
-#[cfg(feature = "sync")]
-use crate::blocking::Query;
 #[cfg(feature = "sync")]
 use crate::blocking::AttoRequest as RequestImpl;
 #[cfg(feature = "sync")]
