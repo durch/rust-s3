@@ -303,6 +303,45 @@ impl Bucket {
         Ok(request.response_data_future(false).await?)
     }
 
+    /// Gets specified bytes of file from an S3 path, async.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use s3::S3Error;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), S3Error> {
+    ///
+    ///     let bucket_name = "rust-s3-test";
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default()?;
+    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    ///     let (data, code) = bucket.get_object_range("/test.file", 0, Some(32)).await?;
+    ///     println!("Code: {}", code);
+    ///     println!("{:?}", data);
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn get_object_range<S: AsRef<str>>(
+        &self,
+        path: S,
+        start: u64,
+        end: Option<u64>,
+    ) -> Result<(Vec<u8>, u16)> {
+        if let Some(end) = end {
+            assert!(start < end);
+        }
+
+        let command = Command::GetObjectRange { start, end };
+        let request = Request::new(self, path.as_ref(), command);
+        Ok(request.response_data_future(false).await?)
+    }
+
+
     /// Stream file from S3 path to a local file, generic over T: Write, blocks.
     ///
     /// # Example:

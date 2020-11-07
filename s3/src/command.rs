@@ -9,6 +9,10 @@ pub enum Command<'a> {
     DeleteObject,
     DeleteObjectTagging,
     GetObject,
+    GetObjectRange {
+        start: u64,
+        end: Option<u64>,
+    },
     GetObjectTagging,
     PutObject {
         content: &'a [u8],
@@ -54,6 +58,7 @@ impl<'a> Command<'a> {
     pub fn http_verb(&self) -> Method {
         match *self {
             Command::GetObject
+            | Command::GetObjectRange { .. }
             | Command::ListBucket { .. }
             | Command::GetBucketLocation
             | Command::GetObjectTagging

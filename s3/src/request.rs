@@ -368,6 +368,7 @@ impl<'a> Request<'a> {
         match self.command {
             Command::ListBucket { .. } => {}
             Command::GetObject => {}
+            Command::GetObjectRange { .. } => {}
             Command::GetObjectTagging => {}
             Command::GetBucketLocation => {}
             _ => {
@@ -399,13 +400,26 @@ impl<'a> Request<'a> {
             let digest = md5::compute(content);
             let hash = base64::encode(digest.as_ref());
             headers.insert("Content-MD5", hash.parse()?);
-        } else if let Command::GetObject {} = self.command {
+        } else if let Command::GetObject = self.command {
             headers.insert(
                 header::ACCEPT,
                 HeaderValue::from_str("application/octet-stream")?,
             );
-            // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
-        } else if let Command::CreateBucket { ref config} = self.command {
+        // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
+        } else if let Command::GetObjectRange { start, end } = self.command {
+            headers.insert(
+                header::ACCEPT,
+                HeaderValue::from_str("application/octet-stream")?,
+            );
+
+            let mut range = format!("bytes={}-", start);
+
+            if let Some(end) = end {
+                range.push_str(&end.to_string());
+            }
+
+            headers.insert(header::RANGE, HeaderValue::from_str(&range)?);
+        } else if let Command::CreateBucket { ref config } = self.command {
             config.add_headers(&mut headers)?;
         }
 
@@ -630,6 +644,39 @@ mod tests {
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
         assert_eq!(*host, "custom-region".to_string());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_object_range_header() -> Result<()> {
+        let region = "http://custom-region".parse()?;
+        let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
+        let path = "/my-second/path";
+
+        let request = Request::new(
+            &bucket,
+            path,
+            Command::GetObjectRange {
+                start: 0,
+                end: None,
+            },
+        );
+        let headers = request.headers().unwrap();
+        let range = headers.get("Range").unwrap();
+        assert_eq!(range, "bytes=0-");
+
+        let request = Request::new(
+            &bucket,
+            path,
+            Command::GetObjectRange {
+                start: 0,
+                end: Some(1),
+            },
+        );
+        let headers = request.headers().unwrap();
+        let range = headers.get("Range").unwrap();
+        assert_eq!(range, "bytes=0-1");
 
         Ok(())
     }
