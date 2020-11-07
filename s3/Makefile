@@ -19,10 +19,6 @@ test-async: test-not-ignored
 test-sync: test-not-ignored
 	cargo test --features sync --no-default-features -- --ignored
 
-# Doc tests for sync will be broken due to maybe_async
-# test-sync-ignore:
-# 	cargo test --features sync --no-default-features
-
 
 
 
