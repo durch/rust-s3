@@ -2,6 +2,7 @@ use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::mem;
 
+use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
 use crate::command::Command;
 use crate::creds::Credentials;
 use crate::region::Region;
@@ -31,8 +32,8 @@ use std::path::Path;
 
 use crate::request_trait::Request;
 use crate::serde_types::{
-    BucketLocationResult, CompleteMultipartUploadData, InitiateMultipartUploadResponse,
-    ListBucketResult, Part, Tagging,
+    BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
+    InitiateMultipartUploadResponse, ListBucketResult, Part, Tagging,
 };
 use crate::{Result, S3Error};
 
@@ -139,17 +140,81 @@ impl Bucket {
         );
         Ok(request.presigned()?)
     }
-    /// Instantiate a new `Bucket`.
+    /// Create a new `Bucket` and instantiate it
     ///
     /// # Example
+    /// ```rust,no_run
+    /// use s3::{Bucket, BucketConfiguration};
+    /// use s3::creds::Credentials;
+    /// use s3::S3Error;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), S3Error> {
+    ///     let bucket_name = "rust-s3-test";
+    ///     let region = "us-east-1".parse().unwrap();
+    ///     let credentials = Credentials::default().unwrap();
+    ///     let config = BucketConfiguration::default();
+    ///
+    ///     let create_bucket_response = Bucket::create(bucket_name, region, credentials, config).await.unwrap();
+    ///     Ok(())
+    /// }
     /// ```
-    /// # // Fake  credentials so we don't access user's real credentials in tests
-    /// # use std::env;
-    /// # env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
-    /// # env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+    #[maybe_async::maybe_async]
+    pub async fn create(
+        name: &str,
+        region: Region,
+        credentials: Credentials,
+        mut config: BucketConfiguration,
+    ) -> Result<CreateBucketResponse> {
+        config.set_region(region.clone());
+        let command = Command::CreateBucket { config };
+        let bucket = Bucket::new(name, region, credentials)?;
+        let request = RequestImpl::new(&bucket, "", command);
+        let (data, response_code) = request.response_data(false).await?;
+        let response_text = std::str::from_utf8(&data)?;
+        Ok(CreateBucketResponse {
+            bucket,
+            response_text: response_text.to_string(),
+            response_code,
+        })
+    }
+
+    /// Delete existing `Bucket`
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use s3::Bucket;
+    /// use s3::creds::Credentials;
+    /// use s3::S3Error;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), S3Error> {
+    ///     let bucket_name = "rust-s3-test";
+    ///     let region = "us-east-1".parse().unwrap();
+    ///     let credentials = Credentials::default().unwrap();
+    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    ///     bucket.delete().await.unwrap();
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn delete(&self) -> Result<u16> {
+        let command = Command::DeleteBucket;
+        let request = RequestImpl::new(self, "", command);
+        let (_, response_code) = request.response_data(false).await?;
+        Ok(response_code)
+    }
+
+    /// Instantiate an existing `Bucket`.
+    ///
+    /// # Example
+    /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     ///
+    /// // Fake  credentials so we don't access user's real credentials in tests
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
@@ -230,6 +295,45 @@ impl Bucket {
     #[maybe_async::maybe_async]
     pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
+        let request = RequestImpl::new(self, path.as_ref(), command);
+        Ok(request.response_data(false).await?)
+    }
+
+    /// Gets specified bytes of file from an S3 path, async.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use s3::S3Error;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), S3Error> {
+    ///
+    ///     let bucket_name = "rust-s3-test";
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default()?;
+    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    ///     let (data, code) = bucket.get_object_range("/test.file", 0, Some(32)).await?;
+    ///     println!("Code: {}", code);
+    ///     println!("{:?}", data);
+    ///     Ok(())
+    /// }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn get_object_range<S: AsRef<str>>(
+        &self,
+        path: S,
+        start: u64,
+        end: Option<u64>,
+    ) -> Result<(Vec<u8>, u16)> {
+        if let Some(end) = end {
+            assert!(start < end);
+        }
+
+        let command = Command::GetObjectRange { start, end };
         let request = RequestImpl::new(self, path.as_ref(), command);
         Ok(request.response_data(false).await?)
     }
@@ -519,6 +623,33 @@ impl Bucket {
         let command = Command::DeleteObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         Ok(request.response_data(false).await?)
+    }
+
+    /// Head object from S3, async.
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use s3::S3Error;
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), S3Error> {
+    ///     let bucket_name = &"rust-s3-test";
+    ///     let region = "us-east-1".parse()?;
+    ///     let credentials = Credentials::default()?;
+    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///     let (head_object_result, code) = bucket.head_object("/test.png").await.unwrap();
+    ///     assert_eq!(head_object_result.content_type.unwrap() , "image/png".to_owned());
+    ///     Ok(())
+    /// }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn head_object<S: AsRef<str>>(&self, path: S) -> Result<(HeadObjectResult, u16)> {
+        let command = Command::HeadObject;
+        let request = RequestImpl::new(self, path.as_ref(), command);
+        let (headers, status) = request.response_header().await?;
+        let header_object = HeadObjectResult::from(&headers);
+        Ok((header_object, status))
     }
 
     /// Put into an S3 bucket, async.
@@ -991,10 +1122,11 @@ impl Bucket {
 #[cfg(test)]
 mod test {
 
-    use crate::bucket::Bucket;
     use crate::creds::Credentials;
     use crate::region::Region;
     use std::collections::HashMap;
+    use crate::Bucket;
+    use crate::BucketConfiguration;
     use std::env;
     use std::fs::File;
     use std::io::prelude::*;
@@ -1127,7 +1259,7 @@ mod test {
     #[tokio::test]
     #[ignore]
     #[cfg(feature = "async")]
-    async fn test_put_get_delete_object() {
+    async fn test_put_head_get_delete_object() {
         let s3_path = "/test.file";
         let bucket = test_aws_bucket();
         let test: Vec<u8> = object(3072);
@@ -1139,6 +1271,16 @@ mod test {
         assert_eq!(code, 200);
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test, data);
+
+        let (data, code) = bucket.get_object_range(s3_path, 100, Some(1000)).await.unwrap();
+        assert_eq!(code, 206);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test[100..1001].to_vec(), data);
+
+        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
+        // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
     }
@@ -1146,7 +1288,7 @@ mod test {
     #[tokio::test]
     #[ignore]
     #[cfg(feature = "async")]
-    async fn gc_test_put_get_delete_object() {
+    async fn gc_test_put_head_get_delete_object() {
         let s3_path = "/test.file";
         let bucket = test_gc_bucket();
         let test: Vec<u8> = object(3072);
@@ -1158,6 +1300,16 @@ mod test {
         assert_eq!(code, 200);
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test, data);
+
+        let (data, code) = bucket.get_object_range(s3_path, 100, Some(1000)).await.unwrap();
+        assert_eq!(code, 206);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test[100..1001].to_vec(), data);
+        
+        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
+        // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
     }
@@ -1165,7 +1317,7 @@ mod test {
     #[tokio::test]
     #[ignore]
     #[cfg(feature = "async")]
-    async fn wasabi_test_put_get_delete_object() {
+    async fn wasabi_test_put_head_get_delete_object() {
         let s3_path = "/test.file";
         let bucket = test_wasabi_bucket();
         let test: Vec<u8> = object(3072);
@@ -1177,6 +1329,16 @@ mod test {
         assert_eq!(code, 200);
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test, data);
+
+        let (data, code) = bucket.get_object_range(s3_path, 100, Some(1000)).await.unwrap();
+        assert_eq!(code, 206);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test[100..1001].to_vec(), data);
+
+        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
+        // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
     }
@@ -1184,7 +1346,7 @@ mod test {
     #[test]
     #[ignore]
     #[cfg(feature = "sync")]
-    fn test_put_get_delete_object_blocking() {
+    fn test_put_head_get_delete_object_blocking() {
         let s3_path = "/test_blocking.file";
         let bucket = test_aws_bucket();
         let test: Vec<u8> = object(3072);
@@ -1196,6 +1358,10 @@ mod test {
         assert_eq!(code, 200);
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test, data);
+        let (head_object_result, code) = bucket.head_object(s3_path).unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(head_object_result.content_type.unwrap(), "application/octet-stream".to_owned());
+        // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object(s3_path).unwrap();
         assert_eq!(code, 204);
     }
@@ -1204,7 +1370,7 @@ mod test {
     use attohttpc::header::{HeaderMap, HeaderName, HeaderValue};
     #[cfg(feature = "async")]
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-
+    
     #[test]
     #[ignore]
     fn test_presign_put() {
@@ -1238,5 +1404,71 @@ mod test {
 
         let url = bucket.presign_get(s3_path, 86400).unwrap();
         assert!(url.contains("/test%2Ftest.file?"))
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    #[ignore]
+    async fn test_bucket_create_delete_default_region() {
+        let config = BucketConfiguration::default();
+        let response = Bucket::create(
+            &uuid::Uuid::new_v4().to_string(),
+            "us-east-1".parse().unwrap(),
+            test_aws_credentials(),
+            config,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(&response.response_text, "");
+
+        assert_eq!(response.response_code, 200);
+
+        let response_code = response.bucket.delete().await.unwrap();
+        assert!(response_code < 300);
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    #[ignore]
+    async fn test_bucket_create_delete_non_default_region() {
+        let config = BucketConfiguration::default();
+        let response = Bucket::create(
+            &uuid::Uuid::new_v4().to_string(),
+            "eu-central-1".parse().unwrap(),
+            test_aws_credentials(),
+            config,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(&response.response_text, "");
+
+        assert_eq!(response.response_code, 200);
+
+        let response_code = response.bucket.delete().await.unwrap();
+        assert!(response_code < 300);
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    #[ignore]
+    async fn test_bucket_create_delete_non_default_region_public() {
+        let config = BucketConfiguration::public();
+        let response = Bucket::create(
+            &uuid::Uuid::new_v4().to_string(),
+            "eu-central-1".parse().unwrap(),
+            test_aws_credentials(),
+            config,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(&response.response_text, "");
+
+        assert_eq!(response.response_code, 200);
+
+        let response_code = response.bucket.delete().await.unwrap();
+        assert!(response_code < 300);
     }
 }

@@ -9,16 +9,18 @@ use crate::bucket::Bucket;
 use crate::bucket::Headers;
 use crate::command::Command;
 use crate::signing;
-use crate::LONG_DATE;
 use crate::Result;
+use crate::LONG_DATE;
 
 #[maybe_async(?Send)]
 pub trait Request {
     type Response;
+    type HeaderMap;
 
     async fn response(&self) -> Result<Self::Response>;
     async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)>;
     async fn response_data_to_writer<'b, T: Write>(&self, writer: &'b mut T) -> Result<u16>;
+    async fn response_header(&self) -> Result<(Self::HeaderMap, u16)>;
     fn datetime(&self) -> DateTime<Utc>;
     fn bucket(&self) -> Bucket;
     fn command(&self) -> Command;
@@ -144,6 +146,10 @@ pub trait Request {
 
     fn url(&self, encode_path: bool) -> Url {
         let mut url_str = self.bucket().url();
+
+        if let Command::CreateBucket { .. } = self.command() {
+            return Url::parse(&url_str).unwrap();
+        }
 
         let path = if self.path().starts_with('/') {
             self.path()[1..].to_string()
@@ -286,7 +292,19 @@ pub trait Request {
             headers.insert("Content-MD5".to_string(), hash);
         } else if let Command::GetObject {} = self.command() {
             headers.insert("Accept".to_string(), "application/octet-stream".to_string());
-            // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
+        // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
+        } else if let Command::GetObjectRange { start, end } = self.command() {
+            headers.insert("Accept".to_string(), "application/octet-stream".to_string());
+
+            let mut range = format!("bytes={}-", start);
+
+            if let Some(end) = end {
+                range.push_str(&end.to_string());
+            }
+
+            headers.insert("Range".to_string(), range);
+        } else if let Command::CreateBucket { ref config } = self.command() {
+            config.add_headers(&mut headers)?;
         }
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided

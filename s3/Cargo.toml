@@ -2,7 +2,7 @@
 name = "rust-s3"
 version = "0.27.0"
 authors = ["Drazen Urch"]
-description = "Tiny Rust library for working with Amazon S3 and compatible object storage APIs"
+description = "Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
 readme = "README.md"
 keywords = ["S3", "Wasabi", "Minio", "Yandex", "GCP"]
@@ -43,6 +43,7 @@ cfg-if = "1"
 attohttpc = {version = "0.16", optional = true}
 maybe-async = {version = "0.2"}
 async-trait = "0.1"
+uuid = "0.8"
 
 
 [features]
@@ -56,3 +57,4 @@ rustls-tls = ["reqwest/rustls-tls", "aws-creds/rustls-tls"]
 
 [dev-dependencies]
 tokio = {version="0.2", features=["fs"]}
+uuid = { version="0.8", features=["v4"]}

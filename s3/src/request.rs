@@ -58,6 +58,7 @@ pub struct Reqwest<'a> {
 #[maybe_async(?Send)]
 impl<'a> Request for Reqwest<'a> {
     type Response = reqwest::Response;
+    type HeaderMap = reqwest::header::HeaderMap;
 
     fn command(&self) -> Command {
         self.command.clone()
@@ -93,6 +94,12 @@ impl<'a> Request for Reqwest<'a> {
             let body = data.to_string();
             // assert_eq!(body, "body".to_string());
             body.as_bytes().to_vec()
+        } else if let Command::CreateBucket { config } = &self.command {
+            if let Some(payload) = config.location_constraint_payload() {
+                Vec::from(payload)
+            } else {
+                Vec::new()
+            }
         } else {
             Vec::new()
         };
@@ -118,6 +125,7 @@ impl<'a> Request for Reqwest<'a> {
             HttpMethod::Get => reqwest::Method::GET,
             HttpMethod::Post => reqwest::Method::POST,
             HttpMethod::Put => reqwest::Method::PUT,
+            HttpMethod::Head => reqwest::Method::HEAD,
         };
 
         let mut header_map = HeaderMap::new();
@@ -178,6 +186,13 @@ impl<'a> Request for Reqwest<'a> {
         }
 
         Ok(status_code.as_u16())
+    }
+
+    async fn response_header(&self) -> Result<(Self::HeaderMap, u16)> {
+        let response = self.response().await?;
+        let status_code = response.status().as_u16();
+        let headers = response.headers().clone();
+        Ok((headers, status_code))
     }
 }
 
@@ -269,6 +284,39 @@ mod tests {
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
         assert_eq!(*host, "custom-region".to_string());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_object_range_header() -> Result<()> {
+        let region = "http://custom-region".parse()?;
+        let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
+        let path = "/my-second/path";
+
+        let request = Reqwest::new(
+            &bucket,
+            path,
+            Command::GetObjectRange {
+                start: 0,
+                end: None,
+            },
+        );
+        let headers = request.headers().unwrap();
+        let range = headers.get("Range").unwrap();
+        assert_eq!(range, "bytes=0-");
+
+        let request = Reqwest::new(
+            &bucket,
+            path,
+            Command::GetObjectRange {
+                start: 0,
+                end: Some(1),
+            },
+        );
+        let headers = request.headers().unwrap();
+        let range = headers.get("Range").unwrap();
+        assert_eq!(range, "bytes=0-1");
 
         Ok(())
     }

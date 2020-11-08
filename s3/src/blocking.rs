@@ -56,6 +56,7 @@ pub struct AttoRequest<'a> {
 
 impl<'a> Request for AttoRequest<'a> {
     type Response = attohttpc::Response;
+    type HeaderMap = attohttpc::header::HeaderMap;
 
     fn datetime(&self) -> DateTime<Utc> {
         self.datetime
@@ -106,6 +107,7 @@ impl<'a> Request for AttoRequest<'a> {
             HttpMethod::Delete => session.delete(self.url(false)),
             HttpMethod::Put => session.put(self.url(false)),
             HttpMethod::Post => session.post(self.url(false)),
+            HttpMethod::Head => session.head(self.url(false)),
         };
 
         let response = request.bytes(&content).send()?;
@@ -151,6 +153,13 @@ impl<'a> Request for AttoRequest<'a> {
         writer.write_all(&stream)?;
 
         Ok(status_code.as_u16())
+    }
+
+    fn response_header(&self) -> Result<(Self::HeaderMap, u16)> {
+        let response = self.response()?;
+        let status_code = response.status().as_u16();
+        let headers = response.headers().clone();
+        Ok((headers, status_code))
     }
 }
 

@@ -8,7 +8,8 @@ pub enum HttpMethod {
     Delete,
     Get,
     Put,
-    Post
+    Post,
+    Head
 }
 
 use std::fmt;
@@ -19,16 +20,23 @@ impl fmt::Display for HttpMethod {
             HttpMethod::Delete => write!(f, "DELETE"),
             HttpMethod::Get => write!(f, "GET"),
             HttpMethod::Post => write!(f, "POST"),
-            HttpMethod::Put => write!(f, "PUT")
+            HttpMethod::Put => write!(f, "PUT"),
+            HttpMethod::Head => write!(f, "HEAD")
         }
     }
 }
+use crate::bucket_ops::BucketConfiguration;
 
 #[derive(Clone, Debug)]
 pub enum Command<'a> {
+    HeadObject,
     DeleteObject,
     DeleteObjectTagging,
     GetObject,
+    GetObjectRange {
+        start: u64,
+        end: Option<u64>,
+    },
     GetObjectTagging,
     PutObject {
         content: &'a [u8],
@@ -66,12 +74,15 @@ pub enum Command<'a> {
         upload_id: &'a str,
         data: CompleteMultipartUploadData,
     },
+    CreateBucket { config: BucketConfiguration },
+    DeleteBucket
 }
 
 impl<'a> Command<'a> {
     pub fn http_verb(&self) -> HttpMethod {
         match *self {
             Command::GetObject
+            | Command::GetObjectRange { .. }
             | Command::ListBucket { .. }
             | Command::GetBucketLocation
             | Command::GetObjectTagging
@@ -79,13 +90,16 @@ impl<'a> Command<'a> {
             Command::PutObject { .. }
             | Command::PutObjectTagging { .. }
             | Command::PresignPut { .. }
-            | Command::UploadPart { .. } => HttpMethod::Put,
+            | Command::UploadPart { .. }
+            | Command::CreateBucket { .. } => HttpMethod::Put,
             Command::DeleteObject
             | Command::DeleteObjectTagging
-            | Command::AbortMultipartUpload { .. } => HttpMethod::Delete,
+            | Command::AbortMultipartUpload { .. } 
+            | Command::DeleteBucket => HttpMethod::Delete,
             Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
                 HttpMethod::Post
-            }
+            },
+            Command::HeadObject => HttpMethod::Head
         }
     }
 
@@ -95,6 +109,13 @@ impl<'a> Command<'a> {
             Command::PutObjectTagging { tags } => tags.len(),
             Command::UploadPart { content, .. } => content.len(),
             Command::CompleteMultipartUpload { data, .. } => data.len(),
+            Command::CreateBucket { config } => {
+                if let Some(payload) = config.location_constraint_payload() {
+                    Vec::from(payload).len()
+                } else {
+                    0
+                }
+            }
             _ => 0,
         }
     }
@@ -123,8 +144,19 @@ impl<'a> Command<'a> {
                 let mut sha = Sha256::default();
                 sha.update(data.to_string().as_bytes());
                 hex::encode(sha.finalize().as_slice())
-            }
+            },
+            Command::CreateBucket { config } => {
+                if let Some(payload) = config.location_constraint_payload() {
+                    let mut sha = Sha256::default();
+                    sha.update(payload.as_bytes());
+                    hex::encode(sha.finalize().as_slice())
+                } else {
+                    EMPTY_PAYLOAD_SHA.into()
+                }
+                
+            },
             _ => EMPTY_PAYLOAD_SHA.into(),
+            
         }
     }
 }
