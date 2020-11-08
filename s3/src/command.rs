@@ -1,7 +1,31 @@
 use crate::serde_types::CompleteMultipartUploadData;
+use crate::bucket::Headers;
+
+use sha2::{Digest, Sha256};
+use crate::EMPTY_PAYLOAD_SHA;
+
+pub enum HttpMethod {
+    Delete,
+    Get,
+    Put,
+    Post,
+    Head
+}
+
+use std::fmt;
+
+impl fmt::Display for HttpMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            HttpMethod::Delete => write!(f, "DELETE"),
+            HttpMethod::Get => write!(f, "GET"),
+            HttpMethod::Post => write!(f, "POST"),
+            HttpMethod::Put => write!(f, "PUT"),
+            HttpMethod::Head => write!(f, "HEAD")
+        }
+    }
+}
 use crate::bucket_ops::BucketConfiguration;
-use reqwest::Method;
-use reqwest::header::HeaderMap;
 
 #[derive(Clone, Debug)]
 pub enum Command<'a> {
@@ -35,7 +59,7 @@ pub enum Command<'a> {
     },
     PresignPut {
         expiry_secs: u32,
-        custom_headers: Option<HeaderMap>
+        custom_headers: Option<Headers>
     },
     InitiateMultipartUpload,
     UploadPart {
@@ -55,29 +79,84 @@ pub enum Command<'a> {
 }
 
 impl<'a> Command<'a> {
-    pub fn http_verb(&self) -> Method {
+    pub fn http_verb(&self) -> HttpMethod {
         match *self {
             Command::GetObject
             | Command::GetObjectRange { .. }
             | Command::ListBucket { .. }
             | Command::GetBucketLocation
             | Command::GetObjectTagging
-            | Command::PresignGet { .. } => Method::GET,
+            | Command::PresignGet { .. } => HttpMethod::Get,
             Command::PutObject { .. }
             | Command::PutObjectTagging { .. }
             | Command::PresignPut { .. }
             | Command::UploadPart { .. }
-            | Command::CreateBucket { .. } => Method::PUT,
+            | Command::CreateBucket { .. } => HttpMethod::Put,
             Command::DeleteObject
             | Command::DeleteObjectTagging
             | Command::AbortMultipartUpload { .. } 
-            | Command::DeleteBucket => Method::DELETE,
+            | Command::DeleteBucket => HttpMethod::Delete,
             Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
-                Method::POST
+                HttpMethod::Post
+            },
+            Command::HeadObject => HttpMethod::Head
+        }
+    }
+
+    pub fn content_length(&self) -> usize {
+        match &self {
+            Command::PutObject { content, .. } => content.len(),
+            Command::PutObjectTagging { tags } => tags.len(),
+            Command::UploadPart { content, .. } => content.len(),
+            Command::CompleteMultipartUpload { data, .. } => data.len(),
+            Command::CreateBucket { config } => {
+                if let Some(payload) = config.location_constraint_payload() {
+                    Vec::from(payload).len()
+                } else {
+                    0
+                }
             }
-            Command::HeadObject => {
-                Method::HEAD
+            _ => 0,
+        }
+    }
+
+    pub fn content_type(&self) -> String {
+        match self {
+            Command::PutObject { content_type, .. } => content_type.to_string(),
+            Command::CompleteMultipartUpload { .. } => "application/xml".into(),
+            _ => "text/plain".into(),
+        }
+    }
+
+    pub fn sha256(&self) -> String {
+        match &self {
+            Command::PutObject { content, .. } => {
+                let mut sha = Sha256::default();
+                sha.update(content);
+                hex::encode(sha.finalize().as_slice())
             }
+            Command::PutObjectTagging { tags } => {
+                let mut sha = Sha256::default();
+                sha.update(tags.as_bytes());
+                hex::encode(sha.finalize().as_slice())
+            }
+            Command::CompleteMultipartUpload { data, .. } => {
+                let mut sha = Sha256::default();
+                sha.update(data.to_string().as_bytes());
+                hex::encode(sha.finalize().as_slice())
+            },
+            Command::CreateBucket { config } => {
+                if let Some(payload) = config.location_constraint_payload() {
+                    let mut sha = Sha256::default();
+                    sha.update(payload.as_bytes());
+                    hex::encode(sha.finalize().as_slice())
+                } else {
+                    EMPTY_PAYLOAD_SHA.into()
+                }
+                
+            },
+            _ => EMPTY_PAYLOAD_SHA.into(),
+            
         }
     }
 }

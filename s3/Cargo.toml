@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.26.3"
+version = "0.27.0"
 authors = ["Drazen Urch"]
 description = "Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -14,24 +14,24 @@ edition = "2018"
 name = "s3"
 path = "src/lib.rs"
 
-[[bin]]
-name = "simple_crud"
-path = "bin/simple_crud.rs"
+# [[bin]]
+# name = "simple_crud"
+# path = "bin/simple_crud.rs"
 
 [dependencies]
 base64 = "0.13.0"
 chrono = "0.4"
 hex = "0.4"
-hmac = "0.9"
-reqwest = {version = "0.10", default-features = false, features = ["json", "stream"]}
+hmac = "0.10"
+reqwest = {version = "0.10", default-features = false, features = ["json", "stream"], optional = true}
 serde_derive = "1"
 serde = "1"
 serde-xml-rs = "0.4"
 sha2 = "0.9"
 md5 = "0.7"
 url = "2"
-futures = "0.3"
-tokio = {version="0.2", features=["macros", "io-util", "stream"]}
+futures = {version = "0.3", optional = true}
+tokio = {version="0.2", features=["macros", "io-util", "stream"], optional = true}
 simpl = "0.1.0"
 aws-region = "0.22"
 aws-creds = { version="0.24.1", default-features = false }
@@ -40,11 +40,16 @@ percent-encoding = "2"
 async-std = "1"
 http = "0.2"
 cfg-if = "1"
+attohttpc = {version = "0.16", optional = true}
+maybe-async = {version = "0.2"}
+async-trait = "0.1"
 uuid = "0.8"
 
 
 [features]
-default = ["native-tls"]
+async = ["reqwest", "tokio", "futures"]
+sync = ["attohttpc", "maybe-async/is_sync"]
+default = ["native-tls", "async"]
 no-verify-ssl = []
 fail-on-err = []
 native-tls = ["reqwest/native-tls", "aws-creds/native-tls"]

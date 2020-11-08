@@ -15,18 +15,19 @@ pub use region::Region;
 pub mod bucket;
 pub mod command;
 pub mod deserializer;
+#[cfg(feature = "async")]
 pub mod request;
+#[cfg(feature = "sync")]
+pub mod blocking;
 pub mod serde_types;
 pub mod signing;
 pub mod bucket_ops;
 
 pub mod utils;
+pub mod request_trait;
 
 simpl::err!(S3Error, {
     Xml@serde_xml::Error;
-    Req@reqwest::Error;
-    InvalidHeaderName@reqwest::header::InvalidHeaderName;
-    InvalidHeaderValue@reqwest::header::InvalidHeaderValue;
     HttpHeader@http::header::ToStrError;
     Hmac@hmac::crypto_mac::InvalidKeyLength;
     Utf8@std::str::Utf8Error;

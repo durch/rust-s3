@@ -3,21 +3,30 @@ extern crate md5;
 
 use std::io::Write;
 
-use chrono::{DateTime, Utc};
-use maybe_async::maybe_async;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use reqwest::{Client, Response};
+use attohttpc::header::{HeaderName};
 
-use crate::bucket::Bucket;
-use crate::command::Command;
+use super::bucket::Bucket;
+use super::command::Command;
+use chrono::{DateTime, Utc};
+
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
 use crate::{Result, S3Error};
 
-use tokio::stream::StreamExt;
+// static CLIENT: Lazy<Client> = Lazy::new(|| {
+//     if cfg!(feature = "no-verify-ssl") {
+//         Client::builder()
+//             .danger_accept_invalid_certs(true)
+//             .danger_accept_invalid_hostnames(true)
+//             .build()
+//             .expect("Could not build dangerous client!")
+//     } else {
+//         Client::new()
+//     }
+// });
 
-impl std::convert::From<reqwest::Error> for S3Error {
-    fn from(e: reqwest::Error) -> S3Error {
+impl std::convert::From<attohttpc::Error> for S3Error {
+    fn from(e: attohttpc::Error) -> S3Error {
         S3Error {
             description: Some(format!("{}", e)),
             data: None,
@@ -26,18 +35,8 @@ impl std::convert::From<reqwest::Error> for S3Error {
     }
 }
 
-impl std::convert::From<reqwest::header::InvalidHeaderName> for S3Error {
-    fn from(e: reqwest::header::InvalidHeaderName) -> S3Error {
-        S3Error {
-            description: Some(format!("{}", e)),
-            data: None,
-            source: None,
-        }
-    }
-}
-
-impl std::convert::From<reqwest::header::InvalidHeaderValue> for S3Error {
-    fn from(e: reqwest::header::InvalidHeaderValue) -> S3Error {
+impl std::convert::From<http::header::InvalidHeaderValue> for S3Error {
+    fn from(e: http::header::InvalidHeaderValue) -> S3Error {
         S3Error {
             description: Some(format!("{}", e)),
             data: None,
@@ -47,7 +46,7 @@ impl std::convert::From<reqwest::header::InvalidHeaderValue> for S3Error {
 }
 
 // Temporary structure for making a request
-pub struct Reqwest<'a> {
+pub struct AttoRequest<'a> {
     pub bucket: &'a Bucket,
     pub path: &'a str,
     pub command: Command<'a>,
@@ -55,18 +54,9 @@ pub struct Reqwest<'a> {
     pub sync: bool,
 }
 
-#[maybe_async(?Send)]
-impl<'a> Request for Reqwest<'a> {
-    type Response = reqwest::Response;
-    type HeaderMap = reqwest::header::HeaderMap;
-
-    fn command(&self) -> Command {
-        self.command.clone()
-    }
-
-    fn path(&self) -> String {
-        self.path.to_string()
-    }
+impl<'a> Request for AttoRequest<'a> {
+    type Response = attohttpc::Response;
+    type HeaderMap = attohttpc::header::HeaderMap;
 
     fn datetime(&self) -> DateTime<Utc> {
         self.datetime
@@ -76,7 +66,15 @@ impl<'a> Request for Reqwest<'a> {
         self.bucket.clone()
     }
 
-    async fn response(&self) -> Result<Response> {
+    fn command(&self) -> Command {
+        self.command.clone()
+    }
+
+    fn path(&self) -> String {
+        self.path.to_string()
+    }
+
+    fn response(&self) -> Result<Self::Response> {
         // Build headers
         let headers = match self.headers() {
             Ok(headers) => headers,
@@ -94,63 +92,34 @@ impl<'a> Request for Reqwest<'a> {
             let body = data.to_string();
             // assert_eq!(body, "body".to_string());
             body.as_bytes().to_vec()
-        } else if let Command::CreateBucket { config } = &self.command {
-            if let Some(payload) = config.location_constraint_payload() {
-                Vec::from(payload)
-            } else {
-                Vec::new()
-            }
         } else {
             Vec::new()
         };
 
-        let client = if cfg!(feature = "no-verify-ssl") {
-            let client = Client::builder().danger_accept_invalid_certs(true);
+        let mut session = attohttpc::Session::new();
 
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "native-tls")]
-                {
-                    let client = client.danger_accept_invalid_hostnames(true);
-                }
-
-            }
-
-            client.build().expect("Could not build dangerous client!")
-        } else {
-            Client::new()
-        };
-
-        let method = match self.command.http_verb() {
-            HttpMethod::Delete => reqwest::Method::DELETE,
-            HttpMethod::Get => reqwest::Method::GET,
-            HttpMethod::Post => reqwest::Method::POST,
-            HttpMethod::Put => reqwest::Method::PUT,
-            HttpMethod::Head => reqwest::Method::HEAD,
-        };
-
-        let mut header_map = HeaderMap::new();
-
-        for (k, v) in headers.into_iter() {
-            header_map.insert(
-                HeaderName::from_bytes(k.as_bytes())?,
-                HeaderValue::from_bytes(v.as_bytes())?,
-            );
+        for (name, value) in headers {
+            session.header(HeaderName::from_bytes(name.as_bytes()).unwrap(), value);
         }
 
-        let request = client
-            .request(method, self.url(false).as_str())
-            // TODO convert this
-            .headers(header_map)
-            .body(content.to_owned());
+        let request = match self.command.http_verb() {
+            HttpMethod::Get => session.get(self.url(false)),
+            HttpMethod::Delete => session.delete(self.url(false)),
+            HttpMethod::Put => session.put(self.url(false)),
+            HttpMethod::Post => session.post(self.url(false)),
+            HttpMethod::Head => session.head(self.url(false)),
+        };
 
-        let response = request.send().await?;
+        let response = request.bytes(&content).send()?;
+
+        // let response = request.send()?;
 
         if cfg!(feature = "fail-on-err") && response.status().as_u16() >= 400 {
             return Err(S3Error::from(
                 format!(
                     "Request failed with code {}\n{}",
                     response.status().as_u16(),
-                    response.text().await?
+                    response.text()?
                 )
                 .as_str(),
             ));
@@ -159,12 +128,12 @@ impl<'a> Request for Reqwest<'a> {
         Ok(response)
     }
 
-    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
-        let response = self.response().await?;
+    fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
+        let response = self.response()?;
         let status_code = response.status().as_u16();
         let headers = response.headers().clone();
         let etag_header = headers.get("ETag");
-        let body = response.bytes().await?;
+        let body = response.bytes()?;
         let mut body_vec = Vec::new();
         body_vec.extend_from_slice(&body[..]);
         if etag {
@@ -175,30 +144,28 @@ impl<'a> Request for Reqwest<'a> {
         Ok((body_vec, status_code))
     }
 
-    async fn response_data_to_writer<'b, T: Write>(&self, writer: &'b mut T) -> Result<u16> {
-        let response = self.response().await?;
+    fn response_data_to_writer<'b, T: Write>(&self, writer: &'b mut T) -> Result<u16> {
+        let response = self.response()?;
 
         let status_code = response.status();
-        let mut stream = response.bytes_stream();
+        let stream = response.bytes()?;
 
-        while let Some(item) = stream.next().await {
-            writer.write_all(&item?)?;
-        }
+        writer.write_all(&stream)?;
 
         Ok(status_code.as_u16())
     }
 
-    async fn response_header(&self) -> Result<(Self::HeaderMap, u16)> {
-        let response = self.response().await?;
+    fn response_header(&self) -> Result<(Self::HeaderMap, u16)> {
+        let response = self.response()?;
         let status_code = response.status().as_u16();
         let headers = response.headers().clone();
         Ok((headers, status_code))
     }
 }
 
-impl<'a> Reqwest<'a> {
-    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> Reqwest<'b> {
-        Reqwest {
+impl<'a> AttoRequest<'a> {
+    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> AttoRequest<'b> {
+        AttoRequest {
             bucket,
             path,
             command,
@@ -210,9 +177,9 @@ impl<'a> Reqwest<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::blocking::AttoRequest;
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request::Reqwest;
     use crate::request_trait::Request;
     use crate::Result;
     use awscreds::Credentials;
@@ -230,7 +197,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = Reqwest::new(&bucket, path, Command::GetObject);
+        let request = AttoRequest::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url(false).scheme(), "https");
 
@@ -246,7 +213,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new_with_path_style("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = Reqwest::new(&bucket, path, Command::GetObject);
+        let request = AttoRequest::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url(false).scheme(), "https");
 
@@ -262,7 +229,7 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = Reqwest::new(&bucket, path, Command::GetObject);
+        let request = AttoRequest::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url(false).scheme(), "http");
 
@@ -277,46 +244,13 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = Reqwest::new(&bucket, path, Command::GetObject);
+        let request = AttoRequest::new(&bucket, path, Command::GetObject);
 
         assert_eq!(request.url(false).scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
         assert_eq!(*host, "custom-region".to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_get_object_range_header() -> Result<()> {
-        let region = "http://custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
-        let path = "/my-second/path";
-
-        let request = Reqwest::new(
-            &bucket,
-            path,
-            Command::GetObjectRange {
-                start: 0,
-                end: None,
-            },
-        );
-        let headers = request.headers().unwrap();
-        let range = headers.get("Range").unwrap();
-        assert_eq!(range, "bytes=0-");
-
-        let request = Reqwest::new(
-            &bucket,
-            path,
-            Command::GetObjectRange {
-                start: 0,
-                end: Some(1),
-            },
-        );
-        let headers = request.headers().unwrap();
-        let range = headers.get("Range").unwrap();
-        assert_eq!(range, "bytes=0-1");
 
         Ok(())
     }
