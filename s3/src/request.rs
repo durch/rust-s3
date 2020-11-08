@@ -83,27 +83,6 @@ impl<'a> Request for Reqwest<'a> {
             Err(e) => return Err(e),
         };
 
-        // Get owned content to pass to reqwest
-        let content = if let Command::PutObject { content, .. } = self.command {
-            Vec::from(content)
-        } else if let Command::PutObjectTagging { tags } = self.command {
-            Vec::from(tags)
-        } else if let Command::UploadPart { content, .. } = self.command {
-            Vec::from(content)
-        } else if let Command::CompleteMultipartUpload { data, .. } = &self.command {
-            let body = data.to_string();
-            // assert_eq!(body, "body".to_string());
-            body.as_bytes().to_vec()
-        } else if let Command::CreateBucket { config } = &self.command {
-            if let Some(payload) = config.location_constraint_payload() {
-                Vec::from(payload)
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
-
         let client = if cfg!(feature = "no-verify-ssl") {
             let client = Client::builder().danger_accept_invalid_certs(true);
 
@@ -141,7 +120,7 @@ impl<'a> Request for Reqwest<'a> {
             .request(method, self.url(false).as_str())
             // TODO convert this
             .headers(header_map)
-            .body(content.to_owned());
+            .body(self.request_body());
 
         let response = request.send().await?;
 

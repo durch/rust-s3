@@ -1,4 +1,4 @@
-use crate::{Result, Bucket, Region};
+use crate::{Bucket, Region, Result};
 use std::collections::HashMap;
 
 /// [AWS Documentation](https://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#CannedACL)
@@ -106,7 +106,7 @@ impl BucketConfiguration {
     pub fn location_constraint_payload(&self) -> Option<String> {
         if let Some(ref location_constraint) = self.location_constraint {
             if location_constraint == &Region::UsEast1 {
-                return None
+                return None;
             }
             Some(format!(
                 "<CreateBucketConfiguration><LocationConstraint>{}</LocationConstraint></CreateBucketConfiguration>",
@@ -120,7 +120,10 @@ impl BucketConfiguration {
     pub fn add_headers(&self, headers: &mut HashMap<String, String>) -> Result<()> {
         headers.insert("x-amz-acl".to_string(), self.acl.to_string());
         if self.object_lock_enabled {
-            headers.insert("x-amz-bucket-object-lock-enabled".to_string(), "Enabled".to_string());
+            headers.insert(
+                "x-amz-bucket-object-lock-enabled".to_string(),
+                "Enabled".to_string(),
+            );
         }
         if let Some(ref value) = self.grant_full_control {
             headers.insert("x-amz-grant-full-control".to_string(), acl_list(value));
@@ -145,7 +148,7 @@ impl BucketConfiguration {
 pub struct CreateBucketResponse {
     pub bucket: Bucket,
     pub response_text: String,
-    pub response_code: u16
+    pub response_code: u16,
 }
 
 impl CreateBucketResponse {

@@ -38,6 +38,28 @@ pub trait Request {
         )?)
     }
 
+    fn request_body(&self) -> Vec<u8> {
+        if let Command::PutObject { content, .. } = self.command() {
+            Vec::from(content)
+        } else if let Command::PutObjectTagging { tags } = self.command() {
+            Vec::from(tags)
+        } else if let Command::UploadPart { content, .. } = self.command() {
+            Vec::from(content)
+        } else if let Command::CompleteMultipartUpload { data, .. } = &self.command() {
+            let body = data.to_string();
+            // assert_eq!(body, "body".to_string());
+            body.as_bytes().to_vec()
+        } else if let Command::CreateBucket { config } = &self.command() {
+            if let Some(payload) = config.location_constraint_payload() {
+                Vec::from(payload)
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        }
+    }
+
     fn long_date(&self) -> String {
         self.datetime().format(LONG_DATE).to_string()
     }

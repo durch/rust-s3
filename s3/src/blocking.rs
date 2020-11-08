@@ -3,7 +3,7 @@ extern crate md5;
 
 use std::io::Write;
 
-use attohttpc::header::{HeaderName};
+use attohttpc::header::HeaderName;
 
 use super::bucket::Bucket;
 use super::command::Command;
@@ -81,21 +81,6 @@ impl<'a> Request for AttoRequest<'a> {
             Err(e) => return Err(e),
         };
 
-        // Get owned content to pass to reqwest
-        let content = if let Command::PutObject { content, .. } = self.command {
-            Vec::from(content)
-        } else if let Command::PutObjectTagging { tags } = self.command {
-            Vec::from(tags)
-        } else if let Command::UploadPart { content, .. } = self.command {
-            Vec::from(content)
-        } else if let Command::CompleteMultipartUpload { data, .. } = &self.command {
-            let body = data.to_string();
-            // assert_eq!(body, "body".to_string());
-            body.as_bytes().to_vec()
-        } else {
-            Vec::new()
-        };
-
         let mut session = attohttpc::Session::new();
 
         for (name, value) in headers {
@@ -110,9 +95,7 @@ impl<'a> Request for AttoRequest<'a> {
             HttpMethod::Head => session.head(self.url(false)),
         };
 
-        let response = request.bytes(&content).send()?;
-
-        // let response = request.send()?;
+        let response = request.bytes(&self.request_body()).send()?;
 
         if cfg!(feature = "fail-on-err") && response.status().as_u16() >= 400 {
             return Err(S3Error::from(
