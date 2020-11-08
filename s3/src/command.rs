@@ -1,15 +1,15 @@
-use crate::serde_types::CompleteMultipartUploadData;
 use crate::bucket::Headers;
+use crate::serde_types::CompleteMultipartUploadData;
 
-use sha2::{Digest, Sha256};
 use crate::EMPTY_PAYLOAD_SHA;
+use sha2::{Digest, Sha256};
 
 pub enum HttpMethod {
     Delete,
     Get,
     Put,
     Post,
-    Head
+    Head,
 }
 
 use std::fmt;
@@ -21,7 +21,7 @@ impl fmt::Display for HttpMethod {
             HttpMethod::Get => write!(f, "GET"),
             HttpMethod::Post => write!(f, "POST"),
             HttpMethod::Put => write!(f, "PUT"),
-            HttpMethod::Head => write!(f, "HEAD")
+            HttpMethod::Head => write!(f, "HEAD"),
         }
     }
 }
@@ -59,7 +59,7 @@ pub enum Command<'a> {
     },
     PresignPut {
         expiry_secs: u32,
-        custom_headers: Option<Headers>
+        custom_headers: Option<Headers>,
     },
     InitiateMultipartUpload,
     UploadPart {
@@ -74,8 +74,10 @@ pub enum Command<'a> {
         upload_id: &'a str,
         data: CompleteMultipartUploadData,
     },
-    CreateBucket { config: BucketConfiguration },
-    DeleteBucket
+    CreateBucket {
+        config: BucketConfiguration,
+    },
+    DeleteBucket,
 }
 
 impl<'a> Command<'a> {
@@ -94,12 +96,12 @@ impl<'a> Command<'a> {
             | Command::CreateBucket { .. } => HttpMethod::Put,
             Command::DeleteObject
             | Command::DeleteObjectTagging
-            | Command::AbortMultipartUpload { .. } 
+            | Command::AbortMultipartUpload { .. }
             | Command::DeleteBucket => HttpMethod::Delete,
             Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
                 HttpMethod::Post
-            },
-            Command::HeadObject => HttpMethod::Head
+            }
+            Command::HeadObject => HttpMethod::Head,
         }
     }
 
@@ -144,7 +146,7 @@ impl<'a> Command<'a> {
                 let mut sha = Sha256::default();
                 sha.update(data.to_string().as_bytes());
                 hex::encode(sha.finalize().as_slice())
-            },
+            }
             Command::CreateBucket { config } => {
                 if let Some(payload) = config.location_constraint_payload() {
                     let mut sha = Sha256::default();
@@ -153,10 +155,8 @@ impl<'a> Command<'a> {
                 } else {
                     EMPTY_PAYLOAD_SHA.into()
                 }
-                
-            },
+            }
             _ => EMPTY_PAYLOAD_SHA.into(),
-            
         }
     }
 }

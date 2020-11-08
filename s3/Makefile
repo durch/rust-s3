@@ -1,6 +1,14 @@
-test: test-async test-sync
+test: test-not-ignored-async
 
-ci: test-not-ignored
+test-all: test-async test-sync
+
+ci: fmt-check clippy test
+
+fmt: 
+	cargo fmt
+
+fmt-check:
+	cargo fmt --all -- --check
 
 clippy: clippy-async clippy-sync
 
@@ -10,13 +18,13 @@ clippy-async:
 clippy-sync:
 	cargo clippy --features sync --no-default-features -- -D warnings
 
-test-not-ignored:
+test-not-ignored-async:
 	cargo test
 
-test-async: test-not-ignored
+test-async: test-not-ignored-async
 	cargo test -- --ignored
 
-test-sync: test-not-ignored
+test-sync:
 	cargo test --features sync --no-default-features -- --ignored
 
 

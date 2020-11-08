@@ -12,19 +12,19 @@ pub use bucket::Bucket;
 pub use bucket_ops::BucketConfiguration;
 pub use region::Region;
 
+#[cfg(feature = "sync")]
+pub mod blocking;
 pub mod bucket;
+pub mod bucket_ops;
 pub mod command;
 pub mod deserializer;
 #[cfg(feature = "async")]
 pub mod request;
-#[cfg(feature = "sync")]
-pub mod blocking;
 pub mod serde_types;
 pub mod signing;
-pub mod bucket_ops;
 
-pub mod utils;
 pub mod request_trait;
+pub mod utils;
 
 simpl::err!(S3Error, {
     Xml@serde_xml::Error;
