@@ -19,42 +19,48 @@ path = "src/lib.rs"
 # path = "bin/simple_crud.rs"
 
 [dependencies]
+async-std = { version = "1", optional = true }
+async-trait = "0.1"
+attohttpc = { version = "0.16", optional = true, default-features = false }
+aws-creds = { version = "0.24", default-features = false }
+aws-region = "0.22"
 base64 = "0.13.0"
+cfg-if = "1"
 chrono = "0.4"
+futures = { version = "0.3", optional = true }
 hex = "0.4"
 hmac = "0.10"
-reqwest = {version = "0.10", default-features = false, features = ["json", "stream"], optional = true}
-serde_derive = "1"
+http = "0.2"
+log = "0.4"
+maybe-async = { version = "0.2" }
+md5 = "0.7"
+percent-encoding = "2"
+reqwest = { version = "0.10", default-features = false, features = ["json", "stream"], optional = true }
 serde = "1"
+serde_derive = "1"
 serde-xml-rs = "0.4"
 sha2 = "0.9"
-md5 = "0.7"
-url = "2"
-futures = {version = "0.3", optional = true}
-tokio = {version="0.2", features=["macros", "io-util", "stream"], optional = true}
 simpl = "0.1.0"
-aws-region = "0.22"
-aws-creds = { version="0.24.1", default-features = false }
-log = "0.4"
-percent-encoding = "2"
-async-std = "1"
-http = "0.2"
-cfg-if = "1"
-attohttpc = {version = "0.16", optional = true}
-maybe-async = {version = "0.2"}
-async-trait = "0.1"
-uuid = "0.8"
+surf = { version = "2", optional = true, default-features = false, features = ["hyper-client"]}
+# Waiting on h2 compat
+tokio = { version = "0.2", features = ["stream"], optional = true, default-features = false }
+url = "2"
 
 
 [features]
-async = ["reqwest", "tokio", "futures"]
+with-tokio = ["reqwest", "tokio", "futures", "async-std"]
+with-async-std = ["async-std", "surf", "futures"]
 sync = ["attohttpc", "maybe-async/is_sync"]
-default = ["native-tls", "async"]
+default = ["tokio-native-tls", "with-tokio"]
 no-verify-ssl = []
 fail-on-err = []
-native-tls = ["reqwest/native-tls", "aws-creds/native-tls"]
-rustls-tls = ["reqwest/rustls-tls", "aws-creds/rustls-tls"]
+tokio-native-tls = ["reqwest/native-tls", "aws-creds/native-tls"]
+tokio-rustls-tls = ["reqwest/rustls-tls", "aws-creds/rustls-tls"]
+sync-native-tls = ["aws-creds/native-tls", "attohttpc/tls"]
+sync-rustls-tls = ["aws-creds/rustls-tls", "attohttpc/tls-rustls"]
 
 [dev-dependencies]
-tokio = {version="0.2", features=["fs"]}
-uuid = { version="0.8", features=["v4"]}
+tokio = { version = "0.2", features = ["macros"] }
+async-std = { version = "1", features = ["attributes"] }
+uuid = { version = "0.8", features = ["v4"] }
+env_logger = "0.8"

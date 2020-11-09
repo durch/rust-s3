@@ -84,12 +84,20 @@ impl<'a> Request for Reqwest<'a> {
         };
 
         let client = if cfg!(feature = "no-verify-ssl") {
-            let client = Client::builder().danger_accept_invalid_certs(true);
+            let client = Client::builder();
 
             cfg_if::cfg_if! {
-                if #[cfg(feature = "native-tls")]
+                if #[cfg(feature = "tokio-native-tls")]
                 {
                     let client = client.danger_accept_invalid_hostnames(true);
+                }
+
+            }
+
+            cfg_if::cfg_if! {
+                if #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+                {
+                    let client = client.danger_accept_invalid_certs(true);
                 }
 
             }

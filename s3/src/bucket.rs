@@ -10,15 +10,15 @@ use crate::region::Region;
 pub type Headers = HashMap<String, String>;
 pub type Query = HashMap<String, String>;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "with-tokio")]
 use crate::request::Reqwest as RequestImpl;
-#[cfg(feature = "async")]
-// use tokio::io::AsyncWrite as TokioAsyncWrite;
-#[cfg(feature = "async")]
+#[cfg(feature = "with-async-std")]
+use crate::surf_request::SurfRequest as RequestImpl;
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use async_std::fs::File;
-#[cfg(feature = "async")]
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use async_std::path::Path;
-#[cfg(feature = "async")]
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use futures::io::AsyncRead;
 
 #[cfg(feature = "sync")]
@@ -481,7 +481,7 @@ impl Bucket {
         let mut part_number: u32 = 0;
         let mut etags = Vec::new();
         loop {
-            let chunk = crate::utils::read_chunk_blocking(reader)?;
+            let chunk = crate::utils::read_chunk(reader)?;
 
             if chunk.len() < CHUNK_SIZE {
                 if part_number == 0 {
@@ -1130,6 +1130,11 @@ mod test {
     use std::env;
     use std::fs::File;
     use std::io::prelude::*;
+    // use log::info;
+
+    fn init() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
 
     fn test_aws_credentials() -> Credentials {
         Credentials::new(
@@ -1201,9 +1206,14 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(all(not(feature = "sync"), feature = "async"), tokio::test)
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
     )]
     async fn streaming_test_put_get_delete_big_object() {
+        init();
         let path = "stream_test_big";
         std::fs::remove_file(path).unwrap_or_else(|_| {});
         let bucket = test_aws_bucket();
@@ -1232,7 +1242,11 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(all(not(feature = "sync"), feature = "async"), tokio::test)
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
     )]
     async fn test_put_head_get_delete_object() {
         let s3_path = "/test.file";
@@ -1269,7 +1283,11 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(all(not(feature = "sync"), feature = "async"), tokio::test)
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
     )]
     async fn gc_test_put_head_get_delete_object() {
         let s3_path = "/test.file";
@@ -1306,7 +1324,11 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(all(not(feature = "sync"), feature = "async"), tokio::test)
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
     )]
     async fn wasabi_test_put_head_get_delete_object() {
         let s3_path = "/test.file";
@@ -1340,11 +1362,6 @@ mod test {
         assert_eq!(code, 204);
     }
 
-    #[cfg(feature = "sync")]
-    use attohttpc::header::{HeaderMap, HeaderName, HeaderValue};
-    #[cfg(feature = "async")]
-    use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-
     #[test]
     #[ignore]
     fn test_presign_put() {
@@ -1366,22 +1383,23 @@ mod test {
 
     #[test]
     #[ignore]
+
     fn test_presign_get() {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
-
-        let mut custom_headers = HeaderMap::new();
-        custom_headers.insert(
-            HeaderName::from_static("custom_header"),
-            HeaderValue::from_str("custom_value").unwrap(),
-        );
 
         let url = bucket.presign_get(s3_path, 86400).unwrap();
         assert!(url.contains("/test%2Ftest.file?"))
     }
 
-    #[cfg(feature = "async")]
-    #[tokio::test]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
     #[ignore]
     async fn test_bucket_create_delete_default_region() {
         let config = BucketConfiguration::default();
@@ -1405,7 +1423,11 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(all(not(feature = "sync"), feature = "async"), tokio::test)
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
     )]
     async fn test_bucket_create_delete_non_default_region() {
         let config = BucketConfiguration::default();
@@ -1429,7 +1451,11 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(all(not(feature = "sync"), feature = "async"), tokio::test)
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
     )]
     async fn test_bucket_create_delete_non_default_region_public() {
         let config = BucketConfiguration::public();
