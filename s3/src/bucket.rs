@@ -1283,7 +1283,13 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(
+                not(any(feature = "sync", feature = "tokio-rustls-tls")),
+                feature = "with-tokio"
+            ),
+            tokio::test
+        ),
         async(
             all(not(feature = "sync"), feature = "with-async-std"),
             async_std::test
