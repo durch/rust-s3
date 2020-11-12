@@ -261,11 +261,11 @@ impl Credentials {
         Credentials::from_env_specific(None, None, None, None)
     }
 
-    fn from_instance_metadata() -> Result<Credentials> {
+    pub fn from_instance_metadata() -> Result<Credentials> {
         if !Credentials::is_ec2() {
             return Err(AwsCredsError::from("Not an EC2 instance"));
         }
-        let resp: HashMap<String, String> =
+        let mut resp: HashMap<String, String> =
             match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
                 Ok(credentials_path) => Some(
                     attohttpc::get(&format!("http://169.254.170.2{}", credentials_path))
@@ -273,37 +273,28 @@ impl Credentials {
                         .json()?,
                 ),
                 Err(_) => {
-                    let resp: HashMap<String, String> =
-                        attohttpc::get("http://169.254.169.254/latest/meta-data/iam/info")
-                            .send()?
-                            .json()?;
-                    if let Some(arn) = resp.get("InstanceProfileArn") {
-                        if let Some(role) = arn.split('/').last() {
-                            Some(
-                                attohttpc::get(&format!(
-                            "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
-                            role
-                        ))
-                                .send()?
-                                .json()?,
-                            )
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
+                    let role = attohttpc::get(
+                        "http://169.254.169.254/latest/meta-data/iam/security-credentials",
+                    )
+                    .send()?
+                    .text()?;
+
+                    let creds = attohttpc::get(&format!(
+                        "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
+                        role
+                    ))
+                    .send()?
+                    .json()?;
+
+                    Some(creds)
                 }
             }
             .unwrap();
 
-        let access_key = resp.get("AccessKeyId").unwrap().clone();
-        let secret_key = resp.get("SecretAccessKey").unwrap().clone();
-        let security_token = Some(resp.get("Token").unwrap().clone());
         Ok(Credentials {
-            access_key: Some(access_key),
-            secret_key: Some(secret_key),
-            security_token,
+            access_key: resp.remove("AccessKeyId"),
+            secret_key: resp.remove("SecretAccessKey"),
+            security_token: resp.remove("Token"),
             session_token: None,
         })
     }
