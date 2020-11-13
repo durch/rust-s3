@@ -1,3 +1,4 @@
+use block_on::block_on;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::mem;
@@ -77,6 +78,7 @@ fn validate_expiry(expiry_secs: u32) -> Result<()> {
     Ok(())
 }
 
+#[block_on("tokio")]
 impl Bucket {
     /// Get a presigned url for getting object on a given path
     ///
@@ -142,30 +144,40 @@ impl Bucket {
     }
     /// Create a new `Bucket` and instantiate it
     ///
-    /// # Example
-    /// ```rust,no_run
+    /// ```no_run
     /// use s3::{Bucket, BucketConfiguration};
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
-    ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default().unwrap();
-    ///     let config = BucketConfiguration::default();
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let config = BucketConfiguration::default();
+    /// 
+    /// // Async variant with `tokio` or `async-std` features
+    /// let create_bucket_response = Bucket::create(bucket_name, region, credentials, config).await?;
+    /// // `sync` fature will produce an identical method
+    /// // let create_bucket_response = Bucket::create(bucket_name, region, credentials, config)?;
     ///
-    ///     let create_bucket_response = Bucket::create(bucket_name, region, credentials, config).await.unwrap();
-    ///     Ok(())
-    /// }
+    /// # let region = "us-east-1".parse()?;
+    /// # let credentials = Credentials::default()?;
+    /// # let config = BucketConfiguration::default();
+    /// // Blocking variant, generated with `blocking` feature in combination 
+    /// // with `tokio` or `async-std` features.
+    /// let create_bucket_response = Bucket::create_blocking(bucket_name, region, credentials, config)?;
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn create(
         name: &str,
         region: Region,
         credentials: Credentials,
-        mut config: BucketConfiguration,
+        config: BucketConfiguration,
     ) -> Result<CreateBucketResponse> {
+        let mut config = config;
         config.set_region(region.clone());
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new(name, region, credentials)?;
@@ -1279,6 +1291,39 @@ mod test {
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
     }
+
+    // #[ignore]
+    // #[cfg_attr(any(feature = "with-tokio", feature = "with-async-std"), test)]
+    // fn test_put_head_get_delete_object_blocking() {
+    //     let s3_path = "/test_blocking.file";
+    //     let bucket = test_aws_bucket();
+    //     let test: Vec<u8> = object(3072);
+
+    //     let (_data, code) = bucket.put_object_blocking(s3_path, &test).unwrap();
+    //     // println!("{}", std::str::from_utf8(&data).unwrap());
+    //     assert_eq!(code, 200);
+    //     let (data, code) = bucket.get_object_blocking(s3_path).unwrap();
+    //     assert_eq!(code, 200);
+    //     // println!("{}", std::str::from_utf8(&data).unwrap());
+    //     assert_eq!(test, data);
+
+    //     let (data, code) = bucket
+    //         .get_object_range_blocking(s3_path, 100, Some(1000))
+    //         .unwrap();
+    //     assert_eq!(code, 206);
+    //     // println!("{}", std::str::from_utf8(&data).unwrap());
+    //     assert_eq!(test[100..1001].to_vec(), data);
+
+    //     let (head_object_result, code) = bucket.head_object_blocking(s3_path).unwrap();
+    //     assert_eq!(code, 200);
+    //     assert_eq!(
+    //         head_object_result.content_type.unwrap(),
+    //         "application/octet-stream".to_owned()
+    //     );
+    //     // println!("{:?}", head_object_result);
+    //     let (_, code) = bucket.delete_object_blocking(s3_path).unwrap();
+    //     assert_eq!(code, 204);
+    // }
 
     #[ignore]
     #[maybe_async::test(

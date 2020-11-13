@@ -1,0 +1,21 @@
+[package]
+name = "block_on"
+version = "0.1.0"
+authors = ["Drazen Urch <drazen@urch.eu>"]
+edition = "2018"
+
+[lib]
+proc-macro = true
+
+[[test]]
+name = "test"
+path = "src/test.rs"
+
+[dependencies]
+syn = {version = "1", features = ["full"]} 
+quote = "1"
+
+[dev-dependencies]
+trybuild = "1"
+tokio = "0.2"
+async-std = "1"

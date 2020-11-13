@@ -46,6 +46,7 @@ surf = { version = "2", optional = true, default-features = false, features = ["
 tokio = { version = "0.2", features = ["stream"], optional = true, default-features = false }
 url = "2"
 
+block_on = { path = "../block_on"}
 
 [features]
 with-tokio = ["reqwest", "tokio", "futures", "async-std"]
