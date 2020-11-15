@@ -1480,6 +1480,7 @@ mod test {
         any(feature = "with-tokio", feature = "with-async-std"),
         feature = "blocking"
     ))]
+    #[test]
     fn test_put_head_get_delete_object_blocking() {
         let s3_path = "/test_blocking.file";
         let bucket = test_aws_bucket();
