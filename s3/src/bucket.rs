@@ -299,7 +299,7 @@ impl Bucket {
         Ok(request.response_data(false).await?)
     }
 
-    /// Gets specified bytes of file from an S3 path, async.
+    /// Gets specified inclusive byte range of file from an S3 path, async.
     ///
     /// # Example:
     ///
@@ -316,7 +316,8 @@ impl Bucket {
     ///     let credentials = Credentials::default()?;
     ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
-    ///     let (data, code) = bucket.get_object_range("/test.file", 0, Some(32)).await?;
+    ///     // The first thirty-two bytes of the object can be downloaded by specifying a range of 0 to 31.
+    ///     let (data, code) = bucket.get_object_range("/test.file", 0, Some(31)).await?;
     ///     println!("Code: {}", code);
     ///     println!("{:?}", data);
     ///     Ok(())
