@@ -1,3 +1,4 @@
+#[cfg(feature = "blocking")]
 use block_on::block_on;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
@@ -40,12 +41,11 @@ use crate::{Result, S3Error};
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
+/// Instantiate an existing Bucket
+///
 /// # Example
-/// ```
-/// # // Fake  credentials so we don't access user's real credentials in tests
-/// # use std::env;
-/// # env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
-/// # env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+///
+/// ```no_run
 /// use s3::bucket::Bucket;
 /// use s3::creds::Credentials;
 ///
@@ -78,13 +78,17 @@ fn validate_expiry(expiry_secs: u32) -> Result<()> {
     Ok(())
 }
 
-#[block_on("tokio")]
+#[cfg_attr(all(feature = "with-tokio", feature = "blocking"), block_on("tokio"))]
+#[cfg_attr(
+    all(feature = "with-async-std", feature = "blocking"),
+    block_on("async-std")
+)]
 impl Bucket {
     /// Get a presigned url for getting object on a given path
     ///
     /// # Example:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     ///
@@ -106,7 +110,7 @@ impl Bucket {
     ///
     /// # Example:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     /// use std::collections::HashMap;
@@ -116,6 +120,7 @@ impl Bucket {
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
+    /// // Add optional custom headers
     /// let mut custom_headers = HashMap::new();
     /// custom_headers.insert(
     ///    "custom_header".to_string(),
@@ -147,6 +152,7 @@ impl Bucket {
     /// ```no_run
     /// use s3::{Bucket, BucketConfiguration};
     /// use s3::creds::Credentials;
+    /// # use s3::region::Region;
     /// use s3::S3Error;
     ///
     /// # #[tokio::main]
@@ -155,17 +161,20 @@ impl Bucket {
     /// let region = "us-east-1".parse()?;
     /// let credentials = Credentials::default()?;
     /// let config = BucketConfiguration::default();
-    /// 
+    ///
     /// // Async variant with `tokio` or `async-std` features
     /// let create_bucket_response = Bucket::create(bucket_name, region, credentials, config).await?;
-    /// // `sync` fature will produce an identical method
-    /// // let create_bucket_response = Bucket::create(bucket_name, region, credentials, config)?;
     ///
-    /// # let region = "us-east-1".parse()?;
+    /// // `sync` fature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let create_bucket_response = Bucket::create(bucket_name, region, credentials, config)?;
+    ///
+    /// # let region: Region = "us-east-1".parse()?;
     /// # let credentials = Credentials::default()?;
     /// # let config = BucketConfiguration::default();
-    /// // Blocking variant, generated with `blocking` feature in combination 
+    /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
     /// let create_bucket_response = Bucket::create_blocking(bucket_name, region, credentials, config)?;
     /// # Ok(())
     /// # }
@@ -199,17 +208,27 @@ impl Bucket {
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
-    ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default().unwrap();
-    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default().unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    ///     bucket.delete().await.unwrap();
+    /// // Async variant with `tokio` or `async-std` features
+    /// bucket.delete().await.unwrap();
+    /// // `sync` fature will produce an identical method
     ///
-    ///     Ok(())
-    /// }
+    /// #[cfg(feature = "sync")]
+    /// bucket.delete().unwrap();
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    ///
+    /// #[cfg(feature = "blocking")]
+    /// bucket.delete_blocking().unwrap();
+    ///
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn delete(&self) -> Result<u16> {
@@ -222,7 +241,7 @@ impl Bucket {
     /// Instantiate an existing `Bucket`.
     ///
     /// # Example
-    /// ```rust,no_run
+    /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     ///
@@ -244,6 +263,18 @@ impl Bucket {
         })
     }
 
+    /// Instantiate a public existing `Bucket`.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    ///
+    /// let bucket = Bucket::new_public(bucket_name, region).unwrap();
+    /// ```
     pub fn new_public(name: &str, region: Region) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
@@ -255,6 +286,19 @@ impl Bucket {
         })
     }
 
+    /// Instantiate an existing `Bucket` with path style addressing. Useful for compatibility with some storage APIs, like MinIO.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default().unwrap();
+    ///
+    /// let bucket = Bucket::new_with_path_style(bucket_name, region, credentials).unwrap();
+    /// ```
     pub fn new_with_path_style(
         name: &str,
         region: Region,
@@ -270,6 +314,18 @@ impl Bucket {
         })
     }
 
+    /// Instantiate a public existing `Bucket` with path style addressing. Useful for compatibility with some storage APIs, like MinIO.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    ///
+    /// let bucket = Bucket::new_public_with_path_style(bucket_name, region).unwrap();
+    /// ```
     pub fn new_public_with_path_style(name: &str, region: Region) -> Result<Bucket> {
         Ok(Bucket {
             name: name.into(),
@@ -281,7 +337,7 @@ impl Bucket {
         })
     }
 
-    /// Gets file from an S3 path, async.
+    /// Gets file from an S3 path.
     ///
     /// # Example:
     ///
@@ -290,19 +346,27 @@ impl Bucket {
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
     ///
-    ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default()?;
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
-    ///     let (data, code) = bucket.get_object("/test.file").await?;
-    ///     println!("Code: {}", code);
-    ///     println!("{:?}", data);
-    ///     Ok(())
-    /// }
+    /// // Async variant with `tokio` or `async-std` features
+    /// let (data, code) = bucket.get_object("/test.file").await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let (data, code) = bucket.get_object("/test.file")?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let (data, code) = bucket.get_object_blocking("/test.file")?;
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
@@ -1292,38 +1356,41 @@ mod test {
         assert_eq!(code, 204);
     }
 
-    // #[ignore]
-    // #[cfg_attr(any(feature = "with-tokio", feature = "with-async-std"), test)]
-    // fn test_put_head_get_delete_object_blocking() {
-    //     let s3_path = "/test_blocking.file";
-    //     let bucket = test_aws_bucket();
-    //     let test: Vec<u8> = object(3072);
+    #[ignore]
+    #[cfg(all(
+        any(feature = "with-tokio", feature = "with-async-std"),
+        feature = "blocking"
+    ))]
+    fn test_put_head_get_delete_object_blocking() {
+        let s3_path = "/test_blocking.file";
+        let bucket = test_aws_bucket();
+        let test: Vec<u8> = object(3072);
 
-    //     let (_data, code) = bucket.put_object_blocking(s3_path, &test).unwrap();
-    //     // println!("{}", std::str::from_utf8(&data).unwrap());
-    //     assert_eq!(code, 200);
-    //     let (data, code) = bucket.get_object_blocking(s3_path).unwrap();
-    //     assert_eq!(code, 200);
-    //     // println!("{}", std::str::from_utf8(&data).unwrap());
-    //     assert_eq!(test, data);
+        let (_data, code) = bucket.put_object_blocking(s3_path, &test).unwrap();
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(code, 200);
+        let (data, code) = bucket.get_object_blocking(s3_path).unwrap();
+        assert_eq!(code, 200);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test, data);
 
-    //     let (data, code) = bucket
-    //         .get_object_range_blocking(s3_path, 100, Some(1000))
-    //         .unwrap();
-    //     assert_eq!(code, 206);
-    //     // println!("{}", std::str::from_utf8(&data).unwrap());
-    //     assert_eq!(test[100..1001].to_vec(), data);
+        let (data, code) = bucket
+            .get_object_range_blocking(s3_path, 100, Some(1000))
+            .unwrap();
+        assert_eq!(code, 206);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test[100..1001].to_vec(), data);
 
-    //     let (head_object_result, code) = bucket.head_object_blocking(s3_path).unwrap();
-    //     assert_eq!(code, 200);
-    //     assert_eq!(
-    //         head_object_result.content_type.unwrap(),
-    //         "application/octet-stream".to_owned()
-    //     );
-    //     // println!("{:?}", head_object_result);
-    //     let (_, code) = bucket.delete_object_blocking(s3_path).unwrap();
-    //     assert_eq!(code, 204);
-    // }
+        let (head_object_result, code) = bucket.head_object_blocking(s3_path).unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(
+            head_object_result.content_type.unwrap(),
+            "application/octet-stream".to_owned()
+        );
+        // println!("{:?}", head_object_result);
+        let (_, code) = bucket.delete_object_blocking(s3_path).unwrap();
+        assert_eq!(code, 204);
+    }
 
     #[ignore]
     #[maybe_async::test(
