@@ -11,7 +11,7 @@ sync-clippy: sync-nativetls-clippy sync-nossl-clippy sync-rustlstls-clippy
 tokio: tokio-nativetls tokio-nossl tokio-noverify tokio-rustlstls
 tokio-not-ignored: tokio-nativetls-test-not-ignored tokio-nossl-test-not-ignored tokio-noverify-test-not-ignored tokio-rustlstls-test-not-ignored
 
-tokio-nativetls: tokio-nativetls-clippy tokio-nativetls-test
+tokio-nativetls: tokio-nativetls-clippy tokio-nativetls-test tokio-nativetls-blocking-test-ignored
 tokio-nativetls-clippy:
 	cargo clippy -- -D warnings
 tokio-nativetls-test: tokio-nativetls-test-not-ignored tokio-nativetls-test-ignored
@@ -19,6 +19,8 @@ tokio-nativetls-test-not-ignored:
 	cargo test
 tokio-nativetls-test-ignored:
 	cargo test -- --ignored
+tokio-nativetls-blocking-test-ignored:
+	cargo test --features blocking -- --ignored
 
 tokio-nossl: tokio-nossl-test-not-ignored tokio-nossl-clippy
 tokio-nossl-clippy:
@@ -44,12 +46,13 @@ tokio-rustlstls-test-ignored:
 async-std: async-std-clippy async-std-test async-std-clippy
 async-std-clippy:
 	cargo clippy --no-default-features --features with-async-std -- -D warnings
-async-std-test: async-std-test-not-ignored async-std-test-ignored
+async-std-test: async-std-test-not-ignored async-std-test-ignored async-std-test-blocking-ignored
 async-std-test-not-ignored:
 	cargo test --no-default-features --features with-async-std
 async-std-test-ignored:
 	cargo test --no-default-features --features with-async-std -- --ignored
-
+async-std-test-blocking-ignored:
+	cargo test --no-default-features --features with-async-std --features blocking -- --ignored
 
 # sync
 sync-nativetls: sync-nativetls-clippy sync-nativetls-test

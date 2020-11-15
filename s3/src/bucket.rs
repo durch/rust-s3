@@ -1,5 +1,5 @@
 #[cfg(feature = "blocking")]
-use block_on::block_on;
+use block_on_proc::block_on;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::mem;
@@ -375,7 +375,7 @@ impl Bucket {
         Ok(request.response_data(false).await?)
     }
 
-    /// Gets specified inclusive byte range of file from an S3 path, async.
+    /// Gets specified inclusive byte range of file from an S3 path.
     ///
     /// # Example:
     ///
@@ -384,20 +384,28 @@ impl Bucket {
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
     ///
-    ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default()?;
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
-    ///     // The first thirty-two bytes of the object can be downloaded by specifying a range of 0 to 31.
-    ///     let (data, code) = bucket.get_object_range("/test.file", 0, Some(31)).await?;
-    ///     println!("Code: {}", code);
-    ///     println!("{:?}", data);
-    ///     Ok(())
-    /// }
+    /// // Async variant with `tokio` or `async-std` features
+    /// let (data, code) = bucket.get_object_range("/test.file", 0, Some(31)).await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let (data, code) = bucket.get_object_range("/test.file", 0, Some(31))?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let (data, code) = bucket.get_object_range_blocking("/test.file", 0, Some(31))?;
+    /// #
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn get_object_range<S: AsRef<str>>(
@@ -415,30 +423,39 @@ impl Bucket {
         Ok(request.response_data(false).await?)
     }
 
-    /// Stream file from S3 path to a local file, generic over T: Write, async.
+    /// Stream file from S3 path to a local file, generic over T: Write.
     ///
     /// # Example:
     ///
     /// ```rust,no_run
-    ///
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     /// use std::fs::File;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
     ///
-    ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default()?;
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
-    ///     let mut output_file = File::create("output_file").expect("Unable to create file");
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let mut output_file = File::create("output_file").expect("Unable to create file");
     ///
-    ///     let status_code = bucket.get_object_stream("/test.file", &mut output_file).await?;
-    ///     println!("Code: {}", status_code);
-    ///     Ok(())
-    /// }
+    /// // Async variant with `tokio` or `async-std` features
+    /// let status_code = bucket.get_object_stream("/test.file", &mut output_file).await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let status_code = bucket.get_object_stream("/test.file", &mut output_file)?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let status_code = bucket.get_object_stream_blocking("/test.file", &mut output_file)?;
+    /// #
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn get_object_stream<T: std::io::Write, S: AsRef<str>>(
@@ -451,7 +468,44 @@ impl Bucket {
         Ok(request.response_data_to_writer(writer).await?)
     }
 
-    // TODO doctest
+    /// Stream file from local path to s3, generic over T: Write.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use s3::S3Error;
+    /// use std::fs::File;
+    /// use std::io::Write;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let path = "path";
+    /// let test: Vec<u8> = (0..1000).map(|_| 42).collect();
+    /// let mut file = File::create(path)?;
+    /// file.write_all(&test)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let status_code = bucket.put_object_stream(path, "/path").await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let status_code = bucket.put_object_stream(path, "/path")?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let status_code = bucket.put_object_stream_blocking(path, "/path")?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
     #[maybe_async::maybe_async]
     pub async fn put_object_stream(
         &self,
@@ -625,25 +679,37 @@ impl Bucket {
         Ok(code)
     }
 
-    //// Get bucket location from S3, async
-    ////
-    /// # Example
-    /// ```rust,no_run
+    /// Get Bucket location.
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
     ///
-    ///     let bucket_name = "rust-s3-test";
-    ///     let region = "eu-central-1".parse()?;
-    ///     let credentials = Credentials::default()?;
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
-    ///     println!("{}", bucket.location().await?.0);
-    ///     Ok(())
-    /// }
+    /// // Async variant with `tokio` or `async-std` features
+    /// let (region, status_code) = bucket.location().await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let (region, status_code) = bucket.location()?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let (region, status_code) = bucket.location_blocking()?;
+    /// #
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn location(&self) -> Result<(Region, u16)> {
@@ -672,28 +738,37 @@ impl Bucket {
         Ok((region, result.1))
     }
 
-    /// Delete file from an S3 path, async.
+    /// Delete file from an S3 path.
     ///
     /// # Example:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default()?;
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
-    ///     let (_, code) = bucket.delete_object("/test.file").await?;
-    ///     assert_eq!(204, code);
+    /// // Async variant with `tokio` or `async-std` features
+    /// let (_, code) = bucket.delete_object("/test.file").await?;
     ///
-    ///     Ok(())
-    /// }
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let (_, code) = bucket.delete_object("/test.file")?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let (_, code) = bucket.delete_object_blocking("/test.file")?;
+    /// #
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
@@ -702,23 +777,37 @@ impl Bucket {
         Ok(request.response_data(false).await?)
     }
 
-    /// Head object from S3, async.
+    /// Head object from S3.
+    ///
     /// # Example:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default()?;
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
-    ///     let (head_object_result, code) = bucket.head_object("/test.png").await.unwrap();
-    ///     assert_eq!(head_object_result.content_type.unwrap() , "image/png".to_owned());
-    ///     Ok(())
-    /// }
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let (head_object_result, code) = bucket.head_object("/test.png").await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let (head_object_result, code) = bucket.head_object("/test.png")?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let (head_object_result, code) = bucket.head_object_blocking("/test.png")?;
+    /// #
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn head_object<S: AsRef<str>>(&self, path: S) -> Result<(HeadObjectResult, u16)> {
@@ -729,32 +818,38 @@ impl Bucket {
         Ok((header_object, status))
     }
 
-    /// Put into an S3 bucket, async.
+    /// Put into an S3 bucket, with explicit content-type.
     ///
-    /// # Example
+    /// # Example:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let aws_access = &"access_key";
-    ///     let aws_secret = &"secret_key";
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let content = "I want to go to S3".as_bytes();
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default().unwrap();
-    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    /// // Async variant with `tokio` or `async-std` features
+    /// let (_, code) = bucket.put_object_with_content_type("/test.file", content, "text/plain").await?;
     ///
-    ///     let content = "I want to go to S3".as_bytes();
-    ///     let (_, code) = bucket.put_object_with_content_type("/test.file", content, "text/plain").await?;
-    ///     assert_eq!(201, code);
-    ///     Ok(())
-    /// }
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let (_, code) = bucket.put_object_with_content_type("/test.file", content, "text/plain")?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let (_, code) = bucket.put_object_with_content_type_blocking("/test.file", content, "text/plain")?;
+    /// #
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn put_object_with_content_type<S: AsRef<str>>(
@@ -771,32 +866,38 @@ impl Bucket {
         Ok(request.response_data(true).await?)
     }
 
-    /// Put into an S3 bucket, async.
+    /// Put into an S3 bucket.
     ///
-    /// # Example
+    /// # Example:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let aws_access = &"access_key";
-    ///     let aws_secret = &"secret_key";
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let content = "I want to go to S3".as_bytes();
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default().unwrap();
-    ///     let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    /// // Async variant with `tokio` or `async-std` features
+    /// let (_, code) = bucket.put_object("/test.file", content).await?;
     ///
-    ///     let content = "I want to go to S3".as_bytes();
-    ///     let (_, code) = bucket.put_object("/test.file", content).await?;
-    ///     assert_eq!(201, code);
-    ///     Ok(())
-    /// }
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let (_, code) = bucket.put_object("/test.file", content)?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let (_, code) = bucket.put_object_blocking("/test.file", content)?;
+    /// #
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn put_object<S: AsRef<str>>(
@@ -829,31 +930,37 @@ impl Bucket {
         s
     }
 
-    /// Tag an S3 object, async.
+    /// Tag an S3 object.
     ///
-    /// # Example
+    /// # Example:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let aws_access = &"access_key";
-    ///     let aws_secret = &"secret_key";
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default()?;
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// // Async variant with `tokio` or `async-std` features
+    /// let (_, code) = bucket.put_object_tagging("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).await?;
     ///
-    ///     let (_, code) = bucket.put_object_tagging("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).await?;
-    ///     assert_eq!(201, code);
-    ///     Ok(())
-    /// }
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let (_, code) = bucket.put_object_tagging("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")])?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let (_, code) = bucket.put_object_tagging_blocking("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")])?;
+    /// #
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn put_object_tagging<S: AsRef<str>>(
@@ -867,31 +974,37 @@ impl Bucket {
         Ok(request.response_data(false).await?)
     }
 
-    /// Delete tags from an S3 object, async.
+    /// Delete tags from an S3 object.
     ///
-    /// # Example
+    /// # Example:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let aws_access = &"access_key";
-    ///     let aws_secret = &"secret_key";
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default()?;
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// // Async variant with `tokio` or `async-std` features
+    /// let (_, code) = bucket.delete_object_tagging("/test.file").await?;
     ///
-    ///     let (_, code) = bucket.delete_object_tagging("/test.file").await?;
-    ///     assert_eq!(201, code);
-    ///     Ok(())
-    /// }
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let (_, code) = bucket.delete_object_tagging("/test.file")?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let (_, code) = bucket.delete_object_tagging_blocking("/test.file")?;
+    /// #
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn delete_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
@@ -900,35 +1013,37 @@ impl Bucket {
         Ok(request.response_data(false).await?)
     }
 
-    /// Retrieve an S3 object list of tags, async.
+    /// Retrieve an S3 object list of tags.
     ///
-    /// # Example
+    /// # Example:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let aws_access = &"access_key";
-    ///     let aws_secret = &"secret_key";
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default()?;
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// // Async variant with `tokio` or `async-std` features
+    /// let (_, code) = bucket.get_object_tagging("/test.file").await?;
     ///
-    ///     let (tags, code) = bucket.get_object_tagging("/test.file").await?;
-    ///     if code == 200 {
-    ///         for tag in tags.expect("No tags found").tag_set {
-    ///             println!("{}={}", tag.key(), tag.value());
-    ///         }
-    ///     }
-    ///     Ok(())
-    /// }
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let (_, code) = bucket.get_object_tagging("/test.file")?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let (_, code) = bucket.get_object_tagging_blocking("/test.file")?;
+    /// #
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn get_object_tagging<S: AsRef<str>>(
@@ -978,34 +1093,37 @@ impl Bucket {
         }
     }
 
-    /// List the contents of an S3 bucket, async.
+    /// List the contents of an S3 bucket.
     ///
-    /// # Example
+    /// # Example:
     ///
-    /// ```rust,no_run
-    /// extern crate futures;
-    /// use std::str;
+    /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let aws_access = &"access_key";
-    ///     let aws_secret = &"secret_key";
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
-    ///     let bucket_name = &"rust-s3-test";
-    ///     let region = "us-east-1".parse()?;
-    ///     let credentials = Credentials::default()?;
-    ///     let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// // Async variant with `tokio` or `async-std` features
+    /// let results = bucket.list("/".to_string(), Some("/".to_string())).await?;
     ///
-    ///     let results = bucket.list("/".to_string(), Some("/".to_string())).await?;
-    ///     println!("{:?}", results);
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let results = bucket.list("/".to_string(), Some("/".to_string()))?;
     ///
-    ///     Ok(())
-    /// }
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let results = bucket.list_blocking("/".to_string(), Some("/".to_string()))?;
+    /// #
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn list(

@@ -2,6 +2,5 @@
 members = [
     "s3",
     "aws-region",
-    "aws-creds",
-    "block_on"
+    "aws-creds"
 ]
