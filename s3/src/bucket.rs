@@ -179,6 +179,45 @@ impl Bucket {
         })
     }
 
+    /// Create a new `Bucket` with path style and instantiate it
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use s3::{Bucket, BucketConfiguration};
+    /// use s3::creds::Credentials;
+    /// use s3::S3Error;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), S3Error> {
+    ///     let bucket_name = "rust-s3-test";
+    ///     let region = "us-east-1".parse().unwrap();
+    ///     let credentials = Credentials::default().unwrap();
+    ///     let config = BucketConfiguration::default();
+    ///
+    ///     let create_bucket_response = Bucket::create(bucket_name, region, credentials, config).await.unwrap();
+    ///     Ok(())
+    /// }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn create_with_path_style(
+        name: &str,
+        region: Region,
+        credentials: Credentials,
+        mut config: BucketConfiguration,
+    ) -> Result<CreateBucketResponse> {
+        config.set_region(region.clone());
+        let command = Command::CreateBucket { config };
+        let bucket = Bucket::new_with_path_style(name, region, credentials)?;
+        let request = RequestImpl::new(&bucket, "", command);
+        let (data, response_code) = request.response_data(false).await?;
+        let response_text = std::str::from_utf8(&data)?;
+        Ok(CreateBucketResponse {
+            bucket,
+            response_text: response_text.to_string(),
+            response_code,
+        })
+    }
+
     /// Delete existing `Bucket`
     ///
     /// # Example
