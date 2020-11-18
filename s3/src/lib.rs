@@ -3,6 +3,7 @@
 
 #[macro_use]
 extern crate serde_derive;
+
 use serde_xml_rs as serde_xml;
 
 pub use awscreds as creds;
@@ -18,10 +19,12 @@ pub mod bucket;
 pub mod bucket_ops;
 pub mod command;
 pub mod deserializer;
-#[cfg(feature = "async")]
+#[cfg(feature = "with-tokio")]
 pub mod request;
 pub mod serde_types;
 pub mod signing;
+#[cfg(feature = "with-async-std")]
+pub mod surf_request;
 
 pub mod request_trait;
 pub mod utils;
