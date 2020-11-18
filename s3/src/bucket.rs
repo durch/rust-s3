@@ -202,22 +202,35 @@ impl Bucket {
 
     /// Create a new `Bucket` with path style and instantiate it
     ///
-    /// # Example
-    /// ```rust,no_run
+    /// ```no_run
     /// use s3::{Bucket, BucketConfiguration};
     /// use s3::creds::Credentials;
+    /// # use s3::region::Region;
     /// use s3::S3Error;
     ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), S3Error> {
-    ///     let bucket_name = "rust-s3-test";
-    ///     let region = "us-east-1".parse().unwrap();
-    ///     let credentials = Credentials::default().unwrap();
-    ///     let config = BucketConfiguration::default();
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), S3Error> {
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let config = BucketConfiguration::default();
     ///
-    ///     let create_bucket_response = Bucket::create(bucket_name, region, credentials, config).await.unwrap();
-    ///     Ok(())
-    /// }
+    /// // Async variant with `tokio` or `async-std` features
+    /// let create_bucket_response = Bucket::create_with_path_style(bucket_name, region, credentials, config).await?;
+    ///
+    /// // `sync` fature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let create_bucket_response = Bucket::create_with_path_style(bucket_name, region, credentials, config)?;
+    ///
+    /// # let region: Region = "us-east-1".parse()?;
+    /// # let credentials = Credentials::default()?;
+    /// # let config = BucketConfiguration::default();
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let create_bucket_response = Bucket::create_with_path_style_blocking(bucket_name, region, credentials, config)?;
+    /// # Ok(())
+    /// # }
     /// ```
     #[maybe_async::maybe_async]
     pub async fn create_with_path_style(
