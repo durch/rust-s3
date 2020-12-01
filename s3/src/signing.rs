@@ -56,18 +56,12 @@ pub const FRAGMENT: &AsciiSet = &CONTROLS
 pub const FRAGMENT_SLASH: &AsciiSet = &FRAGMENT.add(b'/');
 
 /// Encode a URI following the specific requirements of the AWS service.
-#[cfg(not(feature = "never-encode-slash"))]
 pub fn uri_encode(string: &str, encode_slash: bool) -> String {
     if encode_slash {
         utf8_percent_encode(string, FRAGMENT_SLASH).to_string()
     } else {
         utf8_percent_encode(string, FRAGMENT).to_string()
     }
-}
-
-#[cfg(feature = "never-encode-slash")]
-pub fn uri_encode(string: &str, encode_slash: bool) -> String {
-    utf8_percent_encode(string, FRAGMENT).to_string()
 }
 
 /// Generate a canonical URI string from the given URL.

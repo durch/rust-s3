@@ -188,7 +188,10 @@ pub trait Request {
 
         url_str.push('/');
 
+        #[cfg(not(feature = "never-encode-slash"))]
         url_str.push_str(&signing::uri_encode(&path, true));
+        #[cfg(feature = "never-encode-slash")]
+        url_str.push_str(&signing::uri_encode(&path, false));
 
         // Append to url_path
         #[allow(clippy::collapsible_match)]
