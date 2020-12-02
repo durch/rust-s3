@@ -12,6 +12,7 @@ use chrono::{DateTime, Utc};
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
 use crate::{Result, S3Error};
+use anyhow::Result;
 
 // static CLIENT: Lazy<Client> = Lazy::new(|| {
 //     if cfg!(feature = "no-verify-ssl") {
@@ -25,25 +26,6 @@ use crate::{Result, S3Error};
 //     }
 // });
 
-impl std::convert::From<attohttpc::Error> for S3Error {
-    fn from(e: attohttpc::Error) -> S3Error {
-        S3Error {
-            description: Some(format!("{}", e)),
-            data: None,
-            source: None,
-        }
-    }
-}
-
-impl std::convert::From<http::header::InvalidHeaderValue> for S3Error {
-    fn from(e: http::header::InvalidHeaderValue) -> S3Error {
-        S3Error {
-            description: Some(format!("{}", e)),
-            data: None,
-            source: None,
-        }
-    }
-}
 
 // Temporary structure for making a request
 pub struct AttoRequest<'a> {

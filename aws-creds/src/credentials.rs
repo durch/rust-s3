@@ -1,10 +1,12 @@
-use crate::{AwsCredsError, Result};
+#![allow(dead_code)]
+
 use ini::Ini;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::env;
-use std::str::FromStr;
 use url::Url;
+use anyhow::Result;
+use anyhow::anyhow;
 
 /// AWS access credentials: access key, secret key, and optional token.
 ///
@@ -134,11 +136,10 @@ impl Credentials {
                 ("WebIdentityToken", web_identity_token),
                 ("Version", "2011-06-15"),
             ],
-        )
-        .unwrap();
+        )?;
         let response = attohttpc::get(url.as_str()).send()?;
         let serde_response =
-            serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap();
+            serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?)?;
         // assert!(serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap());
 
         Ok(Credentials {
@@ -165,7 +166,7 @@ impl Credentials {
     }
 
     pub fn default() -> Result<Credentials> {
-        Ok(Credentials::new(None, None, None, None, None)?)
+        Credentials::new(None, None, None, None, None)
     }
 
     pub fn anonymous() -> Result<Credentials> {
@@ -189,47 +190,21 @@ impl Credentials {
         if let Ok(c) = Credentials::from_sts_env("aws-creds") {
             return Ok(c);
         }
+        let access_key = access_key.map(|s| s.to_string());
+        let secret_key = secret_key.map(|s| s.to_string());
+        let security_token = security_token.map(|s| s.to_string());
+        let session_token = session_token.map(|s| s.to_string());
 
-        let security_token = if let Some(security_token) = security_token {
-            Some(security_token.to_string())
-        } else {
-            None
-        };
-
-        let session_token = if let Some(session_token) = session_token {
-            Some(session_token.to_string())
-        } else {
-            None
-        };
-
-        let credentials = if let Some(access_key) = access_key {
-            if let Some(secret_key) = secret_key {
-                Some(Credentials {
-                    access_key: Some(access_key.to_string()),
-                    secret_key: Some(secret_key.to_string()),
-                    security_token,
-                    session_token,
-                })
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        match credentials {
-            Some(c) => Ok(c),
-            None => match Credentials::from_env() {
-                Ok(c) => Ok(c),
-                Err(_) => match Credentials::from_profile(profile) {
-                    Ok(c) => Ok(c),
-                    Err(_) => match Credentials::from_instance_metadata() {
-                        Ok(c) => Ok(c),
-                        Err(e) => Err(format!("No credentials provided as arguments, in the environment or in the profile file. \n {}", e).as_str().into())
-                    }
-                }
-            }
-        }
+        let credentials = access_key.map(|access_key| Credentials {
+            access_key: Some(access_key),
+            secret_key,
+            security_token,
+            session_token,
+        }).or(Credentials::from_env().ok())
+        .or(Credentials::from_profile(profile).ok())
+        .or(Credentials::from_instance_metadata().ok())
+        .ok_or(anyhow!("No credentials provided as arguments, in the environment or in the profile file."));
+        return credentials;
     }
 
     pub fn from_env_specific(
@@ -241,14 +216,8 @@ impl Credentials {
         let access_key = from_env_with_default(access_key_var, "AWS_ACCESS_KEY_ID")?;
         let secret_key = from_env_with_default(secret_key_var, "AWS_SECRET_ACCESS_KEY")?;
 
-        let security_token = match from_env_with_default(security_token_var, "AWS_SECURITY_TOKEN") {
-            Ok(x) => Some(x),
-            Err(_) => None,
-        };
-        let session_token = match from_env_with_default(session_token_var, "AWS_SESSION_TOKEN") {
-            Ok(x) => Some(x),
-            Err(_) => None,
-        };
+        let security_token = from_env_with_default(security_token_var, "AWS_SECURITY_TOKEN").ok();
+        let session_token = from_env_with_default(session_token_var, "AWS_SESSION_TOKEN").ok();
         Ok(Credentials {
             access_key: Some(access_key),
             secret_key: Some(secret_key),
@@ -263,7 +232,7 @@ impl Credentials {
 
     pub fn from_instance_metadata() -> Result<Credentials> {
         if !Credentials::is_ec2() {
-            return Err(AwsCredsError::from("Not an EC2 instance"));
+            return Err(anyhow!("Not an EC2 instance"));
         }
         let mut resp: HashMap<String, String> =
             match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
@@ -314,72 +283,33 @@ impl Credentials {
     }
 
     pub fn from_profile(section: Option<&str>) -> Result<Credentials> {
-        let home_dir = match dirs::home_dir() {
-            Some(path) => Ok(path),
-            None => Err(AwsCredsError::from("Invalid home dir")),
-        };
-        let profile = format!("{}/.aws/credentials", home_dir?.display());
+        let home_dir = dirs::home_dir().ok_or(anyhow!("Invalid home dir"))?;
+        let profile = format!("{}/.aws/credentials", home_dir.display());
         let conf = Ini::load_from_file(&profile)?;
-        let section = match section {
-            Some(s) => s,
-            None => "default",
-        };
-        let mut access_key = Err(AwsCredsError::from("Missing aws_access_key_id section"));
-        let mut secret_key = Err(AwsCredsError::from("Missing aws_secret_access_key section"));
-        let mut security_token = None;
-        let mut session_token = None;
-        if let Some(data) = conf.section(Some(section)) {
-            access_key = match data.get("aws_access_key_id") {
-                Some(x) => Ok(x.to_owned()),
-                None => Err(AwsCredsError::from("Missing aws_access_key_id section")),
+        let section = section.unwrap_or("default");
+        let data = conf.section(Some(section)).ok_or(anyhow!("Config missing"))?;
+        let access_key = data.get("aws_access_key_id")
+            .map(|s| s.to_string())
+            .ok_or(anyhow!("Missing aws_access_key_id section"))?;
+        let secret_key = data.get("aws_secret_access_key")
+            .map(|s| s.to_string())
+            .ok_or(anyhow!("Missing aws_secret_access_key section"))?;
+        let credentials = Credentials {
+                access_key: Some(access_key),
+                secret_key: Some(secret_key),
+                security_token: data.get("aws_security_token").map(|s| s.to_string()),
+                session_token: data.get("aws_session_token").map(|s| s.to_string()),
             };
-            secret_key = match data.get("aws_secret_access_key") {
-                Some(x) => Ok(x.to_owned()),
-                None => Err(AwsCredsError::from("Missing aws_secret_access_key section")),
-            };
-            security_token = match data.get("aws_security_token") {
-                Some(x) => Some(x.to_owned()),
-                None => None,
-            };
-            session_token = match data.get("aws_session_token") {
-                Some(x) => Some(x.to_owned()),
-                None => None,
-            }
-        }
-
-        Ok(Credentials {
-            access_key: Some(access_key?),
-            secret_key: Some(secret_key?),
-            security_token,
-            session_token,
-        })
+        return Ok(credentials);
     }
 }
 
 fn from_env_with_default(var: Option<&str>, default: &str) -> Result<String> {
-    if let Some(var) = var {
-        if let Ok(value) = env::var(var) {
-            Ok(value)
-        } else {
-            match env::var(default) {
-                Ok(value) => Ok(value),
-                Err(_) => Err(format!(
-                    "Neither {:?}, nor {} does not exist in the environment",
-                    var, default
-                )
-                .as_str()
-                .into()),
-            }
-        }
-    } else {
-        match env::var(default) {
-            Ok(value) => Ok(value),
-            Err(_) => Err(format!(
-                "Neither {:?}, nor {} does not exist in the environment",
-                var, default
-            )
-            .as_str()
-            .into()),
-        }
-    }
+    let val = var.unwrap_or(default);
+    return env::var(val)
+        .or_else(|_e| env::var(val))
+        .map_err(|_| anyhow!(
+            "Neither {:?}, nor {} does not exist in the environment",
+            var, default
+        ));
 }

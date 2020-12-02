@@ -4,8 +4,6 @@
 #[macro_use]
 extern crate serde_derive;
 
-use serde_xml_rs as serde_xml;
-
 pub use awscreds as creds;
 pub use awsregion as region;
 
@@ -29,16 +27,6 @@ pub mod surf_request;
 pub mod request_trait;
 pub mod utils;
 
-simpl::err!(S3Error, {
-    Xml@serde_xml::Error;
-    HttpHeader@http::header::ToStrError;
-    Hmac@hmac::crypto_mac::InvalidKeyLength;
-    Utf8@std::str::Utf8Error;
-    Io@std::io::Error;
-    Region@awsregion::AwsRegionError;
-    Creds@awscreds::AwsCredsError;
-    UrlParse@url::ParseError;
-});
 
 const LONG_DATE: &str = "%Y%m%dT%H%M%SZ";
 const EMPTY_PAYLOAD_SHA: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";

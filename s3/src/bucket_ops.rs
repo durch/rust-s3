@@ -1,5 +1,6 @@
-use crate::{Bucket, Region, Result};
+use crate::{Bucket, Region};
 use std::collections::HashMap;
+use anyhow::Result;
 
 /// [AWS Documentation](https://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#CannedACL)
 #[allow(dead_code)]

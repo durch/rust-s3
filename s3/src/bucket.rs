@@ -37,7 +37,8 @@ use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, Part, Tagging,
 };
-use crate::{Result, S3Error};
+use anyhow::Result;
+use anyhow::anyhow;
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
@@ -67,13 +68,11 @@ pub struct Bucket {
 
 fn validate_expiry(expiry_secs: u32) -> Result<()> {
     if 604800 < expiry_secs {
-        return Err(S3Error::from(
-            format!(
+        return Err(anyhow!(
                 "Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead",
                 expiry_secs
             )
-            .as_ref(),
-        ));
+        );
     }
     Ok(())
 }
@@ -1135,14 +1134,9 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command);
         let (response, status_code) = request.response_data(false).await?;
-        match serde_xml::from_reader(response.as_slice()) {
-            Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
-            Err(_) => {
-                let mut err = S3Error::from("Could not deserialize result");
-                err.data = Some(String::from_utf8_lossy(response.as_slice()).to_string());
-                Err(err)
-            }
-        }
+        return serde_xml::from_reader(response.as_slice())
+            .map(|list_bucket_result| (list_bucket_result, status_code))
+            .map_err(|e|anyhow!("Could not deserialize result \n {}",e))
     }
 
     /// List the contents of an S3 bucket.
