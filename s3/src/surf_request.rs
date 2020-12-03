@@ -8,30 +8,12 @@ use chrono::{DateTime, Utc};
 
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
-use crate::{Result, S3Error};
+
+use anyhow::Result;
 use maybe_async::maybe_async;
 use surf::http::headers::{HeaderName, HeaderValue};
 use surf::http::Method;
 
-impl std::convert::From<surf::Error> for S3Error {
-    fn from(e: surf::Error) -> S3Error {
-        S3Error {
-            description: Some(format!("{}", e)),
-            data: None,
-            source: None,
-        }
-    }
-}
-
-impl std::convert::From<http::header::InvalidHeaderValue> for S3Error {
-    fn from(e: http::header::InvalidHeaderValue) -> S3Error {
-        S3Error {
-            description: Some(format!("{}", e)),
-            data: None,
-            source: None,
-        }
-    }
-}
 
 // Temporary structure for making a request
 pub struct SurfRequest<'a> {
@@ -65,10 +47,7 @@ impl<'a> Request for SurfRequest<'a> {
 
     async fn response(&self) -> Result<surf::Response> {
         // Build headers
-        let headers = match self.headers() {
-            Ok(headers) => headers,
-            Err(e) => return Err(e),
-        };
+        let headers = self.headers()?;
 
         let request = match self.command.http_verb() {
             HttpMethod::Get => surf::Request::builder(Method::Get, self.url(false)),
@@ -90,9 +69,7 @@ impl<'a> Request for SurfRequest<'a> {
         let response = request.send().await?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-            return Err(S3Error::from(
-                format!("Request failed with code {}", response.status()).as_str(),
-            ));
+            return Err(anyhow!("Request failed with code {}", response.status()).as_str());
         }
 
         Ok(response)
