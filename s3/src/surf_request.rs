@@ -9,11 +9,10 @@ use chrono::{DateTime, Utc};
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use maybe_async::maybe_async;
 use surf::http::headers::{HeaderName, HeaderValue};
 use surf::http::Method;
-
 
 // Temporary structure for making a request
 pub struct SurfRequest<'a> {
@@ -61,15 +60,15 @@ impl<'a> Request for SurfRequest<'a> {
 
         for (name, value) in headers {
             request = request.header(
-                HeaderName::from_bytes(name.as_bytes().to_vec())?,
-                HeaderValue::from_bytes(value.as_bytes().to_vec())?,
+                HeaderName::from_bytes(name.as_bytes().to_vec()).unwrap(),
+                HeaderValue::from_bytes(value.as_bytes().to_vec()).unwrap(),
             );
         }
 
-        let response = request.send().await?;
+        let response = request.send().await.unwrap();
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-            return Err(anyhow!("Request failed with code {}", response.status()).as_str());
+            return Err(anyhow!("Request failed with code {}", response.status()));
         }
 
         Ok(response)
@@ -78,7 +77,7 @@ impl<'a> Request for SurfRequest<'a> {
     async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
         let mut response = self.response().await?;
         let status_code = response.status();
-        let body = response.body_bytes().await?;
+        let body = response.body_bytes().await.unwrap();
         let mut body_vec = Vec::new();
         body_vec.extend_from_slice(&body[..]);
         if etag {
@@ -89,7 +88,7 @@ impl<'a> Request for SurfRequest<'a> {
         Ok((body_vec, status_code.into()))
     }
 
-    async fn response_data_to_writer<'b, T: Write>(&self, writer: &'b mut T) -> Result<u16> {
+    async fn response_data_to_writer<'b, T: Write + Send>(&self, writer: &'b mut T) -> Result<u16> {
         let mut buffer = Vec::new();
 
         let response = self.response().await?;
@@ -137,7 +136,7 @@ mod tests {
     use crate::command::Command;
     use crate::request_trait::Request;
     use crate::surf_request::SurfRequest;
-    use crate::Result;
+    use anyhow::Result;
     use awscreds::Credentials;
 
     // Fake keys - otherwise using Credentials::default will use actual user

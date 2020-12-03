@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
-use anyhow::Result;
 use crate::{bucket::CHUNK_SIZE, serde_types::HeadObjectResult};
+use anyhow::Result;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use async_std::fs::File;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]

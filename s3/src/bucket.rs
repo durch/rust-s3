@@ -37,8 +37,8 @@ use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, Part, Tagging,
 };
-use anyhow::Result;
 use anyhow::anyhow;
+use anyhow::Result;
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
@@ -69,10 +69,9 @@ pub struct Bucket {
 fn validate_expiry(expiry_secs: u32) -> Result<()> {
     if 604800 < expiry_secs {
         return Err(anyhow!(
-                "Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead",
-                expiry_secs
-            )
-        );
+            "Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead",
+            expiry_secs
+        ));
     }
     Ok(())
 }
@@ -236,8 +235,9 @@ impl Bucket {
         name: &str,
         region: Region,
         credentials: Credentials,
-        mut config: BucketConfiguration,
+        config: BucketConfiguration,
     ) -> Result<CreateBucketResponse> {
+        let mut config = config;
         config.set_region(region.clone());
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new_with_path_style(name, region, credentials)?;
@@ -563,7 +563,8 @@ impl Bucket {
         path: impl AsRef<Path>,
         s3_path: impl AsRef<str>,
     ) -> Result<u16> {
-        self._put_object_stream(&mut File::open(path).await?, s3_path.as_ref()).await
+        self._put_object_stream(&mut File::open(path).await?, s3_path.as_ref())
+            .await
     }
 
     #[maybe_async::async_impl]
@@ -1135,7 +1136,7 @@ impl Bucket {
         let (response, status_code) = request.response_data(false).await?;
         return serde_xml::from_reader(response.as_slice())
             .map(|list_bucket_result| (list_bucket_result, status_code))
-            .map_err(|e|anyhow!("Could not deserialize result \n {}",e))
+            .map_err(|e| anyhow!("Could not deserialize result \n {}", e));
     }
 
     /// List the contents of an S3 bucket.
@@ -1289,16 +1290,12 @@ impl Bucket {
 
     /// Get a reference to the AWS security token.
     pub fn security_token(&self) -> Option<&str> {
-        self.credentials
-            .security_token
-            .as_deref()
+        self.credentials.security_token.as_deref()
     }
 
     /// Get a reference to the AWS session token.
     pub fn session_token(&self) -> Option<&str> {
-        self.credentials
-            .session_token
-            .as_deref()
+        self.credentials.session_token.as_deref()
     }
 
     /// Get a reference to the full [`Credentials`](struct.Credentials.html)

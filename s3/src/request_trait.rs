@@ -9,9 +9,9 @@ use crate::bucket::Bucket;
 use crate::bucket::Headers;
 use crate::command::Command;
 use crate::signing;
-use anyhow::Result;
-use anyhow::anyhow;
 use crate::LONG_DATE;
+use anyhow::anyhow;
+use anyhow::Result;
 
 #[maybe_async]
 pub trait Request {
@@ -109,7 +109,8 @@ pub trait Request {
         }
         let canonical_request = self.presigned_canonical_request(&headers)?;
         let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?).map_err(|e| anyhow!{"{}",e})?;
+        let mut hmac =
+            signing::HmacSha256::new_varkey(&self.signing_key()?).map_err(|e| anyhow! {"{}",e})?;
         hmac.update(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         // let signed_header = signing::signed_header_string(&headers);
@@ -180,7 +181,7 @@ pub trait Request {
             self.path()[..].to_string()
         };
 
-        url_str.push_str("/");
+        url_str.push('/');
 
         if encode_path {
             url_str.push_str(&signing::uri_encode(&path, true));
@@ -243,7 +244,8 @@ pub trait Request {
     fn authorization(&self, headers: &Headers) -> Result<String> {
         let canonical_request = self.canonical_request(headers);
         let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?).map_err(|e| anyhow!{"{}",e})?;
+        let mut hmac =
+            signing::HmacSha256::new_varkey(&self.signing_key()?).map_err(|e| anyhow! {"{}",e})?;
         hmac.update(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         let signed_header = signing::signed_header_string(headers);

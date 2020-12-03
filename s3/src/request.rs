@@ -12,11 +12,10 @@ use crate::bucket::Bucket;
 use crate::command::Command;
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
-use anyhow::Result;
 use anyhow::anyhow;
+use anyhow::Result;
 
 use tokio::stream::StreamExt;
-
 
 // Temporary structure for making a request
 pub struct Reqwest<'a> {
@@ -105,13 +104,11 @@ impl<'a> Request for Reqwest<'a> {
         let response = request.send().await?;
 
         if cfg!(feature = "fail-on-err") && response.status().as_u16() >= 400 {
-            return Err(
-                anyhow!(
-                    "Request failed with code {}\n{}",
-                    response.status().as_u16(),
-                    response.text().await?
-                )
-            );
+            return Err(anyhow!(
+                "Request failed with code {}\n{}",
+                response.status().as_u16(),
+                response.text().await?
+            ));
         }
 
         Ok(response)
