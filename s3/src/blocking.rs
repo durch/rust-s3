@@ -11,8 +11,8 @@ use chrono::{DateTime, Utc};
 
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
-use crate::{Result, S3Error};
-
+use anyhow::Result;
+use anyhow::anyhow;
 // static CLIENT: Lazy<Client> = Lazy::new(|| {
 //     if cfg!(feature = "no-verify-ssl") {
 //         Client::builder()
@@ -25,25 +25,6 @@ use crate::{Result, S3Error};
 //     }
 // });
 
-impl std::convert::From<attohttpc::Error> for S3Error {
-    fn from(e: attohttpc::Error) -> S3Error {
-        S3Error {
-            description: Some(format!("{}", e)),
-            data: None,
-            source: None,
-        }
-    }
-}
-
-impl std::convert::From<http::header::InvalidHeaderValue> for S3Error {
-    fn from(e: http::header::InvalidHeaderValue) -> S3Error {
-        S3Error {
-            description: Some(format!("{}", e)),
-            data: None,
-            source: None,
-        }
-    }
-}
 
 // Temporary structure for making a request
 pub struct AttoRequest<'a> {
@@ -98,14 +79,13 @@ impl<'a> Request for AttoRequest<'a> {
         let response = request.bytes(&self.request_body()).send()?;
 
         if cfg!(feature = "fail-on-err") && response.status().as_u16() >= 400 {
-            return Err(S3Error::from(
-                format!(
+            return Err(
+                anyhow!(
                     "Request failed with code {}\n{}",
                     response.status().as_u16(),
                     response.text()?
                 )
-                .as_str(),
-            ));
+            );
         }
 
         Ok(response)

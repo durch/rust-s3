@@ -37,7 +37,8 @@ use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, Part, Tagging,
 };
-use crate::{Result, S3Error};
+use anyhow::Result;
+use anyhow::anyhow;
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
@@ -67,13 +68,11 @@ pub struct Bucket {
 
 fn validate_expiry(expiry_secs: u32) -> Result<()> {
     if 604800 < expiry_secs {
-        return Err(S3Error::from(
-            format!(
+        return Err(anyhow!(
                 "Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead",
                 expiry_secs
             )
-            .as_ref(),
-        ));
+        );
     }
     Ok(())
 }
@@ -153,10 +152,10 @@ impl Bucket {
     /// use s3::{Bucket, BucketConfiguration};
     /// use s3::creds::Credentials;
     /// # use s3::region::Region;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
     /// let credentials = Credentials::default()?;
@@ -206,10 +205,10 @@ impl Bucket {
     /// use s3::{Bucket, BucketConfiguration};
     /// use s3::creds::Credentials;
     /// # use s3::region::Region;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
     /// let credentials = Credentials::default()?;
@@ -258,10 +257,10 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
@@ -396,10 +395,10 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -434,10 +433,10 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -482,11 +481,11 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     /// use std::fs::File;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -510,7 +509,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object_stream<T: std::io::Write, S: AsRef<str>>(
+    pub async fn get_object_stream<T: std::io::Write + Send, S: AsRef<str>>(
         &self,
         path: S,
         writer: &mut T,
@@ -527,12 +526,12 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     /// use std::fs::File;
     /// use std::io::Write;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -564,12 +563,11 @@ impl Bucket {
         path: impl AsRef<Path>,
         s3_path: impl AsRef<str>,
     ) -> Result<u16> {
-        let mut file = File::open(path).await?;
-        self._put_object_stream(&mut file, s3_path.as_ref()).await
+        self._put_object_stream(&mut File::open(path).await?, s3_path.as_ref()).await
     }
 
     #[maybe_async::async_impl]
-    async fn _put_object_stream<R: AsyncRead + Unpin>(
+    async fn _put_object_stream<R: AsyncRead + Unpin + Send>(
         &self,
         reader: &mut R,
         s3_path: &str,
@@ -738,10 +736,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -797,10 +795,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -836,10 +834,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -877,10 +875,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -925,10 +923,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -989,10 +987,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1033,10 +1031,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1072,10 +1070,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1135,14 +1133,9 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command);
         let (response, status_code) = request.response_data(false).await?;
-        match serde_xml::from_reader(response.as_slice()) {
-            Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
-            Err(_) => {
-                let mut err = S3Error::from("Could not deserialize result");
-                err.data = Some(String::from_utf8_lossy(response.as_slice()).to_string());
-                Err(err)
-            }
-        }
+        return serde_xml::from_reader(response.as_slice())
+            .map(|list_bucket_result| (list_bucket_result, status_code))
+            .map_err(|e|anyhow!("Could not deserialize result \n {}",e))
     }
 
     /// List the contents of an S3 bucket.
@@ -1152,10 +1145,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1298,16 +1291,14 @@ impl Bucket {
     pub fn security_token(&self) -> Option<&str> {
         self.credentials
             .security_token
-            .as_ref()
-            .map(std::string::String::as_str)
+            .as_deref()
     }
 
     /// Get a reference to the AWS session token.
     pub fn session_token(&self) -> Option<&str> {
         self.credentials
             .session_token
-            .as_ref()
-            .map(std::string::String::as_str)
+            .as_deref()
     }
 
     /// Get a reference to the full [`Credentials`](struct.Credentials.html)

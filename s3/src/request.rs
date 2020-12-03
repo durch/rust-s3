@@ -12,39 +12,11 @@ use crate::bucket::Bucket;
 use crate::command::Command;
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
-use crate::{Result, S3Error};
+use anyhow::Result;
+use anyhow::anyhow;
 
 use tokio::stream::StreamExt;
 
-impl std::convert::From<reqwest::Error> for S3Error {
-    fn from(e: reqwest::Error) -> S3Error {
-        S3Error {
-            description: Some(format!("{}", e)),
-            data: None,
-            source: None,
-        }
-    }
-}
-
-impl std::convert::From<reqwest::header::InvalidHeaderName> for S3Error {
-    fn from(e: reqwest::header::InvalidHeaderName) -> S3Error {
-        S3Error {
-            description: Some(format!("{}", e)),
-            data: None,
-            source: None,
-        }
-    }
-}
-
-impl std::convert::From<reqwest::header::InvalidHeaderValue> for S3Error {
-    fn from(e: reqwest::header::InvalidHeaderValue) -> S3Error {
-        S3Error {
-            description: Some(format!("{}", e)),
-            data: None,
-            source: None,
-        }
-    }
-}
 
 // Temporary structure for making a request
 pub struct Reqwest<'a> {
@@ -55,7 +27,7 @@ pub struct Reqwest<'a> {
     pub sync: bool,
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<'a> Request for Reqwest<'a> {
     type Response = reqwest::Response;
     type HeaderMap = reqwest::header::HeaderMap;
@@ -133,14 +105,13 @@ impl<'a> Request for Reqwest<'a> {
         let response = request.send().await?;
 
         if cfg!(feature = "fail-on-err") && response.status().as_u16() >= 400 {
-            return Err(S3Error::from(
-                format!(
+            return Err(
+                anyhow!(
                     "Request failed with code {}\n{}",
                     response.status().as_u16(),
                     response.text().await?
                 )
-                .as_str(),
-            ));
+            );
         }
 
         Ok(response)
@@ -162,7 +133,7 @@ impl<'a> Request for Reqwest<'a> {
         Ok((body_vec, status_code))
     }
 
-    async fn response_data_to_writer<'b, T: Write>(&self, writer: &'b mut T) -> Result<u16> {
+    async fn response_data_to_writer<'b, T: Write + Send>(&self, writer: &'b mut T) -> Result<u16> {
         let response = self.response().await?;
 
         let status_code = response.status();
@@ -201,7 +172,7 @@ mod tests {
     use crate::command::Command;
     use crate::request::Reqwest;
     use crate::request_trait::Request;
-    use crate::Result;
+    use anyhow::Result;
     use awscreds::Credentials;
 
     // Fake keys - otherwise using Credentials::default will use actual user

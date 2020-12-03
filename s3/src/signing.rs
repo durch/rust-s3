@@ -12,7 +12,8 @@ use url::Url;
 
 use crate::bucket::Headers;
 use crate::region::Region;
-use crate::Result;
+use anyhow::Result;
+use anyhow::anyhow;
 
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
@@ -150,13 +151,13 @@ pub fn signing_key(
     service: &str,
 ) -> Result<Vec<u8>> {
     let secret = format!("AWS4{}", secret_key);
-    let mut date_hmac = HmacSha256::new_varkey(secret.as_bytes())?;
+    let mut date_hmac = HmacSha256::new_varkey(secret.as_bytes()).map_err(|e| anyhow!{"{}",e})?;
     date_hmac.update(datetime.format(SHORT_DATE).to_string().as_bytes());
-    let mut region_hmac = HmacSha256::new_varkey(&date_hmac.finalize().into_bytes())?;
+    let mut region_hmac = HmacSha256::new_varkey(&date_hmac.finalize().into_bytes()).map_err(|e| anyhow!{"{}",e})?;
     region_hmac.update(region.to_string().as_bytes());
-    let mut service_hmac = HmacSha256::new_varkey(&region_hmac.finalize().into_bytes())?;
+    let mut service_hmac = HmacSha256::new_varkey(&region_hmac.finalize().into_bytes()).map_err(|e| anyhow!{"{}",e})?;
     service_hmac.update(service.as_bytes());
-    let mut signing_hmac = HmacSha256::new_varkey(&service_hmac.finalize().into_bytes())?;
+    let mut signing_hmac = HmacSha256::new_varkey(&service_hmac.finalize().into_bytes()).map_err(|e| anyhow!{"{}",e})?;
     signing_hmac.update(b"aws4_request");
     Ok(signing_hmac.finalize().into_bytes().to_vec())
 }
