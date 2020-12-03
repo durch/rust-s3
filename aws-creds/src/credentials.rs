@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
+use anyhow::anyhow;
+use anyhow::Result;
 use ini::Ini;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::env;
 use url::Url;
-use anyhow::Result;
-use anyhow::anyhow;
 
 /// AWS access credentials: access key, secret key, and optional token.
 ///
@@ -193,14 +193,13 @@ impl Credentials {
                 secret_key: secret_key.map(|s| s.to_string()),
                 security_token: security_token.map(|s| s.to_string()),
                 session_token: session_token.map(|s| s.to_string()),
-            })
+            });
         }
 
-        let credentials = Credentials::from_sts_env("aws-creds")
-        .or(Credentials::from_env())
-        .or(Credentials::from_profile(profile))
-        .or(Credentials::from_instance_metadata());
-        return credentials;
+        Credentials::from_sts_env("aws-creds")
+            .or_else(|_| Credentials::from_env())
+            .or_else(|_| Credentials::from_profile(profile))
+            .or_else(|_| Credentials::from_instance_metadata())
     }
 
     pub fn from_env_specific(
@@ -279,34 +278,38 @@ impl Credentials {
     }
 
     pub fn from_profile(section: Option<&str>) -> Result<Credentials> {
-        let home_dir = dirs::home_dir().ok_or(anyhow!("Invalid home dir"))?;
+        let home_dir = dirs::home_dir().ok_or_else(|| anyhow!("Invalid home dir"))?;
         let profile = format!("{}/.aws/credentials", home_dir.display());
         let conf = Ini::load_from_file(&profile)?;
         let section = section.unwrap_or("default");
-        let data = conf.section(Some(section)).ok_or(anyhow!("Config missing"))?;
-        let access_key = data.get("aws_access_key_id")
+        let data = conf
+            .section(Some(section))
+            .ok_or_else(|| anyhow!("Config missing"))?;
+        let access_key = data
+            .get("aws_access_key_id")
             .map(|s| s.to_string())
-            .ok_or(anyhow!("Missing aws_access_key_id section"))?;
-        let secret_key = data.get("aws_secret_access_key")
+            .ok_or_else(|| anyhow!("Missing aws_access_key_id section"))?;
+        let secret_key = data
+            .get("aws_secret_access_key")
             .map(|s| s.to_string())
-            .ok_or(anyhow!("Missing aws_secret_access_key section"))?;
+            .ok_or_else(|| anyhow!("Missing aws_secret_access_key section"))?;
         let credentials = Credentials {
-                access_key: Some(access_key),
-                secret_key: Some(secret_key),
-                security_token: data.get("aws_security_token").map(|s| s.to_string()),
-                session_token: data.get("aws_session_token").map(|s| s.to_string()),
-            };
-        return Ok(credentials);
+            access_key: Some(access_key),
+            secret_key: Some(secret_key),
+            security_token: data.get("aws_security_token").map(|s| s.to_string()),
+            session_token: data.get("aws_session_token").map(|s| s.to_string()),
+        };
+        Ok(credentials)
     }
 }
 
 fn from_env_with_default(var: Option<&str>, default: &str) -> Result<String> {
     let val = var.unwrap_or(default);
-    return env::var(val)
-        .or_else(|_e| env::var(val))
-        .map_err(|_| anyhow!(
+    env::var(val).or_else(|_e| env::var(val)).map_err(|_| {
+        anyhow!(
             "Neither {:?}, nor {} does not exist in the environment",
-            var, default
-        ));
+            var,
+            default
+        )
+    })
 }
-

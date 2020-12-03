@@ -9,8 +9,8 @@ pub use credentials::*;
 
 #[cfg(test)]
 mod test {
-    use std::env;
     use crate::Credentials;
+    use std::env;
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
