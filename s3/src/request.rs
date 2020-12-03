@@ -27,7 +27,7 @@ pub struct Reqwest<'a> {
     pub sync: bool,
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<'a> Request for Reqwest<'a> {
     type Response = reqwest::Response;
     type HeaderMap = reqwest::header::HeaderMap;
@@ -133,7 +133,7 @@ impl<'a> Request for Reqwest<'a> {
         Ok((body_vec, status_code))
     }
 
-    async fn response_data_to_writer<'b, T: Write>(&self, writer: &'b mut T) -> Result<u16> {
+    async fn response_data_to_writer<'b, T: Write + Send>(&self, writer: &'b mut T) -> Result<u16> {
         let response = self.response().await?;
 
         let status_code = response.status();

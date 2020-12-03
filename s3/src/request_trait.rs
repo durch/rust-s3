@@ -13,14 +13,14 @@ use anyhow::Result;
 use anyhow::anyhow;
 use crate::LONG_DATE;
 
-#[maybe_async(?Send)]
+#[maybe_async]
 pub trait Request {
     type Response;
     type HeaderMap;
 
     async fn response(&self) -> Result<Self::Response>;
     async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)>;
-    async fn response_data_to_writer<'b, T: Write>(&self, writer: &'b mut T) -> Result<u16>;
+    async fn response_data_to_writer<'b, T: Write + Send>(&self, writer: &'b mut T) -> Result<u16>;
     async fn response_header(&self) -> Result<(Self::HeaderMap, u16)>;
     fn datetime(&self) -> DateTime<Utc>;
     fn bucket(&self) -> Bucket;

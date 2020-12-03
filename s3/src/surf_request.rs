@@ -24,7 +24,7 @@ pub struct SurfRequest<'a> {
     pub sync: bool,
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<'a> Request for SurfRequest<'a> {
     type Response = surf::Response;
     type HeaderMap = HashMap<String, String>;

@@ -509,7 +509,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object_stream<T: std::io::Write, S: AsRef<str>>(
+    pub async fn get_object_stream<T: std::io::Write + Send, S: AsRef<str>>(
         &self,
         path: S,
         writer: &mut T,
@@ -563,12 +563,11 @@ impl Bucket {
         path: impl AsRef<Path>,
         s3_path: impl AsRef<str>,
     ) -> Result<u16> {
-        let mut file = File::open(path).await?;
-        self._put_object_stream(&mut file, s3_path.as_ref()).await
+        self._put_object_stream(&mut File::open(path).await?, s3_path.as_ref()).await
     }
 
     #[maybe_async::async_impl]
-    async fn _put_object_stream<R: AsyncRead + Unpin>(
+    async fn _put_object_stream<R: AsyncRead + Unpin + Send>(
         &self,
         reader: &mut R,
         s3_path: &str,
