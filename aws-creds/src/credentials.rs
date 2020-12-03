@@ -187,23 +187,19 @@ impl Credentials {
         session_token: Option<&str>,
         profile: Option<&str>,
     ) -> Result<Credentials> {
-        if let Ok(c) = Credentials::from_sts_env("aws-creds") {
-            return Ok(c);
+        if access_key.is_some() {
+            return Ok(Credentials {
+                access_key: access_key.map(|s| s.to_string()),
+                secret_key: secret_key.map(|s| s.to_string()),
+                security_token: security_token.map(|s| s.to_string()),
+                session_token: session_token.map(|s| s.to_string()),
+            })
         }
-        let access_key = access_key.map(|s| s.to_string());
-        let secret_key = secret_key.map(|s| s.to_string());
-        let security_token = security_token.map(|s| s.to_string());
-        let session_token = session_token.map(|s| s.to_string());
 
-        let credentials = access_key.map(|access_key| Credentials {
-            access_key: Some(access_key),
-            secret_key,
-            security_token,
-            session_token,
-        }).or(Credentials::from_env().ok())
-        .or(Credentials::from_profile(profile).ok())
-        .or(Credentials::from_instance_metadata().ok())
-        .ok_or(anyhow!("No credentials provided as arguments, in the environment or in the profile file."));
+        let credentials = Credentials::from_sts_env("aws-creds")
+        .or(Credentials::from_env())
+        .or(Credentials::from_profile(profile))
+        .or(Credentials::from_instance_metadata());
         return credentials;
     }
 
