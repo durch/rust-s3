@@ -1291,16 +1291,14 @@ impl Bucket {
     pub fn security_token(&self) -> Option<&str> {
         self.credentials
             .security_token
-            .as_ref()
-            .map(std::string::String::as_str)
+            .as_deref()
     }
 
     /// Get a reference to the AWS session token.
     pub fn session_token(&self) -> Option<&str> {
         self.credentials
             .session_token
-            .as_ref()
-            .map(std::string::String::as_str)
+            .as_deref()
     }
 
     /// Get a reference to the full [`Credentials`](struct.Credentials.html)
