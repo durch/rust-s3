@@ -1547,7 +1547,7 @@ mod test {
         )
     )]
     async fn gc_test_put_head_get_delete_object() {
-        let s3_path = "/test.file";
+        let s3_path = "/tes+t.file";
         let bucket = test_gc_bucket();
         let test: Vec<u8> = object(3072);
 
@@ -1588,7 +1588,7 @@ mod test {
         )
     )]
     async fn wasabi_test_put_head_get_delete_object() {
-        let s3_path = "/test.file";
+        let s3_path = "/+test.file";
         let bucket = test_wasabi_bucket();
         let test: Vec<u8> = object(3072);
 
