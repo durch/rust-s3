@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::mem;
 
 use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
-use crate::command::Command;
+use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
 
@@ -574,11 +574,12 @@ impl Bucket {
         s3_path: &str,
     ) -> Result<u16> {
         let command = Command::InitiateMultipartUpload;
-        let path = format!("{}?uploads", s3_path);
-        let request = RequestImpl::new(self, &path, command);
+        let request = RequestImpl::new(self, &s3_path, command);
         let (data, code) = request.response_data(false).await?;
         let msg: InitiateMultipartUploadResponse =
             serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+        let path = msg.key;
+        let upload_id = &msg.upload_id;
 
         let mut part_number: u32 = 0;
         let mut etags = Vec::new();
@@ -588,11 +589,8 @@ impl Bucket {
             if chunk.len() < CHUNK_SIZE {
                 if part_number == 0 {
                     // Files is not big enough for multipart upload, going with regular put_object
-                    let abort = Command::AbortMultipartUpload {
-                        upload_id: &msg.upload_id,
-                    };
-                    let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let abort_request = RequestImpl::new(self, &abort_path, abort);
+                    let abort = Command::AbortMultipartUpload { upload_id };
+                    let abort_request = RequestImpl::new(self, &path, abort);
                     let (_, _code) = abort_request.response_data(false).await?;
                     self.put_object(s3_path, chunk.as_slice()).await?;
                     break;
@@ -601,12 +599,9 @@ impl Bucket {
                     let command = Command::PutObject {
                         // part_number,
                         content: &chunk,
-                        content_type: "application/octet-stream", // upload_id: &msg.upload_id,
+                        content_type: "application/octet-stream",
+                        multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
                     };
-                    let path = format!(
-                        "{}?partNumber={}&uploadId={}",
-                        msg.key, part_number, &msg.upload_id
-                    );
                     let request = RequestImpl::new(self, &path, command);
                     let (data, _code) = request.response_data(true).await?;
                     let etag = std::str::from_utf8(data.as_slice())?;
@@ -625,8 +620,7 @@ impl Bucket {
                         upload_id: &msg.upload_id,
                         data,
                     };
-                    let complete_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let complete_request = RequestImpl::new(self, &complete_path, complete);
+                    let complete_request = RequestImpl::new(self, &path, complete);
                     let (_data, _code) = complete_request.response_data(false).await?;
                     // let response = std::str::from_utf8(data.as_slice())?;
                     break;
@@ -636,12 +630,9 @@ impl Bucket {
                 let command = Command::PutObject {
                     // part_number,
                     content: &chunk,
-                    content_type: "application/octet-stream", // upload_id: &msg.upload_id,
+                    content_type: "application/octet-stream",
+                    multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
                 };
-                let path = format!(
-                    "{}?partNumber={}&uploadId={}",
-                    msg.key, part_number, &msg.upload_id
-                );
                 let request = RequestImpl::new(self, &path, command);
                 let (data, _code) = request.response_data(true).await?;
                 let etag = std::str::from_utf8(data.as_slice())?;
@@ -654,11 +645,13 @@ impl Bucket {
     #[maybe_async::sync_impl]
     fn _put_object_stream<R: Read>(&self, reader: &mut R, s3_path: &str) -> Result<u16> {
         let command = Command::InitiateMultipartUpload;
-        let path = format!("{}?uploads", s3_path);
-        let request = RequestImpl::new(self, &path, command);
+        let request = RequestImpl::new(self, &s3_path, command);
         let (data, code) = request.response_data(false)?;
         let msg: InitiateMultipartUploadResponse =
             serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+
+        let path = msg.key;
+        let upload_id = &msg.upload_id;
 
         let mut part_number: u32 = 0;
         let mut etags = Vec::new();
@@ -671,8 +664,7 @@ impl Bucket {
                     let abort = Command::AbortMultipartUpload {
                         upload_id: &msg.upload_id,
                     };
-                    let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let abort_request = RequestImpl::new(self, &abort_path, abort);
+                    let abort_request = RequestImpl::new(self, &path, abort);
                     let (_, _code) = abort_request.response_data(false)?;
                     self.put_object(s3_path, chunk.as_slice())?;
                     break;
@@ -681,12 +673,9 @@ impl Bucket {
                     let command = Command::PutObject {
                         // part_number,
                         content: &chunk,
-                        content_type: "application/octet-stream", // upload_id: &msg.upload_id,
+                        content_type: "application/octet-stream",
+                        multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
                     };
-                    let path = format!(
-                        "{}?partNumber={}&uploadId={}",
-                        msg.key, part_number, &msg.upload_id
-                    );
                     let request = RequestImpl::new(self, &path, command);
                     let (data, _code) = request.response_data(true)?;
                     let etag = std::str::from_utf8(data.as_slice())?;
@@ -704,8 +693,7 @@ impl Bucket {
                         upload_id: &msg.upload_id,
                         data,
                     };
-                    let complete_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let complete_request = RequestImpl::new(self, &complete_path, complete);
+                    let complete_request = RequestImpl::new(self, &path, complete);
                     let (_data, _code) = complete_request.response_data(false)?;
                     // let response = std::str::from_utf8(data.as_slice())?;
                     break;
@@ -713,14 +701,10 @@ impl Bucket {
             } else {
                 part_number += 1;
                 let command = Command::PutObject {
-                    // part_number,
                     content: &chunk,
-                    content_type: "application/octet-stream", // upload_id: &msg.upload_id,
+                    content_type: "application/octet-stream",
+                    multipart: Some(Multipart::new(part_number, upload_id)),
                 };
-                let path = format!(
-                    "{}?partNumber={}&uploadId={}",
-                    msg.key, part_number, &msg.upload_id
-                );
                 let request = RequestImpl::new(self, &path, command);
                 let (data, _code) = request.response_data(true)?;
                 let etag = std::str::from_utf8(data.as_slice())?;
@@ -912,6 +896,7 @@ impl Bucket {
         let command = Command::PutObject {
             content,
             content_type,
+            multipart: None,
         };
         let request = RequestImpl::new(self, path.as_ref(), command);
         Ok(request.response_data(true).await?)
@@ -1449,7 +1434,7 @@ mod test {
     )]
     async fn streaming_test_put_get_delete_big_object() {
         init();
-        let path = "stream_test_big";
+        let path = "+stream_test_big";
         std::fs::remove_file(path).unwrap_or_else(|_| {});
         let bucket = test_aws_bucket();
         let test: Vec<u8> = object(10_000_000);
@@ -1457,19 +1442,13 @@ mod test {
         let mut file = File::create(path).unwrap();
         file.write_all(&test).unwrap();
 
-        let code = bucket
-            .put_object_stream(path, "/stream_test_big.file")
-            .await
-            .unwrap();
+        let code = bucket.put_object_stream(path, path).await.unwrap();
         assert_eq!(code, 200);
         let mut writer = Vec::new();
-        let code = bucket
-            .get_object_stream("/stream_test_big.file", &mut writer)
-            .await
-            .unwrap();
+        let code = bucket.get_object_stream(path, &mut writer).await.unwrap();
         assert_eq!(code, 200);
         assert_eq!(test, writer);
-        let (_, code) = bucket.delete_object("/stream_test_big.file").await.unwrap();
+        let (_, code) = bucket.delete_object(path).await.unwrap();
         assert_eq!(code, 204);
         std::fs::remove_file(path).unwrap_or_else(|_| {});
     }

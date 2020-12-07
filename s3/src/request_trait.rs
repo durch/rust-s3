@@ -154,7 +154,7 @@ pub trait Request {
         };
         let url = Url::parse(&format!(
             "{}{}",
-            self.url(true),
+            self.url(),
             &signing::authorization_query_params_no_sig(
                 &self.bucket().access_key().unwrap(),
                 &self.datetime(),
@@ -168,7 +168,7 @@ pub trait Request {
         Ok(url)
     }
 
-    fn url(&self, encode_path: bool) -> Url {
+    fn url(&self) -> Url {
         let mut url_str = self.bucket().url();
 
         if let Command::CreateBucket { .. } = self.command() {
@@ -183,10 +183,23 @@ pub trait Request {
 
         url_str.push('/');
 
-        if encode_path {
-            url_str.push_str(&signing::uri_encode(&path, true));
-        } else {
-            url_str.push_str(&path);
+        url_str.push_str(&signing::uri_encode(&path, true));
+
+        // Append to url_path
+        match self.command() {
+            Command::InitiateMultipartUpload => url_str.push_str("?uploads"),
+            Command::AbortMultipartUpload { upload_id } => {
+                url_str.push_str(&format!("?uploadId={}", upload_id))
+            }
+            Command::CompleteMultipartUpload { upload_id, .. } => {
+                url_str.push_str(&format!("?uploadId={}", upload_id))
+            }
+            Command::PutObject { multipart, .. } => {
+                if let Some(multipart) = multipart {
+                    url_str.push_str(&multipart.query_string())
+                }
+            }
+            _ => {}
         }
 
         // Since every part of this URL is either pre-encoded or statically
@@ -196,6 +209,8 @@ pub trait Request {
         for (key, value) in &self.bucket().extra_query {
             url.query_pairs_mut().append_pair(key, value);
         }
+
+        // println!("{}", url_str);
 
         if let Command::ListBucket {
             prefix,
@@ -235,7 +250,7 @@ pub trait Request {
     fn canonical_request(&self, headers: &Headers) -> String {
         signing::canonical_request(
             &self.command().http_verb().to_string(),
-            &self.url(false),
+            &self.url(),
             headers,
             &self.command().sha256(),
         )

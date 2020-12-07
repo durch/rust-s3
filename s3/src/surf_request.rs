@@ -49,11 +49,11 @@ impl<'a> Request for SurfRequest<'a> {
         let headers = self.headers()?;
 
         let request = match self.command.http_verb() {
-            HttpMethod::Get => surf::Request::builder(Method::Get, self.url(false)),
-            HttpMethod::Delete => surf::Request::builder(Method::Delete, self.url(false)),
-            HttpMethod::Put => surf::Request::builder(Method::Put, self.url(false)),
-            HttpMethod::Post => surf::Request::builder(Method::Post, self.url(false)),
-            HttpMethod::Head => surf::Request::builder(Method::Head, self.url(false)),
+            HttpMethod::Get => surf::Request::builder(Method::Get, self.url()),
+            HttpMethod::Delete => surf::Request::builder(Method::Delete, self.url()),
+            HttpMethod::Put => surf::Request::builder(Method::Put, self.url()),
+            HttpMethod::Post => surf::Request::builder(Method::Post, self.url()),
+            HttpMethod::Head => surf::Request::builder(Method::Head, self.url()),
         };
 
         let mut request = request.body(self.request_body());
@@ -154,7 +154,7 @@ mod tests {
         let path = "/my-first/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url(false).scheme(), "https");
+        assert_eq!(request.url().scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -170,7 +170,7 @@ mod tests {
         let path = "/my-first/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url(false).scheme(), "https");
+        assert_eq!(request.url().scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -186,7 +186,7 @@ mod tests {
         let path = "/my-second/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url(false).scheme(), "http");
+        assert_eq!(request.url().scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -201,7 +201,7 @@ mod tests {
         let path = "/my-second/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url(false).scheme(), "http");
+        assert_eq!(request.url().scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
