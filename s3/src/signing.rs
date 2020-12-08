@@ -257,6 +257,13 @@ mod tests {
     }
 
     #[test]
+    fn test_path_slash_encode() {
+        let url = Url::parse("http://s3.amazonaws.com/bucket/Folder (xx)%=/Filename (xx)%=").unwrap();
+        let canonical = canonical_uri_string(&url);
+        assert_eq!("/bucket/Folder%20%28xx%29%25%3D/Filename%20%28xx%29%25%3D", canonical);
+    }
+
+    #[test]
     fn test_query_string_encode() {
         let url = Url::parse(
             "http://s3.amazonaws.com/examplebucket?\
