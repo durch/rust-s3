@@ -10,6 +10,7 @@ use crate::command::HttpMethod;
 use crate::request_trait::Request;
 
 use anyhow::{anyhow, Result};
+use http::HeaderMap;
 use maybe_async::maybe_async;
 use surf::http::headers::{HeaderName, HeaderValue};
 use surf::http::Method;
@@ -26,7 +27,7 @@ pub struct SurfRequest<'a> {
 #[maybe_async]
 impl<'a> Request for SurfRequest<'a> {
     type Response = surf::Response;
-    type HeaderMap = HashMap<String, String>;
+    type HeaderMap = HeaderMap;
 
     fn datetime(&self) -> DateTime<Utc> {
         self.datetime
@@ -104,8 +105,8 @@ impl<'a> Request for SurfRequest<'a> {
         Ok(status_code.into())
     }
 
-    async fn response_header(&self) -> Result<(HashMap<String, String>, u16)> {
-        let mut header_map = HashMap::new();
+    async fn response_header(&self) -> Result<(HeaderMap, u16)> {
+        let mut header_map = HeaderMap::new();
         let response = self.response().await?;
         let status_code = response.status();
         for (name, value) in response.iter() {

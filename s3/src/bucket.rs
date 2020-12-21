@@ -8,8 +8,8 @@ use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
 use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
+use std::str::FromStr;
 
-pub type Headers = HashMap<String, String>;
 pub type Query = HashMap<String, String>;
 
 #[cfg(feature = "with-tokio")]
@@ -39,6 +39,8 @@ use crate::serde_types::{
 };
 use anyhow::anyhow;
 use anyhow::Result;
+use http::header::HeaderName;
+use http::HeaderMap;
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
@@ -61,7 +63,7 @@ pub struct Bucket {
     pub name: String,
     pub region: Region,
     pub credentials: Credentials,
-    pub extra_headers: Headers,
+    pub extra_headers: HeaderMap,
     pub extra_query: Query,
     path_style: bool,
 }
@@ -111,7 +113,8 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use std::collections::HashMap;
+    /// use http::HeaderMap;
+    /// use http::header::HeaderName;
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
@@ -119,10 +122,10 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// // Add optional custom headers
-    /// let mut custom_headers = HashMap::new();
+    /// let mut custom_headers = HeaderMap::new();
     /// custom_headers.insert(
-    ///    "custom_header".to_string(),
-    ///    "custom_value".to_string(),
+    ///    HeaderName::from_static("custom_header"),
+    ///    "custom_value".parse().unwrap(),
     /// );
     ///
     /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers)).unwrap();
@@ -132,7 +135,7 @@ impl Bucket {
         &self,
         path: S,
         expiry_secs: u32,
-        custom_headers: Option<Headers>,
+        custom_headers: Option<HeaderMap>,
     ) -> Result<String> {
         validate_expiry(expiry_secs)?;
         let request = RequestImpl::new(
@@ -308,7 +311,7 @@ impl Bucket {
             name: name.into(),
             region,
             credentials,
-            extra_headers: HashMap::new(),
+            extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: false,
         })
@@ -331,7 +334,7 @@ impl Bucket {
             name: name.into(),
             region,
             credentials: Credentials::anonymous()?,
-            extra_headers: HashMap::new(),
+            extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: false,
         })
@@ -359,7 +362,7 @@ impl Bucket {
             name: name.into(),
             region,
             credentials,
-            extra_headers: HashMap::new(),
+            extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: true,
         })
@@ -382,7 +385,7 @@ impl Bucket {
             name: name.into(),
             region,
             credentials: Credentials::anonymous()?,
-            extra_headers: HashMap::new(),
+            extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: true,
         })
@@ -1308,17 +1311,18 @@ impl Bucket {
     ///   * X-Amz-Content-Sha256
     ///   * X-Amz-Date
     pub fn add_header(&mut self, key: &str, value: &str) {
-        self.extra_headers.insert(key.into(), value.into());
+        self.extra_headers
+            .insert(HeaderName::from_str(key).unwrap(), value.parse().unwrap());
     }
 
     /// Get a reference to the extra headers to be passed to the S3 API.
-    pub fn extra_headers(&self) -> &Headers {
+    pub fn extra_headers(&self) -> &HeaderMap {
         &self.extra_headers
     }
 
     /// Get a mutable reference to the extra headers to be passed to the S3
     /// API.
-    pub fn extra_headers_mut(&mut self) -> &mut Headers {
+    pub fn extra_headers_mut(&mut self) -> &mut HeaderMap {
         &mut self.extra_headers
     }
 
@@ -1346,7 +1350,8 @@ mod test {
     use crate::region::Region;
     use crate::Bucket;
     use crate::BucketConfiguration;
-    use std::collections::HashMap;
+    use http::header::HeaderName;
+    use http::HeaderMap;
     use std::env;
     use std::fs::File;
     use std::io::prelude::*;
@@ -1625,8 +1630,11 @@ mod test {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
 
-        let mut custom_headers = HashMap::new();
-        custom_headers.insert("custom_header".to_string(), "custom_value".to_string());
+        let mut custom_headers = HeaderMap::new();
+        custom_headers.insert(
+            HeaderName::from_static("custom_header"),
+            "custom_value".parse().unwrap(),
+        );
 
         let url = bucket
             .presign_put(s3_path, 86400, Some(custom_headers))

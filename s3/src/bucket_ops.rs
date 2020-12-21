@@ -1,6 +1,5 @@
 use crate::{Bucket, Region};
 use anyhow::Result;
-use std::collections::HashMap;
 
 /// [AWS Documentation](https://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#CannedACL)
 #[allow(dead_code)]
@@ -12,6 +11,8 @@ enum CannedBucketAcl {
     AuthenticatedRead,
 }
 
+use http::header::HeaderName;
+use http::HeaderMap;
 use std::fmt;
 
 impl fmt::Display for CannedBucketAcl {
@@ -118,28 +119,46 @@ impl BucketConfiguration {
         }
     }
 
-    pub fn add_headers(&self, headers: &mut HashMap<String, String>) -> Result<()> {
-        headers.insert("x-amz-acl".to_string(), self.acl.to_string());
+    pub fn add_headers(&self, headers: &mut HeaderMap) -> Result<()> {
+        headers.insert(
+            HeaderName::from_static("x-amz-acl"),
+            self.acl.to_string().parse().unwrap(),
+        );
         if self.object_lock_enabled {
             headers.insert(
-                "x-amz-bucket-object-lock-enabled".to_string(),
-                "Enabled".to_string(),
+                HeaderName::from_static("x-amz-bucket-object-lock-enabled"),
+                "Enabled".to_string().parse().unwrap(),
             );
         }
         if let Some(ref value) = self.grant_full_control {
-            headers.insert("x-amz-grant-full-control".to_string(), acl_list(value));
+            headers.insert(
+                HeaderName::from_static("x-amz-grant-full-control"),
+                acl_list(value).parse().unwrap(),
+            );
         }
         if let Some(ref value) = self.grant_read {
-            headers.insert("x-amz-grant-read".to_string(), acl_list(value));
+            headers.insert(
+                HeaderName::from_static("x-amz-grant-read"),
+                acl_list(value).parse().unwrap(),
+            );
         }
         if let Some(ref value) = self.grant_read_acp {
-            headers.insert("x-amz-grant-read-acp".to_string(), acl_list(value));
+            headers.insert(
+                HeaderName::from_static("x-amz-grant-read-acp"),
+                acl_list(value).parse().unwrap(),
+            );
         }
         if let Some(ref value) = self.grant_write {
-            headers.insert("x-amz-grant-write".to_string(), acl_list(value));
+            headers.insert(
+                HeaderName::from_static("x-amz-grant-write"),
+                acl_list(value).parse().unwrap(),
+            );
         }
         if let Some(ref value) = self.grant_write_acp {
-            headers.insert("x-amz-grant-write-acp".to_string(), acl_list(value));
+            headers.insert(
+                HeaderName::from_static("x-amz-grant-write-acp"),
+                acl_list(value).parse().unwrap(),
+            );
         }
         Ok(())
     }
