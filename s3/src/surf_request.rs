@@ -111,7 +111,10 @@ impl<'a> Request for SurfRequest<'a> {
 
         for (name, value) in response.iter() {
             header_map.insert(
-                http::header::HeaderName::from_lowercase(name.to_string().to_ascii_lowercase().as_ref()).unwrap(),
+                http::header::HeaderName::from_lowercase(
+                    name.to_string().to_ascii_lowercase().as_ref(),
+                )
+                .unwrap(),
                 value.as_str().parse().unwrap(),
             );
         }
