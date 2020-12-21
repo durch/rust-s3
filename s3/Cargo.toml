@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.27.0-beta5"
+version = "0.27.0-beta6"
 authors = ["Drazen Urch"]
 description = "Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -52,13 +52,13 @@ block_on_proc = { version = "0.1", optional = true }
 with-tokio = ["reqwest", "tokio", "futures", "async-std"]
 with-async-std = ["async-std", "surf", "futures"]
 sync = ["attohttpc", "maybe-async/is_sync"]
-default = ["tokio-native-tls", "with-tokio"]
+default = ["tokio-native-tls"]
 no-verify-ssl = []
 fail-on-err = []
-tokio-native-tls = ["reqwest/native-tls", "aws-creds/native-tls"]
-tokio-rustls-tls = ["reqwest/rustls-tls", "aws-creds/rustls-tls"]
-sync-native-tls = ["aws-creds/native-tls", "attohttpc/tls"]
-sync-rustls-tls = ["aws-creds/rustls-tls", "attohttpc/tls-rustls"]
+tokio-native-tls = ["with-tokio", "reqwest/native-tls", "aws-creds/native-tls"]
+tokio-rustls-tls = ["with-tokio", "reqwest/rustls-tls", "aws-creds/rustls-tls"]
+sync-native-tls = ["sync", "aws-creds/native-tls", "attohttpc/tls"]
+sync-rustls-tls = ["sync", "aws-creds/rustls-tls", "attohttpc/tls-rustls"]
 blocking = ["block_on_proc"]
 
 [dev-dependencies]
