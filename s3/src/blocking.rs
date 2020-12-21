@@ -63,8 +63,8 @@ impl<'a> Request for AttoRequest<'a> {
 
         let mut session = attohttpc::Session::new();
 
-        for (name, value) in headers {
-            session.header(HeaderName::from_bytes(name.as_bytes()).unwrap(), value);
+        for (name, value) in headers.iter() {
+            session.header(HeaderName::from_bytes(name.as_ref()).unwrap(), value);
         }
 
         let request = match self.command.http_verb() {
