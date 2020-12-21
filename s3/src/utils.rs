@@ -8,7 +8,7 @@ use async_std::fs::File;
 use async_std::path::Path;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use futures::io::{AsyncRead, AsyncReadExt};
-use std::collections::HashMap;
+
 #[cfg(feature = "sync")]
 use std::fs::File;
 #[cfg(feature = "sync")]
@@ -112,19 +112,6 @@ impl GetAndConvertHeaders for http::header::HeaderMap {
     }
 }
 
-impl GetAndConvertHeaders for HashMap<String, String> {
-    fn get_and_convert<T: FromStr>(&self, header: &str) -> Option<T> {
-        if let Some(header) = self.get(header) {
-            header.clone().parse::<T>().ok()
-        } else {
-            None
-        }
-    }
-    fn get_string(&self, header: &str) -> Option<String> {
-        self.get(header).cloned()
-    }
-}
-
 impl From<&http::HeaderMap> for HeadObjectResult {
     fn from(headers: &http::HeaderMap) -> Self {
         let mut result = HeadObjectResult::default();
@@ -165,53 +152,6 @@ impl From<&http::HeaderMap> for HeadObjectResult {
             headers.get_string("x-amz-server-side-encryption-customer-algorithm");
         result.sse_customer_key_md5 =
             headers.get_string("x-amz-server-side-encryption-customer-key-MD5");
-        result.ssekms_key_id = headers.get_string("x-amz-server-side-encryption-aws-kms-key-id");
-        result.server_side_encryption = headers.get_string("x-amz-server-side-encryption");
-        result.storage_class = headers.get_string("x-amz-storage-class");
-        result.version_id = headers.get_string("x-amz-version-id");
-        result.website_redirect_location = headers.get_string("x-amz-website-redirect-location");
-        result
-    }
-}
-// Assumes all keys are lowercase
-impl From<&HashMap<String, String>> for HeadObjectResult {
-    fn from(headers: &HashMap<String, String>) -> Self {
-        let mut result = HeadObjectResult::default();
-        result.accept_ranges = headers.get_string("accept-ranges");
-        result.cache_control = headers.get_string("cache-control");
-        result.content_disposition = headers.get_string("content-cisposition");
-        result.content_encoding = headers.get_string("content-encoding");
-        result.content_language = headers.get_string("content-language");
-        result.content_length = headers.get_and_convert("content-length");
-        result.content_type = headers.get_string("content-type");
-        result.delete_marker = headers.get_and_convert("x-amz-delete-marker");
-        result.e_tag = headers.get_string("etag");
-        result.expiration = headers.get_string("x-amz-expiration");
-        result.expires = headers.get_string("expires");
-        result.last_modified = headers.get_string("last-modified");
-        let mut values = ::std::collections::HashMap::new();
-        for (key, value) in headers.iter() {
-            if key.as_str().starts_with("x-amz-meta-") {
-                values.insert(
-                    key.as_str()["x-amz-meta-".len()..].to_owned(),
-                    value.to_owned(),
-                );
-            }
-        }
-        result.metadata = Some(values);
-        result.missing_meta = headers.get_and_convert("x-amz-missing-meta");
-        result.object_lock_legal_hold_status = headers.get_string("x-amz-object-lock-legal-hold");
-        result.object_lock_mode = headers.get_string("x-amz-object-lock-mode");
-        result.object_lock_retain_until_date =
-            headers.get_string("x-amz-object-lock-retain-until-date");
-        result.parts_count = headers.get_and_convert("x-amz-mp-parts-count");
-        result.replication_status = headers.get_string("x-amz-replication-status");
-        result.request_charged = headers.get_string("x-amz-request-charged");
-        result.restore = headers.get_string("x-amz-restore");
-        result.sse_customer_algorithm =
-            headers.get_string("x-amz-server-side-encryption-customer-algorithm");
-        result.sse_customer_key_md5 =
-            headers.get_string("x-amz-server-side-encryption-customer-key-md5");
         result.ssekms_key_id = headers.get_string("x-amz-server-side-encryption-aws-kms-key-id");
         result.server_side_encryption = headers.get_string("x-amz-server-side-encryption");
         result.storage_class = headers.get_string("x-amz-storage-class");

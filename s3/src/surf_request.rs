@@ -1,5 +1,4 @@
 use async_std::io::ReadExt;
-use std::collections::HashMap;
 use std::io::Write;
 
 use super::bucket::Bucket;
@@ -10,6 +9,7 @@ use crate::command::HttpMethod;
 use crate::request_trait::Request;
 
 use anyhow::{anyhow, Result};
+use http::HeaderMap;
 use maybe_async::maybe_async;
 use surf::http::headers::{HeaderName, HeaderValue};
 use surf::http::Method;
@@ -26,7 +26,7 @@ pub struct SurfRequest<'a> {
 #[maybe_async]
 impl<'a> Request for SurfRequest<'a> {
     type Response = surf::Response;
-    type HeaderMap = HashMap<String, String>;
+    type HeaderMap = HeaderMap;
 
     fn datetime(&self) -> DateTime<Utc> {
         self.datetime
@@ -58,10 +58,10 @@ impl<'a> Request for SurfRequest<'a> {
 
         let mut request = request.body(self.request_body());
 
-        for (name, value) in headers {
+        for (name, value) in headers.iter() {
             request = request.header(
-                HeaderName::from_bytes(name.as_bytes().to_vec()).unwrap(),
-                HeaderValue::from_bytes(value.as_bytes().to_vec()).unwrap(),
+                HeaderName::from_bytes(AsRef::<[u8]>::as_ref(&name).to_vec()).unwrap(),
+                HeaderValue::from_bytes(AsRef::<[u8]>::as_ref(&value).to_vec()).unwrap(),
             );
         }
 
@@ -104,14 +104,18 @@ impl<'a> Request for SurfRequest<'a> {
         Ok(status_code.into())
     }
 
-    async fn response_header(&self) -> Result<(HashMap<String, String>, u16)> {
-        let mut header_map = HashMap::new();
+    async fn response_header(&self) -> Result<(HeaderMap, u16)> {
+        let mut header_map = HeaderMap::new();
         let response = self.response().await?;
         let status_code = response.status();
+
         for (name, value) in response.iter() {
             header_map.insert(
-                name.to_string().to_ascii_lowercase(),
-                value.as_str().to_string(),
+                http::header::HeaderName::from_lowercase(
+                    name.to_string().to_ascii_lowercase().as_ref(),
+                )
+                .unwrap(),
+                value.as_str().parse().unwrap(),
             );
         }
         Ok((header_map, status_code.into()))

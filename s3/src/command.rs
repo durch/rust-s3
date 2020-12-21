@@ -1,4 +1,3 @@
-use crate::bucket::Headers;
 use crate::serde_types::CompleteMultipartUploadData;
 
 use crate::EMPTY_PAYLOAD_SHA;
@@ -26,6 +25,7 @@ impl fmt::Display for HttpMethod {
     }
 }
 use crate::bucket_ops::BucketConfiguration;
+use http::HeaderMap;
 
 #[derive(Clone, Debug)]
 pub struct Multipart<'a> {
@@ -82,7 +82,7 @@ pub enum Command<'a> {
     },
     PresignPut {
         expiry_secs: u32,
-        custom_headers: Option<Headers>,
+        custom_headers: Option<HeaderMap>,
     },
     InitiateMultipartUpload,
     UploadPart {

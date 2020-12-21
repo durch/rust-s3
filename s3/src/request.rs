@@ -5,7 +5,6 @@ use std::io::Write;
 
 use chrono::{DateTime, Utc};
 use maybe_async::maybe_async;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Response};
 
 use crate::bucket::Bucket;
@@ -86,19 +85,9 @@ impl<'a> Request for Reqwest<'a> {
             HttpMethod::Head => reqwest::Method::HEAD,
         };
 
-        let mut header_map = HeaderMap::new();
-
-        for (k, v) in headers.into_iter() {
-            header_map.insert(
-                HeaderName::from_bytes(k.as_bytes())?,
-                HeaderValue::from_bytes(v.as_bytes())?,
-            );
-        }
-
         let request = client
             .request(method, self.url().as_str())
-            // TODO convert this
-            .headers(header_map)
+            .headers(headers)
             .body(self.request_body());
 
         let response = request.send().await?;
@@ -171,6 +160,7 @@ mod tests {
     use crate::request_trait::Request;
     use anyhow::Result;
     use awscreds::Credentials;
+    use http::header::{HOST, RANGE};
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
@@ -190,7 +180,7 @@ mod tests {
         assert_eq!(request.url().scheme(), "https");
 
         let headers = request.headers().unwrap();
-        let host = headers.get("Host").unwrap();
+        let host = headers.get(HOST).unwrap();
 
         assert_eq!(*host, "my-first-bucket.custom-region".to_string());
         Ok(())
@@ -206,7 +196,7 @@ mod tests {
         assert_eq!(request.url().scheme(), "https");
 
         let headers = request.headers().unwrap();
-        let host = headers.get("Host").unwrap();
+        let host = headers.get(HOST).unwrap();
 
         assert_eq!(*host, "custom-region".to_string());
         Ok(())
@@ -222,7 +212,7 @@ mod tests {
         assert_eq!(request.url().scheme(), "http");
 
         let headers = request.headers().unwrap();
-        let host = headers.get("Host").unwrap();
+        let host = headers.get(HOST).unwrap();
         assert_eq!(*host, "my-second-bucket.custom-region".to_string());
         Ok(())
     }
@@ -237,7 +227,7 @@ mod tests {
         assert_eq!(request.url().scheme(), "http");
 
         let headers = request.headers().unwrap();
-        let host = headers.get("Host").unwrap();
+        let host = headers.get(HOST).unwrap();
         assert_eq!(*host, "custom-region".to_string());
 
         Ok(())
@@ -258,7 +248,7 @@ mod tests {
             },
         );
         let headers = request.headers().unwrap();
-        let range = headers.get("Range").unwrap();
+        let range = headers.get(RANGE).unwrap();
         assert_eq!(range, "bytes=0-");
 
         let request = Reqwest::new(
@@ -270,7 +260,7 @@ mod tests {
             },
         );
         let headers = request.headers().unwrap();
-        let range = headers.get("Range").unwrap();
+        let range = headers.get(RANGE).unwrap();
         assert_eq!(range, "bytes=0-1");
 
         Ok(())
