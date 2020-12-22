@@ -49,7 +49,7 @@ url = "2"
 block_on_proc = { version = "0.1", optional = true }
 
 [features]
-with-tokio = ["reqwest", "tokio", "futures", "async-std"]
+with-tokio = ["reqwest", "tokio", "futures", "tokio/fs"]
 with-async-std = ["async-std", "surf", "futures"]
 sync = ["attohttpc", "maybe-async/is_sync"]
 default = ["tokio-native-tls"]
