@@ -2,19 +2,25 @@ use std::str::FromStr;
 
 use crate::{bucket::CHUNK_SIZE, serde_types::HeadObjectResult};
 use anyhow::Result;
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-use async_std::fs::File;
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-use async_std::path::Path;
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-use futures::io::{AsyncRead, AsyncReadExt};
 
+#[cfg(feature = "with-async-std")]
+use async_std::fs::File;
 #[cfg(feature = "sync")]
 use std::fs::File;
+#[cfg(feature = "with-tokio")]
+use tokio::fs::File;
+
+#[cfg(feature = "with-async-std")]
+use async_std::path::Path;
+#[cfg(any(feature = "sync", feature = "with-tokio"))]
+use std::path::Path;
+
+#[cfg(feature = "with-async-std")]
+use futures::io::{AsyncRead, AsyncReadExt};
 #[cfg(feature = "sync")]
 use std::io::Read;
-#[cfg(feature = "sync")]
-use std::path::Path;
+#[cfg(feature = "with-tokio")]
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 /// # Example
 /// ```rust,no_run
@@ -27,7 +33,7 @@ use std::path::Path;
 ///     println!("{}", etag);
 /// }
 /// ```
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+#[cfg(any(feature = "tokio", feature = "async-std"))]
 pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
     let mut file = File::open(path).await?;
     let mut digests = Vec::new();
@@ -81,7 +87,7 @@ pub fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
     Ok(etag)
 }
 
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+#[cfg(any(feature = "tokio", feature = "async-std"))]
 pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>> {
     let mut chunk = Vec::with_capacity(CHUNK_SIZE);
     let mut take = reader.take(CHUNK_SIZE as u64);
@@ -166,11 +172,9 @@ mod test {
     use crate::utils::etag_for_path;
     #[cfg(feature = "with-async-std")]
     use async_std::io::Cursor;
-    #[cfg(feature = "with-tokio")]
-    use futures::io::Cursor;
     use std::fs::File;
     use std::io::prelude::*;
-    #[cfg(feature = "sync")]
+    #[cfg(any(feature = "with-tokio", feature = "sync"))]
     use std::io::Cursor;
 
     fn object(size: u32) -> Vec<u8> {

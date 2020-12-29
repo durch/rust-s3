@@ -16,12 +16,15 @@ pub type Query = HashMap<String, String>;
 use crate::request::Reqwest as RequestImpl;
 #[cfg(feature = "with-async-std")]
 use crate::surf_request::SurfRequest as RequestImpl;
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-use async_std::fs::File;
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-use async_std::path::Path;
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+#[cfg(feature = "with-async-std")]
+use async_std::{fs::File, path::Path};
+#[cfg(feature = "with-tokio")]
+use tokio::fs::File;
+
+#[cfg(feature = "with-async-std")]
 use futures::io::AsyncRead;
+#[cfg(feature = "with-tokio")]
+use tokio::io::AsyncRead;
 
 #[cfg(feature = "sync")]
 use crate::blocking::AttoRequest as RequestImpl;
@@ -29,7 +32,7 @@ use crate::blocking::AttoRequest as RequestImpl;
 use std::fs::File;
 #[cfg(feature = "sync")]
 use std::io::Read;
-#[cfg(feature = "sync")]
+#[cfg(any(feature = "sync", feature = "with-tokio"))]
 use std::path::Path;
 
 use crate::request_trait::Request;
