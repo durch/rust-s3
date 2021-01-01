@@ -20,8 +20,10 @@ use crate::surf_request::SurfRequest as RequestImpl;
 use async_std::fs::File;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use async_std::path::Path;
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+#[cfg(feature = "with-async-std")]
 use futures::io::AsyncRead;
+#[cfg(feature = "with-tokio")]
+use tokio::io::AsyncRead;
 
 #[cfg(feature = "sync")]
 use crate::blocking::AttoRequest as RequestImpl;
@@ -518,54 +520,6 @@ impl Bucket {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         Ok(request.response_data_to_writer(writer).await?)
-    }
-
-    /// Stream file from local path to s3, generic over T: Write.
-    ///
-    /// # Example:
-    ///
-    /// ```rust,no_run
-    /// use s3::bucket::Bucket;
-    /// use s3::creds::Credentials;
-    /// use s3::S3Error;
-    /// use std::fs::File;
-    /// use std::io::Write;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
-    ///
-    /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
-    /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
-    /// let path = "path";
-    /// let test: Vec<u8> = (0..1000).map(|_| 42).collect();
-    /// let mut file = File::create(path)?;
-    /// file.write_all(&test)?;
-    ///
-    /// // Async variant with `tokio` or `async-std` features
-    /// let status_code = bucket.put_object_stream(path, "/path").await?;
-    ///
-    /// // `sync` feature will produce an identical method
-    /// #[cfg(feature = "sync")]
-    /// let status_code = bucket.put_object_stream(path, "/path")?;
-    ///
-    /// // Blocking variant, generated with `blocking` feature in combination
-    /// // with `tokio` or `async-std` features.
-    /// #[cfg(feature = "blocking")]
-    /// let status_code = bucket.put_object_stream_blocking(path, "/path")?;
-    /// #
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[maybe_async::maybe_async]
-    pub async fn put_object_stream(
-        &self,
-        path: impl AsRef<Path>,
-        s3_path: impl AsRef<str>,
-    ) -> Result<u16> {
-        let mut file = File::open(path).await?;
-        self.put_object_stream_raw(&mut file, s3_path.as_ref()).await
     }
 
     #[maybe_async::async_impl]

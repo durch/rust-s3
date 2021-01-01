@@ -6,8 +6,10 @@ use crate::{bucket::CHUNK_SIZE, serde_types::HeadObjectResult};
 use async_std::fs::File;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use async_std::path::Path;
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+#[cfg(feature = "with-async-std")]
 use futures::io::{AsyncRead, AsyncReadExt};
+#[cfg(feature = "with-tokio")]
+use tokio::io::{AsyncRead, AsyncReadExt};
 use std::collections::HashMap;
 #[cfg(feature = "sync")]
 use std::fs::File;
@@ -15,71 +17,6 @@ use std::fs::File;
 use std::io::Read;
 #[cfg(feature = "sync")]
 use std::path::Path;
-
-/// # Example
-/// ```rust,no_run
-/// use s3::utils::etag_for_path;
-///
-/// #[tokio::main]
-/// async fn main() {
-///     let path = "test_etag";
-///     let etag = etag_for_path(path).await.unwrap();
-///     println!("{}", etag);
-/// }
-/// ```
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
-    let mut file = File::open(path).await?;
-    let mut digests = Vec::new();
-    let mut chunks = 0;
-    loop {
-        let chunk = read_chunk(&mut file).await?;
-        let digest: [u8; 16] = md5::compute(&chunk).into();
-        digests.extend_from_slice(&digest);
-        chunks += 1;
-        if chunk.len() < CHUNK_SIZE {
-            break;
-        }
-    }
-    let digest = format!("{:x}", md5::compute(digests));
-    let etag = if chunks <= 1 {
-        digest
-    } else {
-        format!("{}-{}", digest, chunks)
-    };
-    Ok(etag)
-}
-
-/// # Example
-/// ```rust,no_run
-/// use s3::utils::etag_for_path;
-///
-/// let path = "test_etag";
-/// let etag = etag_for_path(path).unwrap();
-/// println!("{}", etag);
-/// ```
-#[cfg(feature = "sync")]
-pub fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
-    let mut file = File::open(path)?;
-    let mut digests = Vec::new();
-    let mut chunks = 0;
-    loop {
-        let chunk = read_chunk(&mut file)?;
-        let digest: [u8; 16] = md5::compute(&chunk).into();
-        digests.extend_from_slice(&digest);
-        chunks += 1;
-        if chunk.len() < CHUNK_SIZE {
-            break;
-        }
-    }
-    let digest = format!("{:x}", md5::compute(digests));
-    let etag = if chunks <= 1 {
-        digest
-    } else {
-        format!("{}-{}", digest, chunks)
-    };
-    Ok(etag)
-}
 
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>> {
@@ -267,7 +204,6 @@ impl From<&HashMap<String, String>> for HeadObjectResult {
 
 #[cfg(test)]
 mod test {
-    use crate::utils::etag_for_path;
     use std::fs::File;
     use std::io::prelude::*;
 
@@ -288,10 +224,7 @@ mod test {
         let mut file = File::create(path).unwrap();
         file.write_all(&test).unwrap();
 
-        let etag = etag_for_path(path).await.unwrap();
-
         std::fs::remove_file(path).unwrap_or_else(|_| {});
 
-        assert_eq!(etag, "ae890066cc055c740b3dc3c8854a643b-2");
     }
 }
