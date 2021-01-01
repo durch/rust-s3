@@ -565,11 +565,11 @@ impl Bucket {
         s3_path: impl AsRef<str>,
     ) -> Result<u16> {
         let mut file = File::open(path).await?;
-        self._put_object_stream(&mut file, s3_path.as_ref()).await
+        self.put_object_stream_raw(&mut file, s3_path.as_ref()).await
     }
 
     #[maybe_async::async_impl]
-    async fn _put_object_stream<R: AsyncRead + Unpin>(
+    pub async fn put_object_stream_raw<R: AsyncRead + Unpin>(
         &self,
         reader: &mut R,
         s3_path: &str,
@@ -653,7 +653,7 @@ impl Bucket {
     }
 
     #[maybe_async::sync_impl]
-    fn _put_object_stream<R: Read>(&self, reader: &mut R, s3_path: &str) -> Result<u16> {
+    fn put_object_stream_raw<R: Read>(&self, reader: &mut R, s3_path: &str) -> Result<u16> {
         let command = Command::InitiateMultipartUpload;
         let path = format!("{}?uploads", s3_path);
         let request = RequestImpl::new(self, &path, command);
