@@ -11,8 +11,8 @@ use chrono::{DateTime, Utc};
 
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
-use crate::{Result, S3Error};
-
+use anyhow::anyhow;
+use anyhow::Result;
 // static CLIENT: Lazy<Client> = Lazy::new(|| {
 //     if cfg!(feature = "no-verify-ssl") {
 //         Client::builder()
@@ -24,26 +24,6 @@ use crate::{Result, S3Error};
 //         Client::new()
 //     }
 // });
-
-impl std::convert::From<attohttpc::Error> for S3Error {
-    fn from(e: attohttpc::Error) -> S3Error {
-        S3Error {
-            description: Some(format!("{}", e)),
-            data: None,
-            source: None,
-        }
-    }
-}
-
-impl std::convert::From<http::header::InvalidHeaderValue> for S3Error {
-    fn from(e: http::header::InvalidHeaderValue) -> S3Error {
-        S3Error {
-            description: Some(format!("{}", e)),
-            data: None,
-            source: None,
-        }
-    }
-}
 
 // Temporary structure for making a request
 pub struct AttoRequest<'a> {
@@ -83,28 +63,25 @@ impl<'a> Request for AttoRequest<'a> {
 
         let mut session = attohttpc::Session::new();
 
-        for (name, value) in headers {
-            session.header(HeaderName::from_bytes(name.as_bytes()).unwrap(), value);
+        for (name, value) in headers.iter() {
+            session.header(HeaderName::from_bytes(name.as_ref()).unwrap(), value);
         }
 
         let request = match self.command.http_verb() {
-            HttpMethod::Get => session.get(self.url(false)),
-            HttpMethod::Delete => session.delete(self.url(false)),
-            HttpMethod::Put => session.put(self.url(false)),
-            HttpMethod::Post => session.post(self.url(false)),
-            HttpMethod::Head => session.head(self.url(false)),
+            HttpMethod::Get => session.get(self.url()),
+            HttpMethod::Delete => session.delete(self.url()),
+            HttpMethod::Put => session.put(self.url()),
+            HttpMethod::Post => session.post(self.url()),
+            HttpMethod::Head => session.head(self.url()),
         };
 
         let response = request.bytes(&self.request_body()).send()?;
 
         if cfg!(feature = "fail-on-err") && response.status().as_u16() >= 400 {
-            return Err(S3Error::from(
-                format!(
-                    "Request failed with code {}\n{}",
-                    response.status().as_u16(),
-                    response.text()?
-                )
-                .as_str(),
+            return Err(anyhow!(
+                "Request failed with code {}\n{}",
+                response.status().as_u16(),
+                response.text()?
             ));
         }
 
@@ -164,7 +141,7 @@ mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
     use crate::request_trait::Request;
-    use crate::Result;
+    use anyhow::Result;
     use awscreds::Credentials;
 
     // Fake keys - otherwise using Credentials::default will use actual user
@@ -182,7 +159,7 @@ mod tests {
         let path = "/my-first/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url(false).scheme(), "https");
+        assert_eq!(request.url().scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -198,7 +175,7 @@ mod tests {
         let path = "/my-first/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url(false).scheme(), "https");
+        assert_eq!(request.url().scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -214,7 +191,7 @@ mod tests {
         let path = "/my-second/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url(false).scheme(), "http");
+        assert_eq!(request.url().scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -229,7 +206,7 @@ mod tests {
         let path = "/my-second/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject);
 
-        assert_eq!(request.url(false).scheme(), "http");
+        assert_eq!(request.url().scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();

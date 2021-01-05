@@ -1,4 +1,3 @@
-use crate::bucket::Headers;
 use crate::serde_types::CompleteMultipartUploadData;
 
 use crate::EMPTY_PAYLOAD_SHA;
@@ -26,6 +25,29 @@ impl fmt::Display for HttpMethod {
     }
 }
 use crate::bucket_ops::BucketConfiguration;
+use http::HeaderMap;
+
+#[derive(Clone, Debug)]
+pub struct Multipart<'a> {
+    part_number: u32,
+    upload_id: &'a str,
+}
+
+impl<'a> Multipart<'a> {
+    pub fn query_string(&self) -> String {
+        format!(
+            "?partNumber={}&uploadId={}",
+            self.part_number, self.upload_id
+        )
+    }
+
+    pub fn new(part_number: u32, upload_id: &'a str) -> Self {
+        Multipart {
+            part_number,
+            upload_id,
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum Command<'a> {
@@ -41,6 +63,7 @@ pub enum Command<'a> {
     PutObject {
         content: &'a [u8],
         content_type: &'a str,
+        multipart: Option<Multipart<'a>>,
     },
     PutObjectTagging {
         tags: &'a str,
@@ -59,7 +82,7 @@ pub enum Command<'a> {
     },
     PresignPut {
         expiry_secs: u32,
-        custom_headers: Option<Headers>,
+        custom_headers: Option<HeaderMap>,
     },
     InitiateMultipartUpload,
     UploadPart {

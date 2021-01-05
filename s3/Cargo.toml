@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.27.0-beta1"
+version = "0.27.0-beta8"
 authors = ["Drazen Urch"]
 description = "Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -22,8 +22,8 @@ path = "src/lib.rs"
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
 attohttpc = { version = "0.16", optional = true, default-features = false }
-aws-creds = { version = "0.25", default-features = false }
-aws-region = "0.22"
+aws-creds = { version = "0.26", default-features = false }
+aws-region = "0.23"
 base64 = "0.13.0"
 cfg-if = "1"
 chrono = "0.4"
@@ -40,25 +40,25 @@ serde = "1"
 serde_derive = "1"
 serde-xml-rs = "0.4"
 sha2 = "0.9"
-simpl = "0.1.0"
-surf = { version = "2", optional = true, default-features = false, features = ["hyper-client"]}
+anyhow = "1.0"
+surf = { version = "2", optional = true, default-features = false, features = ["hyper-client"] }
 # Waiting on h2 compat
 tokio = { version = "0.2", features = ["stream"], optional = true, default-features = false }
 url = "2"
 
-block_on_proc = { version = "0.1", optional = true}
+block_on_proc = { version = "0.1", optional = true }
 
 [features]
-with-tokio = ["reqwest", "tokio", "futures", "async-std"]
+with-tokio = ["reqwest", "tokio", "futures", "tokio/fs"]
 with-async-std = ["async-std", "surf", "futures"]
 sync = ["attohttpc", "maybe-async/is_sync"]
-default = ["tokio-native-tls", "with-tokio"]
+default = ["tokio-native-tls"]
 no-verify-ssl = []
 fail-on-err = []
-tokio-native-tls = ["reqwest/native-tls", "aws-creds/native-tls"]
-tokio-rustls-tls = ["reqwest/rustls-tls", "aws-creds/rustls-tls"]
-sync-native-tls = ["aws-creds/native-tls", "attohttpc/tls"]
-sync-rustls-tls = ["aws-creds/rustls-tls", "attohttpc/tls-rustls"]
+tokio-native-tls = ["with-tokio", "reqwest/native-tls", "aws-creds/native-tls"]
+tokio-rustls-tls = ["with-tokio", "reqwest/rustls-tls", "aws-creds/rustls-tls"]
+sync-native-tls = ["sync", "aws-creds/native-tls", "attohttpc/tls"]
+sync-rustls-tls = ["sync", "aws-creds/rustls-tls", "attohttpc/tls-rustls"]
 blocking = ["block_on_proc"]
 
 [dev-dependencies]

@@ -5,23 +5,26 @@ use std::collections::HashMap;
 use std::mem;
 
 use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
-use crate::command::Command;
+use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
+use std::str::FromStr;
 
-pub type Headers = HashMap<String, String>;
 pub type Query = HashMap<String, String>;
 
 #[cfg(feature = "with-tokio")]
 use crate::request::Reqwest as RequestImpl;
 #[cfg(feature = "with-async-std")]
 use crate::surf_request::SurfRequest as RequestImpl;
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-use async_std::fs::File;
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-use async_std::path::Path;
-#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+#[cfg(feature = "with-async-std")]
+use async_std::{fs::File, path::Path};
+#[cfg(feature = "with-tokio")]
+use tokio::fs::File;
+
+#[cfg(feature = "with-async-std")]
 use futures::io::AsyncRead;
+#[cfg(feature = "with-tokio")]
+use tokio::io::AsyncRead;
 
 #[cfg(feature = "sync")]
 use crate::blocking::AttoRequest as RequestImpl;
@@ -29,7 +32,7 @@ use crate::blocking::AttoRequest as RequestImpl;
 use std::fs::File;
 #[cfg(feature = "sync")]
 use std::io::Read;
-#[cfg(feature = "sync")]
+#[cfg(any(feature = "sync", feature = "with-tokio"))]
 use std::path::Path;
 
 use crate::request_trait::Request;
@@ -37,7 +40,10 @@ use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, Part, Tagging,
 };
-use crate::{Result, S3Error};
+use anyhow::anyhow;
+use anyhow::Result;
+use http::header::HeaderName;
+use http::HeaderMap;
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
@@ -60,19 +66,16 @@ pub struct Bucket {
     pub name: String,
     pub region: Region,
     pub credentials: Credentials,
-    pub extra_headers: Headers,
+    pub extra_headers: HeaderMap,
     pub extra_query: Query,
     path_style: bool,
 }
 
 fn validate_expiry(expiry_secs: u32) -> Result<()> {
     if 604800 < expiry_secs {
-        return Err(S3Error::from(
-            format!(
-                "Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead",
-                expiry_secs
-            )
-            .as_ref(),
+        return Err(anyhow!(
+            "Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead",
+            expiry_secs
         ));
     }
     Ok(())
@@ -113,7 +116,8 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use std::collections::HashMap;
+    /// use http::HeaderMap;
+    /// use http::header::HeaderName;
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
@@ -121,10 +125,10 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// // Add optional custom headers
-    /// let mut custom_headers = HashMap::new();
+    /// let mut custom_headers = HeaderMap::new();
     /// custom_headers.insert(
-    ///    "custom_header".to_string(),
-    ///    "custom_value".to_string(),
+    ///    HeaderName::from_static("custom_header"),
+    ///    "custom_value".parse().unwrap(),
     /// );
     ///
     /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers)).unwrap();
@@ -134,7 +138,7 @@ impl Bucket {
         &self,
         path: S,
         expiry_secs: u32,
-        custom_headers: Option<Headers>,
+        custom_headers: Option<HeaderMap>,
     ) -> Result<String> {
         validate_expiry(expiry_secs)?;
         let request = RequestImpl::new(
@@ -153,10 +157,10 @@ impl Bucket {
     /// use s3::{Bucket, BucketConfiguration};
     /// use s3::creds::Credentials;
     /// # use s3::region::Region;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
     /// let credentials = Credentials::default()?;
@@ -206,10 +210,10 @@ impl Bucket {
     /// use s3::{Bucket, BucketConfiguration};
     /// use s3::creds::Credentials;
     /// # use s3::region::Region;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
     /// let credentials = Credentials::default()?;
@@ -237,8 +241,9 @@ impl Bucket {
         name: &str,
         region: Region,
         credentials: Credentials,
-        mut config: BucketConfiguration,
+        config: BucketConfiguration,
     ) -> Result<CreateBucketResponse> {
+        let mut config = config;
         config.set_region(region.clone());
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new_with_path_style(name, region, credentials)?;
@@ -258,10 +263,10 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
@@ -309,7 +314,7 @@ impl Bucket {
             name: name.into(),
             region,
             credentials,
-            extra_headers: HashMap::new(),
+            extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: false,
         })
@@ -332,7 +337,7 @@ impl Bucket {
             name: name.into(),
             region,
             credentials: Credentials::anonymous()?,
-            extra_headers: HashMap::new(),
+            extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: false,
         })
@@ -360,7 +365,7 @@ impl Bucket {
             name: name.into(),
             region,
             credentials,
-            extra_headers: HashMap::new(),
+            extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: true,
         })
@@ -383,7 +388,7 @@ impl Bucket {
             name: name.into(),
             region,
             credentials: Credentials::anonymous()?,
-            extra_headers: HashMap::new(),
+            extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: true,
         })
@@ -396,10 +401,10 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -434,10 +439,10 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -482,11 +487,11 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     /// use std::fs::File;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -510,7 +515,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object_stream<T: std::io::Write, S: AsRef<str>>(
+    pub async fn get_object_stream<T: std::io::Write + Send, S: AsRef<str>>(
         &self,
         path: S,
         writer: &mut T,
@@ -527,12 +532,12 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     /// use std::fs::File;
     /// use std::io::Write;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -575,11 +580,12 @@ impl Bucket {
         s3_path: &str,
     ) -> Result<u16> {
         let command = Command::InitiateMultipartUpload;
-        let path = format!("{}?uploads", s3_path);
-        let request = RequestImpl::new(self, &path, command);
+        let request = RequestImpl::new(self, &s3_path, command);
         let (data, code) = request.response_data(false).await?;
         let msg: InitiateMultipartUploadResponse =
             serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+        let path = msg.key;
+        let upload_id = &msg.upload_id;
 
         let mut part_number: u32 = 0;
         let mut etags = Vec::new();
@@ -589,11 +595,8 @@ impl Bucket {
             if chunk.len() < CHUNK_SIZE {
                 if part_number == 0 {
                     // Files is not big enough for multipart upload, going with regular put_object
-                    let abort = Command::AbortMultipartUpload {
-                        upload_id: &msg.upload_id,
-                    };
-                    let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let abort_request = RequestImpl::new(self, &abort_path, abort);
+                    let abort = Command::AbortMultipartUpload { upload_id };
+                    let abort_request = RequestImpl::new(self, &path, abort);
                     let (_, _code) = abort_request.response_data(false).await?;
                     self.put_object(s3_path, chunk.as_slice()).await?;
                     break;
@@ -602,12 +605,9 @@ impl Bucket {
                     let command = Command::PutObject {
                         // part_number,
                         content: &chunk,
-                        content_type: "application/octet-stream", // upload_id: &msg.upload_id,
+                        content_type: "application/octet-stream",
+                        multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
                     };
-                    let path = format!(
-                        "{}?partNumber={}&uploadId={}",
-                        msg.key, part_number, &msg.upload_id
-                    );
                     let request = RequestImpl::new(self, &path, command);
                     let (data, _code) = request.response_data(true).await?;
                     let etag = std::str::from_utf8(data.as_slice())?;
@@ -626,8 +626,7 @@ impl Bucket {
                         upload_id: &msg.upload_id,
                         data,
                     };
-                    let complete_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let complete_request = RequestImpl::new(self, &complete_path, complete);
+                    let complete_request = RequestImpl::new(self, &path, complete);
                     let (_data, _code) = complete_request.response_data(false).await?;
                     // let response = std::str::from_utf8(data.as_slice())?;
                     break;
@@ -637,12 +636,9 @@ impl Bucket {
                 let command = Command::PutObject {
                     // part_number,
                     content: &chunk,
-                    content_type: "application/octet-stream", // upload_id: &msg.upload_id,
+                    content_type: "application/octet-stream",
+                    multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
                 };
-                let path = format!(
-                    "{}?partNumber={}&uploadId={}",
-                    msg.key, part_number, &msg.upload_id
-                );
                 let request = RequestImpl::new(self, &path, command);
                 let (data, _code) = request.response_data(true).await?;
                 let etag = std::str::from_utf8(data.as_slice())?;
@@ -655,11 +651,13 @@ impl Bucket {
     #[maybe_async::sync_impl]
     fn put_object_stream_raw<R: Read>(&self, reader: &mut R, s3_path: &str) -> Result<u16> {
         let command = Command::InitiateMultipartUpload;
-        let path = format!("{}?uploads", s3_path);
-        let request = RequestImpl::new(self, &path, command);
+        let request = RequestImpl::new(self, &s3_path, command);
         let (data, code) = request.response_data(false)?;
         let msg: InitiateMultipartUploadResponse =
             serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+
+        let path = msg.key;
+        let upload_id = &msg.upload_id;
 
         let mut part_number: u32 = 0;
         let mut etags = Vec::new();
@@ -672,8 +670,7 @@ impl Bucket {
                     let abort = Command::AbortMultipartUpload {
                         upload_id: &msg.upload_id,
                     };
-                    let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let abort_request = RequestImpl::new(self, &abort_path, abort);
+                    let abort_request = RequestImpl::new(self, &path, abort);
                     let (_, _code) = abort_request.response_data(false)?;
                     self.put_object(s3_path, chunk.as_slice())?;
                     break;
@@ -682,12 +679,9 @@ impl Bucket {
                     let command = Command::PutObject {
                         // part_number,
                         content: &chunk,
-                        content_type: "application/octet-stream", // upload_id: &msg.upload_id,
+                        content_type: "application/octet-stream",
+                        multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
                     };
-                    let path = format!(
-                        "{}?partNumber={}&uploadId={}",
-                        msg.key, part_number, &msg.upload_id
-                    );
                     let request = RequestImpl::new(self, &path, command);
                     let (data, _code) = request.response_data(true)?;
                     let etag = std::str::from_utf8(data.as_slice())?;
@@ -705,8 +699,7 @@ impl Bucket {
                         upload_id: &msg.upload_id,
                         data,
                     };
-                    let complete_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let complete_request = RequestImpl::new(self, &complete_path, complete);
+                    let complete_request = RequestImpl::new(self, &path, complete);
                     let (_data, _code) = complete_request.response_data(false)?;
                     // let response = std::str::from_utf8(data.as_slice())?;
                     break;
@@ -714,14 +707,10 @@ impl Bucket {
             } else {
                 part_number += 1;
                 let command = Command::PutObject {
-                    // part_number,
                     content: &chunk,
-                    content_type: "application/octet-stream", // upload_id: &msg.upload_id,
+                    content_type: "application/octet-stream",
+                    multipart: Some(Multipart::new(part_number, upload_id)),
                 };
-                let path = format!(
-                    "{}?partNumber={}&uploadId={}",
-                    msg.key, part_number, &msg.upload_id
-                );
                 let request = RequestImpl::new(self, &path, command);
                 let (data, _code) = request.response_data(true)?;
                 let etag = std::str::from_utf8(data.as_slice())?;
@@ -738,10 +727,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -797,10 +786,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -836,10 +825,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -877,10 +866,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -913,6 +902,7 @@ impl Bucket {
         let command = Command::PutObject {
             content,
             content_type,
+            multipart: None,
         };
         let request = RequestImpl::new(self, path.as_ref(), command);
         Ok(request.response_data(true).await?)
@@ -925,10 +915,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -989,10 +979,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1033,10 +1023,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1072,10 +1062,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1135,14 +1125,9 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command);
         let (response, status_code) = request.response_data(false).await?;
-        match serde_xml::from_reader(response.as_slice()) {
-            Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
-            Err(_) => {
-                let mut err = S3Error::from("Could not deserialize result");
-                err.data = Some(String::from_utf8_lossy(response.as_slice()).to_string());
-                Err(err)
-            }
-        }
+        return serde_xml::from_reader(response.as_slice())
+            .map(|list_bucket_result| (list_bucket_result, status_code))
+            .map_err(|e| anyhow!("Could not deserialize result \n {}", e));
     }
 
     /// List the contents of an S3 bucket.
@@ -1152,10 +1137,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1296,18 +1281,12 @@ impl Bucket {
 
     /// Get a reference to the AWS security token.
     pub fn security_token(&self) -> Option<&str> {
-        self.credentials
-            .security_token
-            .as_ref()
-            .map(std::string::String::as_str)
+        self.credentials.security_token.as_deref()
     }
 
     /// Get a reference to the AWS session token.
     pub fn session_token(&self) -> Option<&str> {
-        self.credentials
-            .session_token
-            .as_ref()
-            .map(std::string::String::as_str)
+        self.credentials.session_token.as_deref()
     }
 
     /// Get a reference to the full [`Credentials`](struct.Credentials.html)
@@ -1335,17 +1314,18 @@ impl Bucket {
     ///   * X-Amz-Content-Sha256
     ///   * X-Amz-Date
     pub fn add_header(&mut self, key: &str, value: &str) {
-        self.extra_headers.insert(key.into(), value.into());
+        self.extra_headers
+            .insert(HeaderName::from_str(key).unwrap(), value.parse().unwrap());
     }
 
     /// Get a reference to the extra headers to be passed to the S3 API.
-    pub fn extra_headers(&self) -> &Headers {
+    pub fn extra_headers(&self) -> &HeaderMap {
         &self.extra_headers
     }
 
     /// Get a mutable reference to the extra headers to be passed to the S3
     /// API.
-    pub fn extra_headers_mut(&mut self) -> &mut Headers {
+    pub fn extra_headers_mut(&mut self) -> &mut HeaderMap {
         &mut self.extra_headers
     }
 
@@ -1373,7 +1353,8 @@ mod test {
     use crate::region::Region;
     use crate::Bucket;
     use crate::BucketConfiguration;
-    use std::collections::HashMap;
+    use http::header::HeaderName;
+    use http::HeaderMap;
     use std::env;
     use std::fs::File;
     use std::io::prelude::*;
@@ -1461,7 +1442,7 @@ mod test {
     )]
     async fn streaming_test_put_get_delete_big_object() {
         init();
-        let path = "stream_test_big";
+        let path = "+stream_test_big";
         std::fs::remove_file(path).unwrap_or_else(|_| {});
         let bucket = test_aws_bucket();
         let test: Vec<u8> = object(10_000_000);
@@ -1469,19 +1450,13 @@ mod test {
         let mut file = File::create(path).unwrap();
         file.write_all(&test).unwrap();
 
-        let code = bucket
-            .put_object_stream(path, "/stream_test_big.file")
-            .await
-            .unwrap();
+        let code = bucket.put_object_stream(path, path).await.unwrap();
         assert_eq!(code, 200);
         let mut writer = Vec::new();
-        let code = bucket
-            .get_object_stream("/stream_test_big.file", &mut writer)
-            .await
-            .unwrap();
+        let code = bucket.get_object_stream(path, &mut writer).await.unwrap();
         assert_eq!(code, 200);
         assert_eq!(test, writer);
-        let (_, code) = bucket.delete_object("/stream_test_big.file").await.unwrap();
+        let (_, code) = bucket.delete_object(path).await.unwrap();
         assert_eq!(code, 204);
         std::fs::remove_file(path).unwrap_or_else(|_| {});
     }
@@ -1580,7 +1555,7 @@ mod test {
         )
     )]
     async fn gc_test_put_head_get_delete_object() {
-        let s3_path = "/test.file";
+        let s3_path = "/tes+t.file";
         let bucket = test_gc_bucket();
         let test: Vec<u8> = object(3072);
 
@@ -1611,46 +1586,46 @@ mod test {
         assert_eq!(code, 204);
     }
 
-    #[ignore]
-    #[maybe_async::test(
-        feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
-    )]
-    async fn wasabi_test_put_head_get_delete_object() {
-        let s3_path = "/test.file";
-        let bucket = test_wasabi_bucket();
-        let test: Vec<u8> = object(3072);
+    // #[ignore]
+    // #[maybe_async::test(
+    //     feature = "sync",
+    //     async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+    //     async(
+    //         all(not(feature = "sync"), feature = "with-async-std"),
+    //         async_std::test
+    //     )
+    // )]
+    // async fn wasabi_test_put_head_get_delete_object() {
+    //     let s3_path = "/+test.file";
+    //     let bucket = test_wasabi_bucket();
+    //     let test: Vec<u8> = object(3072);
 
-        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(code, 200);
-        let (data, code) = bucket.get_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test, data);
+    //     let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
+    //     // println!("{}", std::str::from_utf8(&data).unwrap());
+    //     assert_eq!(code, 200);
+    //     let (data, code) = bucket.get_object(s3_path).await.unwrap();
+    //     assert_eq!(code, 200);
+    //     // println!("{}", std::str::from_utf8(&data).unwrap());
+    //     assert_eq!(test, data);
 
-        let (data, code) = bucket
-            .get_object_range(s3_path, 100, Some(1000))
-            .await
-            .unwrap();
-        assert_eq!(code, 206);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test[100..1001].to_vec(), data);
+    //     let (data, code) = bucket
+    //         .get_object_range(s3_path, 100, Some(1000))
+    //         .await
+    //         .unwrap();
+    //     assert_eq!(code, 206);
+    //     // println!("{}", std::str::from_utf8(&data).unwrap());
+    //     assert_eq!(test[100..1001].to_vec(), data);
 
-        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        assert_eq!(
-            head_object_result.content_type.unwrap(),
-            "application/octet-stream".to_owned()
-        );
-        // println!("{:?}", head_object_result);
-        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
-        assert_eq!(code, 204);
-    }
+    //     let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+    //     assert_eq!(code, 200);
+    //     assert_eq!(
+    //         head_object_result.content_type.unwrap(),
+    //         "application/octet-stream".to_owned()
+    //     );
+    //     // println!("{:?}", head_object_result);
+    //     let (_, code) = bucket.delete_object(s3_path).await.unwrap();
+    //     assert_eq!(code, 204);
+    // }
 
     #[test]
     #[ignore]
@@ -1658,8 +1633,11 @@ mod test {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
 
-        let mut custom_headers = HashMap::new();
-        custom_headers.insert("custom_header".to_string(), "custom_value".to_string());
+        let mut custom_headers = HeaderMap::new();
+        custom_headers.insert(
+            HeaderName::from_static("custom_header"),
+            "custom_value".parse().unwrap(),
+        );
 
         let url = bucket
             .presign_put(s3_path, 86400, Some(custom_headers))
