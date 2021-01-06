@@ -38,7 +38,7 @@ use std::path::Path;
 use crate::request_trait::Request;
 use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
-    InitiateMultipartUploadResponse, ListBucketResult, Part, Tagging,
+    InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part, Tagging,
 };
 use anyhow::anyhow;
 use anyhow::Result;
@@ -595,9 +595,8 @@ impl Bucket {
             if chunk.len() < CHUNK_SIZE {
                 if part_number == 0 {
                     // Files is not big enough for multipart upload, going with regular put_object
-                    let abort = Command::AbortMultipartUpload { upload_id };
-                    let abort_request = RequestImpl::new(self, &path, abort);
-                    let (_, _code) = abort_request.response_data(false).await?;
+                    self.abort_upload(&path, upload_id).await?;
+
                     self.put_object(s3_path, chunk.as_slice()).await?;
                     break;
                 } else {
@@ -667,11 +666,8 @@ impl Bucket {
             if chunk.len() < CHUNK_SIZE {
                 if part_number == 0 {
                     // Files is not big enough for multipart upload, going with regular put_object
-                    let abort = Command::AbortMultipartUpload {
-                        upload_id: &msg.upload_id,
-                    };
-                    let abort_request = RequestImpl::new(self, &path, abort);
-                    let (_, _code) = abort_request.response_data(false)?;
+                    self.abort_upload(&path, upload_id)?;
+
                     self.put_object(s3_path, chunk.as_slice())?;
                     break;
                 } else {
@@ -1192,6 +1188,147 @@ impl Bucket {
         Ok(results)
     }
 
+    #[maybe_async::maybe_async]
+    pub async fn list_multiparts_uploads_page(
+        &self,
+        prefix: Option<&str>,
+        delimiter: Option<&str>,
+        key_marker: Option<String>,
+        max_uploads: Option<usize>,
+    ) -> Result<(ListMultipartUploadsResult, u16)> {
+        let command = Command::ListMultipartUploads {
+            prefix,
+            delimiter,
+            key_marker,
+            max_uploads,
+        };
+        let request = RequestImpl::new(self, "/", command);
+        let (response, status_code) = request.response_data(false).await?;
+        return serde_xml::from_reader(response.as_slice())
+            .map(|list_bucket_result| (list_bucket_result, status_code))
+            .map_err(|e| anyhow!("Could not deserialize result \n {}", e));
+    }
+
+    /// List the ongoing multipart uploads of an S3 bucket. This may be useful to cleanup failed
+    /// uploads, together with [`crate::bucket::Bucket::abort_upload`].
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let results = bucket.list_multiparts_uploads(Some("/"), Some("/")).await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let results = bucket.list_multiparts_uploads(Some("/"), Some("/"))?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let results = bucket.list_multiparts_uploads_blocking(Some("/"), Some("/"))?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn list_multiparts_uploads(
+        &self,
+        prefix: Option<&str>,
+        delimiter: Option<&str>,
+    ) -> Result<Vec<ListMultipartUploadsResult>> {
+        let the_bucket = self.to_owned();
+        let mut results = Vec::new();
+        let mut next_marker: Option<String> = None;
+
+        loop {
+            let (list_multiparts_uploads_result, _) = the_bucket
+                .list_multiparts_uploads_page(prefix, delimiter, next_marker, None)
+                .await?;
+
+            let is_truncated = list_multiparts_uploads_result.is_truncated;
+            next_marker = list_multiparts_uploads_result.next_marker.clone();
+            results.push(list_multiparts_uploads_result);
+
+            if !is_truncated {
+                break;
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Abort a running multipart upload.
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let results = bucket.abort_upload("/some/file.txt", "ZDFjM2I0YmEtMzU3ZC00OTQ1LTlkNGUtMTgxZThjYzIwNjA2").await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let results = bucket.abort_upload("/some/file.txt", "ZDFjM2I0YmEtMzU3ZC00OTQ1LTlkNGUtMTgxZThjYzIwNjA2")?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let results = bucket.abort_upload_blocking("/some/file.txt", "ZDFjM2I0YmEtMzU3ZC00OTQ1LTlkNGUtMTgxZThjYzIwNjA2")?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn abort_upload(&self, key: &str, upload_id: &str) -> Result<()> {
+        let abort = Command::AbortMultipartUpload { upload_id };
+        let abort_request = RequestImpl::new(self, key, abort);
+        let (content, code) = abort_request.response_data(false).await?;
+
+        if code >= 200 && code < 300 {
+            Ok(())
+        } else {
+            let utf8_content = String::from_utf8(content);
+            let err = if let Ok(utf8_content) = utf8_content {
+                format!(
+                    "Invalid return code: got HTTP {} with content '{}'",
+                    code, utf8_content
+                )
+            } else {
+                format!(
+                    "Invalid return code: got HTTP {} with invalid UTF8 content",
+                    code
+                )
+            };
+            Err(anyhow::Error::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                err,
+            )))
+        }
+    }
+
     /// Get path_style field of the Bucket struct
     pub fn is_path_style(&self) -> bool {
         self.path_style
@@ -1207,7 +1344,7 @@ impl Bucket {
         self.path_style = true;
     }
 
-    /// Configure bucket to use subdomain style urls and headers [default]
+    /// Configure bucket to use subdomain style urls and headers \[default\]
     pub fn set_subdomain_style(&mut self) {
         self.path_style = false;
     }
