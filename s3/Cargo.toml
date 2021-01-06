@@ -35,15 +35,15 @@ log = "0.4"
 maybe-async = { version = "0.2" }
 md5 = "0.7"
 percent-encoding = "2"
-reqwest = { version = "0.10", default-features = false, features = ["json", "stream"], optional = true }
+reqwest = { version = "0.11", default-features = false, features = ["json", "stream"], optional = true }
 serde = "1"
 serde_derive = "1"
 serde-xml-rs = "0.4"
 sha2 = "0.9"
 anyhow = "1.0"
 surf = { version = "2", optional = true, default-features = false, features = ["hyper-client"] }
-# Waiting on h2 compat
-tokio = { version = "0.2", features = ["stream"], optional = true, default-features = false }
+tokio = { version = "1.0", features = ["io-util"], optional = true, default-features = false }
+tokio-stream = "0.1"
 url = "2"
 
 block_on_proc = { version = "0.1", optional = true }
@@ -62,7 +62,7 @@ sync-rustls-tls = ["sync", "aws-creds/rustls-tls", "attohttpc/tls-rustls"]
 blocking = ["block_on_proc"]
 
 [dev-dependencies]
-tokio = { version = "0.2", features = ["macros"] }
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros"] }
 async-std = { version = "1", features = ["attributes"] }
 uuid = { version = "0.8", features = ["v4"] }
 env_logger = "0.8"
