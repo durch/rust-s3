@@ -190,7 +190,9 @@ pub trait Request {
 
         // Append to url_path
         match self.command() {
-            Command::InitiateMultipartUpload => url_str.push_str("?uploads"),
+            Command::InitiateMultipartUpload | Command::ListMultipartUploads { .. } => {
+                url_str.push_str("?uploads")
+            }
             Command::AbortMultipartUpload { upload_id } => {
                 url_str.push_str(&format!("?uploadId={}", upload_id))
             }
@@ -239,6 +241,24 @@ pub trait Request {
         }
 
         match self.command() {
+            Command::ListMultipartUploads {
+                prefix,
+                delimiter,
+                key_marker,
+                max_uploads,
+            } => {
+                let mut query_pairs = url.query_pairs_mut();
+                delimiter.map(|d| query_pairs.append_pair("delimiter", &d));
+                if let Some(prefix) = prefix {
+                    query_pairs.append_pair("prefix", prefix);
+                }
+                if let Some(key_marker) = key_marker {
+                    query_pairs.append_pair("key-marker", &key_marker);
+                }
+                if let Some(max_uploads) = max_uploads {
+                    query_pairs.append_pair("max-uploads", max_uploads.to_string().as_str());
+                }
+            }
             Command::PutObjectTagging { .. }
             | Command::GetObjectTagging
             | Command::DeleteObjectTagging => {
