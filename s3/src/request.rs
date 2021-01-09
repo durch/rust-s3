@@ -14,7 +14,7 @@ use crate::request_trait::Request;
 use anyhow::anyhow;
 use anyhow::Result;
 
-use tokio::stream::StreamExt;
+use tokio_stream::StreamExt;
 
 // Temporary structure for making a request
 pub struct Reqwest<'a> {
