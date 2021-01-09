@@ -16,10 +16,10 @@ pub type Query = HashMap<String, String>;
 use crate::request::Reqwest as RequestImpl;
 #[cfg(feature = "with-async-std")]
 use crate::surf_request::SurfRequest as RequestImpl;
-#[cfg(feature = "with-async-std")]
-use async_std::{fs::File, path::Path};
-#[cfg(feature = "with-tokio")]
-use tokio::fs::File;
+// #[cfg(feature = "with-async-std")]
+// use async_std::{fs::File, path::Path};
+// #[cfg(feature = "with-tokio")]
+// use tokio::fs::File;
 
 #[cfg(feature = "with-async-std")]
 use futures::io::AsyncRead;
@@ -28,12 +28,12 @@ use tokio::io::AsyncRead;
 
 #[cfg(feature = "sync")]
 use crate::blocking::AttoRequest as RequestImpl;
-#[cfg(feature = "sync")]
-use std::fs::File;
+// #[cfg(feature = "sync")]
+// use std::fs::File;
 #[cfg(feature = "sync")]
 use std::io::Read;
-#[cfg(any(feature = "sync", feature = "with-tokio"))]
-use std::path::Path;
+// #[cfg(any(feature = "sync", feature = "with-tokio"))]
+// use std::path::Path;
 
 use crate::request_trait::Request;
 use crate::serde_types::{
@@ -548,33 +548,48 @@ impl Bucket {
     /// let mut file = File::create(path)?;
     /// file.write_all(&test)?;
     ///
+    /// #[cfg(feature = "with-tokio")]
+    /// let mut path = tokio::fs::File::open(path).await?;
+    ///
+    /// #[cfg(feature = "with-async-std")]
+    /// let mut path = async_std::fs::File::open(path).await?;
     /// // Async variant with `tokio` or `async-std` features
-    /// let status_code = bucket.put_object_stream(path, "/path").await?;
+    /// // Generic over futures::io::AsyncRead|tokio::io::AsyncRead + Unpin
+    /// let status_code = bucket.put_object_stream(&mut path, "/path").await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// let status_code = bucket.put_object_stream(path, "/path")?;
+    /// // Generic over std::io::Read
+    /// let status_code = bucket.put_object_stream(&mut path, "/path")?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let status_code = bucket.put_object_stream_blocking(path, "/path")?;
+    /// let status_code = bucket.put_object_stream_blocking(&mut path, "/path")?;
     /// #
     /// # Ok(())
     /// # }
     /// ```
-    #[maybe_async::maybe_async]
-    pub async fn put_object_stream(
+    #[maybe_async::async_impl]
+    pub async fn put_object_stream<R: AsyncRead + Unpin>(
         &self,
-        path: impl AsRef<Path>,
+        reader: &mut R,
         s3_path: impl AsRef<str>,
     ) -> Result<u16> {
-        self._put_object_stream(&mut File::open(path).await?, s3_path.as_ref())
-            .await
+        self._put_object_stream(reader, s3_path.as_ref()).await
+    }
+
+    #[maybe_async::sync_impl]
+    pub fn put_object_stream<R: Read>(
+        &self,
+        reader: &mut R,
+        s3_path: impl AsRef<str>,
+    ) -> Result<u16> {
+        self._put_object_stream(reader, s3_path.as_ref())
     }
 
     #[maybe_async::async_impl]
-    async fn _put_object_stream<R: AsyncRead + Unpin + Send>(
+    async fn _put_object_stream<R: AsyncRead + Unpin>(
         &self,
         reader: &mut R,
         s3_path: &str,
@@ -1353,6 +1368,7 @@ mod test {
     use crate::region::Region;
     use crate::Bucket;
     use crate::BucketConfiguration;
+    use cfg_if::cfg_if;
     use http::header::HeaderName;
     use http::HeaderMap;
     use std::env;
@@ -1442,23 +1458,39 @@ mod test {
     )]
     async fn streaming_test_put_get_delete_big_object() {
         init();
-        let path = "+stream_test_big";
-        std::fs::remove_file(path).unwrap_or_else(|_| {});
+        let remote_path = "+stream_test_big";
+        let local_path = "+stream_test_big";
+        std::fs::remove_file(remote_path).unwrap_or_else(|_| {});
         let bucket = test_aws_bucket();
         let test: Vec<u8> = object(10_000_000);
 
-        let mut file = File::create(path).unwrap();
+        let mut file = File::create(local_path).unwrap();
         file.write_all(&test).unwrap();
+        cfg_if! {
+            if #[cfg(feature = "with-tokio")] {
+                let mut reader = tokio::fs::File::open(local_path).await.unwrap();
+            } else if #[cfg(feature = "with-async-std")] {
+                let mut reader = async_std::fs::File::open(local_path).await.unwrap();
+            } else if #[cfg(feature = "sync")] {
+                let mut reader = File::open(local_path).unwrap();
+            }
+        }
 
-        let code = bucket.put_object_stream(path, path).await.unwrap();
+        let code = bucket
+            .put_object_stream(&mut reader, remote_path)
+            .await
+            .unwrap();
         assert_eq!(code, 200);
         let mut writer = Vec::new();
-        let code = bucket.get_object_stream(path, &mut writer).await.unwrap();
+        let code = bucket
+            .get_object_stream(local_path, &mut writer)
+            .await
+            .unwrap();
         assert_eq!(code, 200);
         assert_eq!(test, writer);
-        let (_, code) = bucket.delete_object(path).await.unwrap();
+        let (_, code) = bucket.delete_object(local_path).await.unwrap();
         assert_eq!(code, 204);
-        std::fs::remove_file(path).unwrap_or_else(|_| {});
+        std::fs::remove_file(local_path).unwrap_or_else(|_| {});
     }
 
     #[ignore]
@@ -1586,46 +1618,46 @@ mod test {
         assert_eq!(code, 204);
     }
 
-    // #[ignore]
-    // #[maybe_async::test(
-    //     feature = "sync",
-    //     async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-    //     async(
-    //         all(not(feature = "sync"), feature = "with-async-std"),
-    //         async_std::test
-    //     )
-    // )]
-    // async fn wasabi_test_put_head_get_delete_object() {
-    //     let s3_path = "/+test.file";
-    //     let bucket = test_wasabi_bucket();
-    //     let test: Vec<u8> = object(3072);
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn wasabi_test_put_head_get_delete_object() {
+        let s3_path = "/+test.file";
+        let bucket = test_wasabi_bucket();
+        let test: Vec<u8> = object(3072);
 
-    //     let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
-    //     // println!("{}", std::str::from_utf8(&data).unwrap());
-    //     assert_eq!(code, 200);
-    //     let (data, code) = bucket.get_object(s3_path).await.unwrap();
-    //     assert_eq!(code, 200);
-    //     // println!("{}", std::str::from_utf8(&data).unwrap());
-    //     assert_eq!(test, data);
+        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(code, 200);
+        let (data, code) = bucket.get_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test, data);
 
-    //     let (data, code) = bucket
-    //         .get_object_range(s3_path, 100, Some(1000))
-    //         .await
-    //         .unwrap();
-    //     assert_eq!(code, 206);
-    //     // println!("{}", std::str::from_utf8(&data).unwrap());
-    //     assert_eq!(test[100..1001].to_vec(), data);
+        let (data, code) = bucket
+            .get_object_range(s3_path, 100, Some(1000))
+            .await
+            .unwrap();
+        assert_eq!(code, 206);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test[100..1001].to_vec(), data);
 
-    //     let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-    //     assert_eq!(code, 200);
-    //     assert_eq!(
-    //         head_object_result.content_type.unwrap(),
-    //         "application/octet-stream".to_owned()
-    //     );
-    //     // println!("{:?}", head_object_result);
-    //     let (_, code) = bucket.delete_object(s3_path).await.unwrap();
-    //     assert_eq!(code, 204);
-    // }
+        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(
+            head_object_result.content_type.unwrap(),
+            "application/octet-stream".to_owned()
+        );
+        // println!("{:?}", head_object_result);
+        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
+        assert_eq!(code, 204);
+    }
 
     #[test]
     #[ignore]
@@ -1651,7 +1683,6 @@ mod test {
 
     #[test]
     #[ignore]
-
     fn test_presign_get() {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
