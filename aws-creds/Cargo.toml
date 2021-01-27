@@ -15,7 +15,7 @@ name = "awscreds"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1.0"
+thiserror = "1.0"
 dirs = "3"
 rust-ini = "0.16"
 attohttpc = { version = "0.16", default-features = false, features = ["json"] }

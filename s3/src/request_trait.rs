@@ -7,10 +7,9 @@ use url::Url;
 
 use crate::bucket::Bucket;
 use crate::command::Command;
+use crate::errors::{PresignError, ResponseError};
 use crate::signing;
 use crate::LONG_DATE;
-use anyhow::anyhow;
-use anyhow::Result;
 use http::header::{
     HeaderName, ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DATE, HOST, RANGE,
 };
@@ -21,17 +20,20 @@ pub trait Request {
     type Response;
     type HeaderMap;
 
-    async fn response(&self) -> Result<Self::Response>;
-    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)>;
-    async fn response_data_to_writer<T: Write + Send>(&self, writer: &mut T) -> Result<u16>;
-    async fn response_header(&self) -> Result<(Self::HeaderMap, u16)>;
+    async fn response(&self) -> Result<Self::Response, ResponseError>;
+    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16), ResponseError>;
+    async fn response_data_to_writer<T: Write + Send>(
+        &self,
+        writer: &mut T,
+    ) -> Result<u16, ResponseError>;
+    async fn response_header(&self) -> Result<(Self::HeaderMap, u16), ResponseError>;
     fn datetime(&self) -> DateTime<Utc>;
     fn bucket(&self) -> Bucket;
     fn command(&self) -> Command;
     fn path(&self) -> String;
 
-    fn signing_key(&self) -> Result<Vec<u8>> {
-        Ok(signing::signing_key(
+    fn signing_key(&self) -> Result<Vec<u8>, crypto_mac::InvalidKeyLength> {
+        signing::signing_key(
             &self.datetime(),
             &self
                 .bucket()
@@ -39,7 +41,7 @@ pub trait Request {
                 .expect("Secret key must be provided to sign headers, found None"),
             &self.bucket().region(),
             "s3",
-        )?)
+        )
     }
 
     fn request_body(&self) -> Vec<u8> {
@@ -76,32 +78,29 @@ pub trait Request {
         self.bucket().host()
     }
 
-    fn presigned(&self) -> Result<String> {
+    fn presigned(&self) -> Result<String, PresignError> {
         let expiry = match self.command() {
             Command::PresignGet { expiry_secs } => expiry_secs,
             Command::PresignPut { expiry_secs, .. } => expiry_secs,
             _ => unreachable!(),
         };
 
+        let mut extra_headers = None;
         if let Command::PresignPut { custom_headers, .. } = self.command() {
-            if let Some(custom_headers) = custom_headers {
-                let authorization = self.presigned_authorization(Some(&custom_headers))?;
-                return Ok(format!(
-                    "{}&X-Amz-Signature={}",
-                    self.presigned_url_no_sig(expiry, Some(&custom_headers))?,
-                    authorization
-                ));
-            }
+            extra_headers = custom_headers;
         }
 
         Ok(format!(
             "{}&X-Amz-Signature={}",
-            self.presigned_url_no_sig(expiry, None)?,
-            self.presigned_authorization(None)?
+            self.presigned_url_no_sig(expiry, extra_headers.as_ref())?,
+            self.presigned_authorization(extra_headers.as_ref())?
         ))
     }
 
-    fn presigned_authorization(&self, custom_headers: Option<&HeaderMap>) -> Result<String> {
+    fn presigned_authorization(
+        &self,
+        custom_headers: Option<&HeaderMap>,
+    ) -> Result<String, PresignError> {
         let mut headers = HeaderMap::new();
         let host_header = self.host_header();
         headers.insert(HOST, host_header.parse().unwrap());
@@ -112,41 +111,38 @@ pub trait Request {
         }
         let canonical_request = self.presigned_canonical_request(&headers)?;
         let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac =
-            signing::HmacSha256::new_varkey(&self.signing_key()?).map_err(|e| anyhow! {"{}",e})?;
+        let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
         hmac.update(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         // let signed_header = signing::signed_header_string(&headers);
         Ok(signature)
     }
 
-    fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String> {
+    fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String, url::ParseError> {
         let expiry = match self.command() {
             Command::PresignGet { expiry_secs } => expiry_secs,
             Command::PresignPut { expiry_secs, .. } => expiry_secs,
             _ => unreachable!(),
         };
 
+        let mut extra_headers = None;
         if let Command::PresignPut { custom_headers, .. } = self.command() {
-            if let Some(custom_headers) = custom_headers {
-                return Ok(signing::canonical_request(
-                    &self.command().http_verb().to_string(),
-                    &self.presigned_url_no_sig(expiry, Some(&custom_headers))?,
-                    headers,
-                    "UNSIGNED-PAYLOAD",
-                ));
-            }
+            extra_headers = custom_headers;
         }
 
         Ok(signing::canonical_request(
             &self.command().http_verb().to_string(),
-            &self.presigned_url_no_sig(expiry, None)?,
+            &self.presigned_url_no_sig(expiry, extra_headers.as_ref())?,
             headers,
             "UNSIGNED-PAYLOAD",
         ))
     }
 
-    fn presigned_url_no_sig(&self, expiry: u32, custom_headers: Option<&HeaderMap>) -> Result<Url> {
+    fn presigned_url_no_sig(
+        &self,
+        expiry: u32,
+        custom_headers: Option<&HeaderMap>,
+    ) -> Result<Url, url::ParseError> {
         let bucket = self.bucket();
         let token = if let Some(security_token) = bucket.security_token() {
             Some(security_token)
@@ -155,7 +151,8 @@ pub trait Request {
         } else {
             None
         };
-        let url = Url::parse(&format!(
+
+        Url::parse(&format!(
             "{}{}",
             self.url(),
             &signing::authorization_query_params_no_sig(
@@ -165,10 +162,8 @@ pub trait Request {
                 expiry,
                 custom_headers,
                 token
-            )?
-        ))?;
-
-        Ok(url)
+            )
+        ))
     }
 
     fn url(&self) -> Url {
@@ -279,11 +274,10 @@ pub trait Request {
         )
     }
 
-    fn authorization(&self, headers: &HeaderMap) -> Result<String> {
+    fn authorization(&self, headers: &HeaderMap) -> Result<String, crypto_mac::InvalidKeyLength> {
         let canonical_request = self.canonical_request(headers);
         let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac =
-            signing::HmacSha256::new_varkey(&self.signing_key()?).map_err(|e| anyhow! {"{}",e})?;
+        let mut hmac = signing::HmacSha256::new_varkey(&self.signing_key()?)?;
         hmac.update(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         let signed_header = signing::signed_header_string(headers);
@@ -296,7 +290,7 @@ pub trait Request {
         ))
     }
 
-    fn headers(&self) -> Result<HeaderMap> {
+    fn headers(&self) -> Result<HeaderMap, crypto_mac::InvalidKeyLength> {
         // Generate this once, but it's used in more than one place.
         let sha256 = self.command().sha256();
 
@@ -388,7 +382,7 @@ pub trait Request {
 
             headers.insert(RANGE, range.parse().unwrap());
         } else if let Command::CreateBucket { ref config } = self.command() {
-            config.add_headers(&mut headers)?;
+            config.add_headers(&mut headers);
         }
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided

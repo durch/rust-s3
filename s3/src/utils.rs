@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 use crate::{bucket::CHUNK_SIZE, serde_types::HeadObjectResult};
-use anyhow::Result;
 
 #[cfg(feature = "with-async-std")]
 use async_std::fs::File;
@@ -34,7 +33,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 /// }
 /// ```
 #[cfg(any(feature = "tokio", feature = "async-std"))]
-pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
+pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String, std::io::Error> {
     let mut file = File::open(path).await?;
     let mut digests = Vec::new();
     let mut chunks = 0;
@@ -65,7 +64,7 @@ pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
 /// println!("{}", etag);
 /// ```
 #[cfg(feature = "sync")]
-pub fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
+pub fn etag_for_path(path: impl AsRef<Path>) -> Result<String, std::io::Error> {
     let mut file = File::open(path)?;
     let mut digests = Vec::new();
     let mut chunks = 0;
@@ -88,7 +87,7 @@ pub fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
 }
 
 #[cfg(any(feature = "tokio", feature = "async-std"))]
-pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>> {
+pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>, std::io::Error> {
     let mut chunk = Vec::with_capacity(CHUNK_SIZE);
     let mut take = reader.take(CHUNK_SIZE as u64);
     take.read_to_end(&mut chunk).await?;
@@ -97,7 +96,7 @@ pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>>
 }
 
 #[cfg(feature = "sync")]
-pub fn read_chunk<R: Read>(reader: &mut R) -> Result<Vec<u8>> {
+pub fn read_chunk<R: Read>(reader: &mut R) -> Result<Vec<u8>, std::io::Error> {
     let mut chunk = Vec::with_capacity(CHUNK_SIZE);
     let mut take = reader.take(CHUNK_SIZE as u64);
     take.read_to_end(&mut chunk)?;

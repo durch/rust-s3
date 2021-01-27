@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use anyhow::anyhow;
-use anyhow::Result;
 use ini::Ini;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
@@ -114,8 +112,43 @@ pub struct ResponseMetadata {
     pub request_id: String,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Environment variable not found: {0}")]
+    AbsentVar(#[from] env::VarError),
+    #[error("Invalid url: {0}")]
+    InvalidUrl(#[from] url::ParseError),
+    #[error("Not an EC2 instance")]
+    NotEC2,
+    #[error("HTTP issue: {0}")]
+    AttohttpcError(#[from] attohttpc::Error),
+    #[error("File manipulation failed: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("Custom error: {0}")]
+    Custom(String),
+    #[error("XML deserialization error: {0}")]
+    XmlDeserializationError(#[from] serde_xml_rs::Error),
+    #[error("Invalid ini file: {0}")]
+    IniParsingError(ini::ParseError),
+}
+
+impl From<String> for Error {
+    fn from(v: String) -> Error {
+        Error::Custom(v)
+    }
+}
+
+impl From<ini::Error> for Error {
+    fn from(v: ini::Error) -> Error {
+        match v {
+            ini::Error::Io(e) => Error::IoError(e),
+            ini::Error::Parse(e) => Error::IniParsingError(e),
+        }
+    }
+}
+
 impl Credentials {
-    pub fn from_sts_env(session_name: &str) -> Result<Credentials> {
+    pub fn from_sts_env(session_name: &str) -> Result<Credentials, Error> {
         let role_arn = env::var("AWS_ROLE_ARN")?;
         let web_identity_token_file = env::var("AWS_WEB_IDENTITY_TOKEN_FILE")?;
         let web_identity_token = std::fs::read_to_string(web_identity_token_file)?;
@@ -126,7 +159,7 @@ impl Credentials {
         role_arn: &str,
         session_name: &str,
         web_identity_token: &str,
-    ) -> Result<Credentials> {
+    ) -> Result<Credentials, Error> {
         let url = Url::parse_with_params(
             "https://sts.amazonaws.com/",
             &[
@@ -165,17 +198,17 @@ impl Credentials {
         })
     }
 
-    pub fn default() -> Result<Credentials> {
+    pub fn default() -> Result<Credentials, Error> {
         Credentials::new(None, None, None, None, None)
     }
 
-    pub fn anonymous() -> Result<Credentials> {
-        Ok(Credentials {
+    pub fn anonymous() -> Credentials {
+        Credentials {
             access_key: None,
             secret_key: None,
             security_token: None,
             session_token: None,
-        })
+        }
     }
 
     /// Initialize Credentials directly with key ID, secret key, and optional
@@ -186,7 +219,7 @@ impl Credentials {
         security_token: Option<&str>,
         session_token: Option<&str>,
         profile: Option<&str>,
-    ) -> Result<Credentials> {
+    ) -> Result<Credentials, Error> {
         if access_key.is_some() {
             return Ok(Credentials {
                 access_key: access_key.map(|s| s.to_string()),
@@ -207,7 +240,7 @@ impl Credentials {
         secret_key_var: Option<&str>,
         security_token_var: Option<&str>,
         session_token_var: Option<&str>,
-    ) -> Result<Credentials> {
+    ) -> Result<Credentials, Error> {
         let access_key = from_env_with_default(access_key_var, "AWS_ACCESS_KEY_ID")?;
         let secret_key = from_env_with_default(secret_key_var, "AWS_SECRET_ACCESS_KEY")?;
 
@@ -221,13 +254,13 @@ impl Credentials {
         })
     }
 
-    pub fn from_env() -> Result<Credentials> {
+    pub fn from_env() -> Result<Credentials, Error> {
         Credentials::from_env_specific(None, None, None, None)
     }
 
-    pub fn from_instance_metadata() -> Result<Credentials> {
+    pub fn from_instance_metadata() -> Result<Credentials, Error> {
         if !Credentials::is_ec2() {
-            return Err(anyhow!("Not an EC2 instance"));
+            return Err(Error::NotEC2);
         }
         let mut resp: HashMap<String, String> =
             match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
@@ -277,22 +310,22 @@ impl Credentials {
         false
     }
 
-    pub fn from_profile(section: Option<&str>) -> Result<Credentials> {
-        let home_dir = dirs::home_dir().ok_or_else(|| anyhow!("Invalid home dir"))?;
+    pub fn from_profile(section: Option<&str>) -> Result<Credentials, Error> {
+        let home_dir = dirs::home_dir().ok_or_else(|| String::from("Invalid home dir"))?;
         let profile = format!("{}/.aws/credentials", home_dir.display());
         let conf = Ini::load_from_file(&profile)?;
         let section = section.unwrap_or("default");
         let data = conf
             .section(Some(section))
-            .ok_or_else(|| anyhow!("Config missing"))?;
+            .ok_or_else(|| String::from("Config missing"))?;
         let access_key = data
             .get("aws_access_key_id")
             .map(|s| s.to_string())
-            .ok_or_else(|| anyhow!("Missing aws_access_key_id section"))?;
+            .ok_or_else(|| String::from("Missing aws_access_key_id section"))?;
         let secret_key = data
             .get("aws_secret_access_key")
             .map(|s| s.to_string())
-            .ok_or_else(|| anyhow!("Missing aws_secret_access_key section"))?;
+            .ok_or_else(|| String::from("Missing aws_secret_access_key section"))?;
         let credentials = Credentials {
             access_key: Some(access_key),
             secret_key: Some(secret_key),
@@ -303,13 +336,13 @@ impl Credentials {
     }
 }
 
-fn from_env_with_default(var: Option<&str>, default: &str) -> Result<String> {
+fn from_env_with_default(var: Option<&str>, default: &str) -> Result<String, Error> {
     let val = var.unwrap_or(default);
-    env::var(val).or_else(|_e| env::var(val)).map_err(|_| {
-        anyhow!(
+    env::var(val).or_else(|_| env::var(val)).map_err(|_| {
+        format!(
             "Neither {:?}, nor {} does not exist in the environment",
-            var,
-            default
+            var, default
         )
+        .into()
     })
 }

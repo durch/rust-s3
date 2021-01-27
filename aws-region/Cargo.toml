@@ -13,6 +13,3 @@ edition = "2018"
 [lib]
 name = "awsregion"
 path = "src/lib.rs"
-
-[dependencies]
-anyhow = "1.0"
