@@ -120,50 +120,51 @@ impl GetAndConvertHeaders for http::header::HeaderMap {
 
 impl From<&http::HeaderMap> for HeadObjectResult {
     fn from(headers: &http::HeaderMap) -> Self {
-        let mut result = HeadObjectResult::default();
-        result.accept_ranges = headers.get_string("accept-ranges");
-        result.cache_control = headers.get_string("Cache-Control");
-        result.content_disposition = headers.get_string("Content-Disposition");
-        result.content_encoding = headers.get_string("Content-Encoding");
-        result.content_language = headers.get_string("Content-Language");
-        result.content_length = headers.get_and_convert("Content-Length");
-        result.content_type = headers.get_string("Content-Type");
-        result.delete_marker = headers.get_and_convert("x-amz-delete-marker");
-        result.e_tag = headers.get_string("ETag");
-        result.expiration = headers.get_string("x-amz-expiration");
-        result.expires = headers.get_string("Expires");
-        result.last_modified = headers.get_string("Last-Modified");
-        let mut values = ::std::collections::HashMap::new();
+        let mut metadata_values = ::std::collections::HashMap::new();
         for (key, value) in headers.iter() {
             if key.as_str().starts_with("x-amz-meta-") {
                 if let Ok(value) = value.to_str() {
-                    values.insert(
+                    metadata_values.insert(
                         key.as_str()["x-amz-meta-".len()..].to_owned(),
                         value.to_owned(),
                     );
                 }
             }
         }
-        result.metadata = Some(values);
-        result.missing_meta = headers.get_and_convert("x-amz-missing-meta");
-        result.object_lock_legal_hold_status = headers.get_string("x-amz-object-lock-legal-hold");
-        result.object_lock_mode = headers.get_string("x-amz-object-lock-mode");
-        result.object_lock_retain_until_date =
-            headers.get_string("x-amz-object-lock-retain-until-date");
-        result.parts_count = headers.get_and_convert("x-amz-mp-parts-count");
-        result.replication_status = headers.get_string("x-amz-replication-status");
-        result.request_charged = headers.get_string("x-amz-request-charged");
-        result.restore = headers.get_string("x-amz-restore");
-        result.sse_customer_algorithm =
-            headers.get_string("x-amz-server-side-encryption-customer-algorithm");
-        result.sse_customer_key_md5 =
-            headers.get_string("x-amz-server-side-encryption-customer-key-MD5");
-        result.ssekms_key_id = headers.get_string("x-amz-server-side-encryption-aws-kms-key-id");
-        result.server_side_encryption = headers.get_string("x-amz-server-side-encryption");
-        result.storage_class = headers.get_string("x-amz-storage-class");
-        result.version_id = headers.get_string("x-amz-version-id");
-        result.website_redirect_location = headers.get_string("x-amz-website-redirect-location");
-        result
+
+        HeadObjectResult {
+            accept_ranges: headers.get_string("accept-ranges"),
+            cache_control: headers.get_string("Cache-Control"),
+            content_disposition: headers.get_string("Content-Disposition"),
+            content_encoding: headers.get_string("Content-Encoding"),
+            content_language: headers.get_string("Content-Language"),
+            content_length: headers.get_and_convert("Content-Length"),
+            content_type: headers.get_string("Content-Type"),
+            delete_marker: headers.get_and_convert("x-amz-delete-marker"),
+            e_tag: headers.get_string("ETag"),
+            expiration: headers.get_string("x-amz-expiration"),
+            expires: headers.get_string("Expires"),
+            last_modified: headers.get_string("Last-Modified"),
+            metadata: Some(metadata_values),
+            missing_meta: headers.get_and_convert("x-amz-missing-meta"),
+            object_lock_legal_hold_status: headers.get_string("x-amz-object-lock-legal-hold"),
+            object_lock_mode: headers.get_string("x-amz-object-lock-mode"),
+            object_lock_retain_until_date: headers
+                .get_string("x-amz-object-lock-retain-until-date"),
+            parts_count: headers.get_and_convert("x-amz-mp-parts-count"),
+            replication_status: headers.get_string("x-amz-replication-status"),
+            request_charged: headers.get_string("x-amz-request-charged"),
+            restore: headers.get_string("x-amz-restore"),
+            sse_customer_algorithm: headers
+                .get_string("x-amz-server-side-encryption-customer-algorithm"),
+            sse_customer_key_md5: headers
+                .get_string("x-amz-server-side-encryption-customer-key-MD5"),
+            ssekms_key_id: headers.get_string("x-amz-server-side-encryption-aws-kms-key-id"),
+            server_side_encryption: headers.get_string("x-amz-server-side-encryption"),
+            storage_class: headers.get_string("x-amz-storage-class"),
+            version_id: headers.get_string("x-amz-version-id"),
+            website_redirect_location: headers.get_string("x-amz-website-redirect-location"),
+        }
     }
 }
 

@@ -1322,7 +1322,7 @@ impl Bucket {
         let abort_request = RequestImpl::new(self, key, abort);
         let (content, code) = abort_request.response_data(false).await?;
 
-        if code >= 200 && code < 300 {
+        if (200..300).contains(&code) {
             Ok(())
         } else {
             let utf8_content = String::from_utf8(content);
