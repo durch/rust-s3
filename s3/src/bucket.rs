@@ -1322,7 +1322,7 @@ impl Bucket {
         let abort_request = RequestImpl::new(self, key, abort);
         let (content, code) = abort_request.response_data(false).await?;
 
-        if code >= 200 && code < 300 {
+        if (200..300).contains(&code) {
             Ok(())
         } else {
             let utf8_content = String::from_utf8(content);
@@ -1550,6 +1550,10 @@ mod test {
         .unwrap()
     }
 
+    fn test_minio_credentials() -> Credentials {
+        Credentials::new(Some("test"), Some("test1234"), None, None, None).unwrap()
+    }
+
     fn test_aws_bucket() -> Bucket {
         Bucket::new(
             "rust-s3-test",
@@ -1576,6 +1580,18 @@ mod test {
                 endpoint: "https://storage.googleapis.com".to_owned(),
             },
             test_gc_credentials(),
+        )
+        .unwrap()
+    }
+
+    fn test_minio_bucket() -> Bucket {
+        Bucket::new_with_path_style(
+            "rust-s3",
+            Region::Custom {
+                region: "eu-central-1".to_owned(),
+                endpoint: "http://localhost:9000".to_owned(),
+            },
+            test_minio_credentials(),
         )
         .unwrap()
     }
@@ -1944,5 +1960,46 @@ mod test {
 
         let response_code = response.bucket.delete().await.unwrap();
         assert!(response_code < 300);
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn minio_test_put_head_get_delete_object() {
+        let s3_path = "/+test.file";
+        let bucket = test_minio_bucket();
+        let test: Vec<u8> = object(3072);
+
+        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(code, 200);
+        let (data, code) = bucket.get_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test, data);
+
+        let (data, code) = bucket
+            .get_object_range(s3_path, 100, Some(1000))
+            .await
+            .unwrap();
+        assert_eq!(code, 206);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test[100..1001].to_vec(), data);
+
+        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(
+            head_object_result.content_type.unwrap(),
+            "application/octet-stream".to_owned()
+        );
+        // println!("{:?}", head_object_result);
+        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
+        assert_eq!(code, 204);
     }
 }

@@ -120,19 +120,21 @@ impl GetAndConvertHeaders for http::header::HeaderMap {
 
 impl From<&http::HeaderMap> for HeadObjectResult {
     fn from(headers: &http::HeaderMap) -> Self {
-        let mut result = HeadObjectResult::default();
-        result.accept_ranges = headers.get_string("accept-ranges");
-        result.cache_control = headers.get_string("Cache-Control");
-        result.content_disposition = headers.get_string("Content-Disposition");
-        result.content_encoding = headers.get_string("Content-Encoding");
-        result.content_language = headers.get_string("Content-Language");
-        result.content_length = headers.get_and_convert("Content-Length");
-        result.content_type = headers.get_string("Content-Type");
-        result.delete_marker = headers.get_and_convert("x-amz-delete-marker");
-        result.e_tag = headers.get_string("ETag");
-        result.expiration = headers.get_string("x-amz-expiration");
-        result.expires = headers.get_string("Expires");
-        result.last_modified = headers.get_string("Last-Modified");
+        let mut result = HeadObjectResult {
+            accept_ranges: headers.get_string("accept-ranges"),
+            cache_control: headers.get_string("Cache-Control"),
+            content_disposition: headers.get_string("Content-Disposition"),
+            content_encoding: headers.get_string("Content-Encoding"),
+            content_language: headers.get_string("Content-Language"),
+            content_length: headers.get_and_convert("Content-Length"),
+            content_type: headers.get_string("Content-Type"),
+            delete_marker: headers.get_and_convert("x-amz-delete-marker"),
+            e_tag: headers.get_string("ETag"),
+            expiration: headers.get_string("x-amz-expiration"),
+            expires: headers.get_string("Expires"),
+            last_modified: headers.get_string("Last-Modified"),
+            ..Default::default()
+        };
         let mut values = ::std::collections::HashMap::new();
         for (key, value) in headers.iter() {
             if key.as_str().starts_with("x-amz-meta-") {

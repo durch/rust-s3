@@ -119,7 +119,7 @@ impl<'a> Request for Reqwest<'a> {
         Ok((body_vec, status_code))
     }
 
-    async fn response_data_to_writer<'b, T: Write + Send>(&self, writer: &'b mut T) -> Result<u16> {
+    async fn response_data_to_writer<T: Write + Send>(&self, writer: &mut T) -> Result<u16> {
         let response = self.response().await?;
 
         let status_code = response.status();

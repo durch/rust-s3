@@ -104,7 +104,7 @@ impl<'a> Request for AttoRequest<'a> {
         Ok((body_vec, status_code))
     }
 
-    fn response_data_to_writer<'b, T: Write>(&self, writer: &'b mut T) -> Result<u16> {
+    fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16> {
         let response = self.response()?;
 
         let status_code = response.status();
