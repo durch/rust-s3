@@ -201,7 +201,7 @@ impl Region {
             DoNyc3 => String::from("nyc3.digitaloceanspaces.com"),
             DoAms3 => String::from("ams3.digitaloceanspaces.com"),
             DoSgp1 => String::from("sgp1.digitaloceanspaces.com"),
-            DoFra1 => String::from("fra1.digiraloceanspaces.com"),
+            DoFra1 => String::from("fra1.digitaloceanspaces.com"),
             Yandex => String::from("storage.yandexcloud.net"),
             WaUsEast1 => String::from("s3.us-east-1.wasabisys.com"),
             WaUsEast2 => String::from("s3.us-east-2.wasabisys.com"),
