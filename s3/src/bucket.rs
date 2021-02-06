@@ -1554,6 +1554,17 @@ mod test {
         Credentials::new(Some("test"), Some("test1234"), None, None, None).unwrap()
     }
 
+    fn test_digital_ocean_credentials() -> Credentials {
+        Credentials::new(
+            Some(&env::var("DIGITAL_OCEAN_ACCESS_KEY_ID").unwrap()),
+            Some(&env::var("DIGITAL_OCEAN_SECRET_ACCESS_KEY").unwrap()),
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+    }
+
     fn test_aws_bucket() -> Bucket {
         Bucket::new(
             "rust-s3-test",
@@ -1596,8 +1607,44 @@ mod test {
         .unwrap()
     }
 
+    fn test_digital_ocean_bucket() -> Bucket {
+        Bucket::new("rust-s3", Region::DoFra1, test_digital_ocean_credentials()).unwrap()
+    }
+
     fn object(size: u32) -> Vec<u8> {
         (0..size).map(|_| 33).collect()
+    }
+
+    #[maybe_async::maybe_async]
+    async fn put_head_get_delete_object(bucket: Bucket) {
+        let s3_path = "/+test.file";
+        let test: Vec<u8> = object(3072);
+
+        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(code, 200);
+        let (data, code) = bucket.get_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test, data);
+
+        let (data, code) = bucket
+            .get_object_range(s3_path, 100, Some(1000))
+            .await
+            .unwrap();
+        assert_eq!(code, 206);
+        // println!("{}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(test[100..1001].to_vec(), data);
+
+        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(
+            head_object_result.content_type.unwrap(),
+            "application/octet-stream".to_owned()
+        );
+        // println!("{:?}", head_object_result);
+        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
+        assert_eq!(code, 204);
     }
 
     #[ignore]
@@ -1646,53 +1693,9 @@ mod test {
         std::fs::remove_file(local_path).unwrap_or_else(|_| {});
     }
 
-    #[ignore]
-    #[maybe_async::test(
-        feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
-    )]
-    async fn test_put_head_get_delete_object() {
-        let s3_path = "/test.file";
-        let bucket = test_aws_bucket();
-        let test: Vec<u8> = object(3072);
-
-        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(code, 200);
-        let (data, code) = bucket.get_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test, data);
-
-        let (data, code) = bucket
-            .get_object_range(s3_path, 100, Some(1000))
-            .await
-            .unwrap();
-        assert_eq!(code, 206);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test[100..1001].to_vec(), data);
-
-        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        assert_eq!(
-            head_object_result.content_type.unwrap(),
-            "application/octet-stream".to_owned()
-        );
-        // println!("{:?}", head_object_result);
-        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
-        assert_eq!(code, 204);
-    }
-
-    #[ignore]
-    #[test]
-    #[cfg(features = "blocking")]
-    fn test_put_head_get_delete_object_blocking() {
-        let s3_path = "/test.file";
-        let bucket = test_aws_bucket();
+    #[cfg(feature = "blocking")]
+    fn put_head_get_delete_object_blocking(bucket: Bucket) {
+        let s3_path = "/test_blocking.file";
         let test: Vec<u8> = object(3072);
 
         let (_data, code) = bucket.put_object_blocking(s3_path, &test).unwrap();
@@ -1727,35 +1730,61 @@ mod test {
         feature = "blocking"
     ))]
     #[test]
-    fn test_put_head_get_delete_object_blocking() {
-        let s3_path = "/test_blocking.file";
-        let bucket = test_aws_bucket();
-        let test: Vec<u8> = object(3072);
+    fn aws_put_head_get_delete_object_blocking() {
+        put_head_get_delete_object_blocking(test_aws_bucket())
+    }
 
-        let (_data, code) = bucket.put_object_blocking(s3_path, &test).unwrap();
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(code, 200);
-        let (data, code) = bucket.get_object_blocking(s3_path).unwrap();
-        assert_eq!(code, 200);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test, data);
+    #[ignore]
+    #[cfg(all(
+        any(feature = "with-tokio", feature = "with-async-std"),
+        feature = "blocking"
+    ))]
+    #[test]
+    fn gc_put_head_get_delete_object_blocking() {
+        put_head_get_delete_object_blocking(test_gc_bucket())
+    }
 
-        let (data, code) = bucket
-            .get_object_range_blocking(s3_path, 100, Some(1000))
-            .unwrap();
-        assert_eq!(code, 206);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test[100..1001].to_vec(), data);
+    #[ignore]
+    #[cfg(all(
+        any(feature = "with-tokio", feature = "with-async-std"),
+        feature = "blocking"
+    ))]
+    #[test]
+    fn wasabi_put_head_get_delete_object_blocking() {
+        put_head_get_delete_object_blocking(test_wasabi_bucket())
+    }
 
-        let (head_object_result, code) = bucket.head_object_blocking(s3_path).unwrap();
-        assert_eq!(code, 200);
-        assert_eq!(
-            head_object_result.content_type.unwrap(),
-            "application/octet-stream".to_owned()
-        );
-        // println!("{:?}", head_object_result);
-        let (_, code) = bucket.delete_object_blocking(s3_path).unwrap();
-        assert_eq!(code, 204);
+    #[ignore]
+    #[cfg(all(
+        any(feature = "with-tokio", feature = "with-async-std"),
+        feature = "blocking"
+    ))]
+    #[test]
+    fn minio_put_head_get_delete_object_blocking() {
+        put_head_get_delete_object_blocking(test_minio_bucket())
+    }
+
+    #[ignore]
+    #[cfg(all(
+        any(feature = "with-tokio", feature = "with-async-std"),
+        feature = "blocking"
+    ))]
+    #[test]
+    fn digital_ocean_put_head_get_delete_object_blocking() {
+        put_head_get_delete_object_blocking(test_digital_ocean_bucket())
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn aws_put_head_get_delete_object() {
+        put_head_get_delete_object(test_aws_bucket()).await;
     }
 
     #[ignore]
@@ -1774,35 +1803,7 @@ mod test {
         )
     )]
     async fn gc_test_put_head_get_delete_object() {
-        let s3_path = "/tes+t.file";
-        let bucket = test_gc_bucket();
-        let test: Vec<u8> = object(3072);
-
-        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(code, 200);
-        let (data, code) = bucket.get_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test, data);
-
-        let (data, code) = bucket
-            .get_object_range(s3_path, 100, Some(1000))
-            .await
-            .unwrap();
-        assert_eq!(code, 206);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test[100..1001].to_vec(), data);
-
-        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        assert_eq!(
-            head_object_result.content_type.unwrap(),
-            "application/octet-stream".to_owned()
-        );
-        // println!("{:?}", head_object_result);
-        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
-        assert_eq!(code, 204);
+        put_head_get_delete_object(test_gc_bucket()).await;
     }
 
     #[ignore]
@@ -1815,35 +1816,33 @@ mod test {
         )
     )]
     async fn wasabi_test_put_head_get_delete_object() {
-        let s3_path = "/+test.file";
-        let bucket = test_wasabi_bucket();
-        let test: Vec<u8> = object(3072);
+        put_head_get_delete_object(test_wasabi_bucket()).await;
+    }
 
-        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(code, 200);
-        let (data, code) = bucket.get_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test, data);
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn minio_test_put_head_get_delete_object() {
+        put_head_get_delete_object(test_minio_bucket()).await;
+    }
 
-        let (data, code) = bucket
-            .get_object_range(s3_path, 100, Some(1000))
-            .await
-            .unwrap();
-        assert_eq!(code, 206);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test[100..1001].to_vec(), data);
-
-        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        assert_eq!(
-            head_object_result.content_type.unwrap(),
-            "application/octet-stream".to_owned()
-        );
-        // println!("{:?}", head_object_result);
-        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
-        assert_eq!(code, 204);
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn digital_ocean_test_put_head_get_delete_object() {
+        put_head_get_delete_object(test_digital_ocean_bucket()).await;
     }
 
     #[test]
@@ -1960,46 +1959,5 @@ mod test {
 
         let response_code = response.bucket.delete().await.unwrap();
         assert!(response_code < 300);
-    }
-
-    #[ignore]
-    #[maybe_async::test(
-        feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
-    )]
-    async fn minio_test_put_head_get_delete_object() {
-        let s3_path = "/+test.file";
-        let bucket = test_minio_bucket();
-        let test: Vec<u8> = object(3072);
-
-        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(code, 200);
-        let (data, code) = bucket.get_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test, data);
-
-        let (data, code) = bucket
-            .get_object_range(s3_path, 100, Some(1000))
-            .await
-            .unwrap();
-        assert_eq!(code, 206);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test[100..1001].to_vec(), data);
-
-        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        assert_eq!(
-            head_object_result.content_type.unwrap(),
-            "application/octet-stream".to_owned()
-        );
-        // println!("{:?}", head_object_result);
-        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
-        assert_eq!(code, 204);
     }
 }
