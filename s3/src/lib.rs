@@ -23,6 +23,8 @@ pub mod deserializer;
 pub mod request;
 pub mod serde_types;
 pub mod signing;
+#[cfg(feature = "with-smol")]
+pub mod smol_request;
 #[cfg(feature = "with-async-std")]
 pub mod surf_request;
 

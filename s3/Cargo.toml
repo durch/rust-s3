@@ -14,9 +14,9 @@ edition = "2018"
 name = "s3"
 path = "src/lib.rs"
 
-# [[bin]]
-# name = "simple_crud"
-# path = "bin/simple_crud.rs"
+#[[bin]]
+#name = "simple_crud"
+#path = "bin/simple_crud.rs"
 
 [dependencies]
 async-std = { version = "1", optional = true }
@@ -45,12 +45,18 @@ surf = { version = "2", optional = true, default-features = false, features = ["
 # Waiting on h2 compat
 tokio = { version = "0.2", features = ["stream"], optional = true, default-features = false }
 url = "2"
+smol = { version = "1.2.5", optional = true }
+async-h1 = { version = "2.3.0", optional = true }
+http-types = { version = "2.9.0", optional = true }
+async-native-tls = { version = "0.3.3", optional = true }
+anyhow = { version = "1.0.38", optional = true }
 
 block_on_proc = { version = "0.1", optional = true}
 
 [features]
 with-tokio = ["reqwest", "tokio", "futures", "async-std"]
 with-async-std = ["async-std", "surf", "futures"]
+with-smol = ["smol", "async-h1", "http-types", "async-std", "futures", "anyhow", "async-native-tls"]
 sync = ["attohttpc", "maybe-async/is_sync"]
 default = ["tokio-native-tls", "with-tokio"]
 no-verify-ssl = []
