@@ -123,3 +123,16 @@ Default is `reqwest/native-tls`, it is possible to switch to `reqwest/rustls-tls
 [dependencies]
 rust-s3 = {version = "0.26.0", features = ["rustls-tls"]}
 ```
+
+
+##### Use async-std instead of tokio
+
+By default the `with-tokio` feature is enabled. To switch to `async-std` you need to disable the default features and specify the `with-async-std` feature
+
+```toml
+[dependencies]
+rust-s3 = {version = "0.27.0-beta8", features = ["with-async-std"], default-features = false}
+```
+
+
+
