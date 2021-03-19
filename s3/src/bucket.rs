@@ -63,6 +63,7 @@ pub struct Bucket {
     pub extra_headers: Headers,
     pub extra_query: Query,
     path_style: bool,
+    listobjects_v2: bool,
 }
 
 fn validate_expiry(expiry_secs: u32) -> Result<()> {
@@ -312,6 +313,7 @@ impl Bucket {
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
             path_style: false,
+            listobjects_v2: true,
         })
     }
 
@@ -335,6 +337,7 @@ impl Bucket {
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
             path_style: false,
+            listobjects_v2: true,
         })
     }
 
@@ -363,6 +366,7 @@ impl Bucket {
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
             path_style: true,
+            listobjects_v2: true,
         })
     }
 
@@ -386,6 +390,7 @@ impl Bucket {
             extra_headers: HashMap::new(),
             extra_query: HashMap::new(),
             path_style: true,
+            listobjects_v2: true,
         })
     }
 
@@ -1126,13 +1131,27 @@ impl Bucket {
         start_after: Option<String>,
         max_keys: Option<usize>,
     ) -> Result<(ListBucketResult, u16)> {
-        let command = Command::ListBucket {
-            prefix,
-            delimiter,
-            continuation_token,
-            start_after,
-            max_keys,
-        };
+
+        let command =
+            if self.listobjects_v2 {
+                Command::ListObjectsV2 {
+                    prefix,
+                    delimiter,
+                    continuation_token,
+                    start_after,
+                    max_keys,
+                }
+            } else {
+                // In the v1 ListObjects request, there is only one "marker"
+                // field that serves as both the initial starting position,
+                // and as the continuation token.
+                Command::ListObjects {
+                    prefix,
+                    delimiter,
+                    marker: std::cmp::max(continuation_token, start_after),
+                    max_keys,
+                }
+            };
         let request = RequestImpl::new(self, "/", command);
         let (response, status_code) = request.response_data(false).await?;
         match serde_xml::from_reader(response.as_slice()) {
@@ -1225,6 +1244,20 @@ impl Bucket {
     /// Configure bucket to use subdomain style urls and headers [default]
     pub fn set_subdomain_style(&mut self) {
         self.path_style = false;
+    }
+
+    /// Configure bucket to use the older ListObjects API
+    ///
+    /// If your provider doesn't support the ListObjectsV2 interface, set this to
+    /// use the v1 ListObjects interface instead. This is currently needed at least
+    /// for Google Cloud Storage.
+    pub fn set_listobjects_v1(&mut self) {
+        self.listobjects_v2 = false;
+    }
+
+    /// Configure bucket to use the newer ListObjectsV2 API
+    pub fn set_listobjects_v2(&mut self) {
+        self.listobjects_v2 = true;
     }
 
     /// Get a reference to the name of the S3 bucket.
@@ -1435,7 +1468,7 @@ mod test {
     }
 
     fn test_gc_bucket() -> Bucket {
-        Bucket::new(
+        let mut bucket =  Bucket::new(
             "rust-s3",
             Region::Custom {
                 region: "us-east1".to_owned(),
@@ -1443,7 +1476,9 @@ mod test {
             },
             test_gc_credentials(),
         )
-        .unwrap()
+        .unwrap();
+        bucket.set_listobjects_v1();
+        return bucket;
     }
 
     fn object(size: u32) -> Vec<u8> {
@@ -1495,11 +1530,14 @@ mod test {
             async_std::test
         )
     )]
-    async fn test_put_head_get_delete_object() {
-        let s3_path = "/test.file";
+    async fn test_put_list_head_get_delete_object() {
         let bucket = test_aws_bucket();
+        let s3_path = "/test.file";
+        let s3_path2 = "/test.file2";
+        let s3_path3 = "/test.file3";
         let test: Vec<u8> = object(3072);
 
+        // Test PutObject
         let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(code, 200);
@@ -1508,6 +1546,7 @@ mod test {
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test, data);
 
+        // Test GetObject with a range
         let (data, code) = bucket
             .get_object_range(s3_path, 100, Some(1000))
             .await
@@ -1516,6 +1555,7 @@ mod test {
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test[100..1001].to_vec(), data);
 
+        // Test HeadObject
         let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
         assert_eq!(code, 200);
         assert_eq!(
@@ -1523,7 +1563,42 @@ mod test {
             "application/octet-stream".to_owned()
         );
         // println!("{:?}", head_object_result);
+
+        // Put some additional objects, so that we can test ListObjects
+        let (_data, code) = bucket.put_object(s3_path2, &test).await.unwrap();
+        assert_eq!(code, 200);
+        let (_data, code) = bucket.put_object(s3_path3, &test).await.unwrap();
+        assert_eq!(code, 200);
+
+        // Test ListObjects, with continuation
+        let (result, code) = bucket.list_page("test.".to_string(),
+                                              Some("/".to_string()),
+                                              None,
+                                              None,
+                                              Some(2)).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(result.contents.len(), 2);
+        assert_eq!(result.contents[0].key, "test.file");
+        assert_eq!(result.contents[1].key, "test.file2");
+
+        let cont_token = result.next_continuation_token.unwrap();
+
+        let (result, code) = bucket.list_page("test.".to_string(),
+                                              Some("/".to_string()),
+                                              Some(cont_token),
+                                              None,
+                                              Some(2)).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(result.contents.len(), 1);
+        assert_eq!(result.contents[0].key, "test.file3");
+        assert!(result.next_continuation_token.is_none());
+
+        // cleanup (and test Delete)
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
+        assert_eq!(code, 204);
+        let (_, code) = bucket.delete_object(s3_path2).await.unwrap();
+        assert_eq!(code, 204);
+        let (_, code) = bucket.delete_object(s3_path3).await.unwrap();
         assert_eq!(code, 204);
     }
 
@@ -1579,11 +1654,14 @@ mod test {
             async_std::test
         )
     )]
-    async fn gc_test_put_head_get_delete_object() {
-        let s3_path = "/test.file";
+    async fn gc_test_put_list_head_get_delete_object() {
         let bucket = test_gc_bucket();
+        let s3_path = "/test.file";
+        let s3_path2 = "/test.file2";
+        let s3_path3 = "/test.file3";
         let test: Vec<u8> = object(3072);
 
+        // Test PutObject
         let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(code, 200);
@@ -1592,6 +1670,7 @@ mod test {
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test, data);
 
+        // Test GetObject with a range
         let (data, code) = bucket
             .get_object_range(s3_path, 100, Some(1000))
             .await
@@ -1600,6 +1679,7 @@ mod test {
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test[100..1001].to_vec(), data);
 
+        // Test HeadObject
         let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
         assert_eq!(code, 200);
         assert_eq!(
@@ -1607,7 +1687,42 @@ mod test {
             "application/octet-stream".to_owned()
         );
         // println!("{:?}", head_object_result);
+
+        // Put some additional objects, so that we can test ListObjects
+        let (_data, code) = bucket.put_object(s3_path2, &test).await.unwrap();
+        assert_eq!(code, 200);
+        let (_data, code) = bucket.put_object(s3_path3, &test).await.unwrap();
+        assert_eq!(code, 200);
+
+        // Test ListObjects, with continuation
+        let (result, code) = bucket.list_page("test.".to_string(),
+                                              Some("/".to_string()),
+                                              None,
+                                              None,
+                                              Some(2)).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(result.contents.len(), 2);
+        assert_eq!(result.contents[0].key, "test.file");
+        assert_eq!(result.contents[1].key, "test.file2");
+
+        let cont_token = result.next_continuation_token.unwrap();
+
+        let (result, code) = bucket.list_page("test.".to_string(),
+                                              Some("/".to_string()),
+                                              Some(cont_token),
+                                              None,
+                                              Some(2)).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(result.contents.len(), 1);
+        assert_eq!(result.contents[0].key, "test.file3");
+        assert!(result.next_continuation_token.is_none());
+
+        // cleanup (and test Delete)
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
+        assert_eq!(code, 204);
+        let (_, code) = bucket.delete_object(s3_path2).await.unwrap();
+        assert_eq!(code, 204);
+        let (_, code) = bucket.delete_object(s3_path3).await.unwrap();
         assert_eq!(code, 204);
     }
 
@@ -1620,11 +1735,14 @@ mod test {
             async_std::test
         )
     )]
-    async fn wasabi_test_put_head_get_delete_object() {
-        let s3_path = "/test.file";
+    async fn wasabi_test_put_list_head_get_delete_object() {
         let bucket = test_wasabi_bucket();
+        let s3_path = "/test.file";
+        let s3_path2 = "/test.file2";
+        let s3_path3 = "/test.file3";
         let test: Vec<u8> = object(3072);
 
+        // Test PutObject
         let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(code, 200);
@@ -1633,6 +1751,7 @@ mod test {
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test, data);
 
+        // Test GetObject with a range
         let (data, code) = bucket
             .get_object_range(s3_path, 100, Some(1000))
             .await
@@ -1641,6 +1760,7 @@ mod test {
         // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(test[100..1001].to_vec(), data);
 
+        // Test HeadObject
         let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
         assert_eq!(code, 200);
         assert_eq!(
@@ -1648,7 +1768,42 @@ mod test {
             "application/octet-stream".to_owned()
         );
         // println!("{:?}", head_object_result);
+
+        // Put some additional objects, so that we can test ListObjects
+        let (_data, code) = bucket.put_object(s3_path2, &test).await.unwrap();
+        assert_eq!(code, 200);
+        let (_data, code) = bucket.put_object(s3_path3, &test).await.unwrap();
+        assert_eq!(code, 200);
+
+        // Test ListObjects, with continuation
+        let (result, code) = bucket.list_page("test.".to_string(),
+                                              Some("/".to_string()),
+                                              None,
+                                              None,
+                                              Some(2)).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(result.contents.len(), 2);
+        assert_eq!(result.contents[0].key, "test.file");
+        assert_eq!(result.contents[1].key, "test.file2");
+
+        let cont_token = result.next_continuation_token.unwrap();
+
+        let (result, code) = bucket.list_page("test.".to_string(),
+                                              Some("/".to_string()),
+                                              Some(cont_token),
+                                              None,
+                                              Some(2)).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(result.contents.len(), 1);
+        assert_eq!(result.contents[0].key, "test.file3");
+        assert!(result.next_continuation_token.is_none());
+
+        // cleanup (and test Delete)
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
+        assert_eq!(code, 204);
+        let (_, code) = bucket.delete_object(s3_path2).await.unwrap();
+        assert_eq!(code, 204);
+        let (_, code) = bucket.delete_object(s3_path3).await.unwrap();
         assert_eq!(code, 204);
     }
 

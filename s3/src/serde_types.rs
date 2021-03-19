@@ -31,7 +31,7 @@ pub struct Object {
     pub e_tag: String,
     #[serde(rename = "StorageClass")]
     /// STANDARD | STANDARD_IA | REDUCED_REDUNDANCY | GLACIER
-    pub storage_class: String,
+    pub storage_class: Option<String>,
     #[serde(rename = "Key")]
     /// The object's key
     pub key: String,
@@ -119,30 +119,27 @@ pub struct BucketLocationResult {
 }
 
 /// The parsed result of a s3 bucket listing
+///
+/// This accepts the ListBucketResult format returned for both ListObjects and ListObjectsV2
 #[derive(Deserialize, Debug, Clone)]
 pub struct ListBucketResult {
     #[serde(rename = "Name")]
     /// Name of the bucket.
     pub name: String,
-    #[serde(rename = "NextMarker")]
-    /// When the response is truncated (that is, the IsTruncated element value in the response
-    /// is true), you can use the key name in this field as a marker in the subsequent request
-    /// to get next set of objects. Amazon S3 lists objects in UTF-8 character encoding in
-    /// lexicographical order.
-    pub next_marker: Option<String>,
     #[serde(rename = "Delimiter")]
     /// A delimiter is a character you use to group keys.
     pub delimiter: Option<String>,
     #[serde(rename = "MaxKeys")]
     /// Sets the maximum number of keys returned in the response body.
-    pub max_keys: i32,
+    pub max_keys: Option<i32>,
     #[serde(rename = "Prefix")]
     /// Limits the response to keys that begin with the specified prefix.
     pub prefix: String,
-    #[serde(rename = "Marker")]
-    /// Indicates where in the bucket listing begins. Marker is included in the response if
+    #[serde(rename = "ContinuationToken")]  // for ListObjectsV2 request
+    #[serde(alias = "Marker")]  // for ListObjects request
+    /// Indicates where in the bucket listing begins. It is included in the response if
     /// it was sent with the request.
-    pub marker: Option<String>,
+    pub continuation_token: Option<String>,
     #[serde(rename = "EncodingType")]
     /// Specifies the encoding method to used
     pub encoding_type: Option<String>,
@@ -153,8 +150,14 @@ pub struct ListBucketResult {
     ///  Specifies whether (true) or not (false) all of the results were returned.
     ///  If the number of results exceeds that specified by MaxKeys, all of the results
     ///  might not be returned.
+
+    /// When the response is truncated (that is, the IsTruncated element value in the response
+    /// is true), you can use the key name in in 'next_continuation_token' as a marker in the
+    /// subsequent request to get next set of objects. Amazon S3 lists objects in UTF-8 character
+    /// encoding in lexicographical order.
     pub is_truncated: bool,
-    #[serde(rename = "NextContinuationToken", default)]
+    #[serde(rename = "NextContinuationToken", default)]  // for ListObjectsV2 request
+    #[serde(alias = "NextMarker")]  // for ListObjects request
     pub next_continuation_token: Option<String>,
     #[serde(rename = "Contents", default)]
     /// Metadata about each object returned.

@@ -46,13 +46,20 @@ pub enum Command<'a> {
         tags: &'a str,
     },
 
-    ListBucket {
+    ListObjects {
+        prefix: String,
+        delimiter: Option<String>,
+        marker: Option<String>,
+        max_keys: Option<usize>,
+    },
+    ListObjectsV2 {
         prefix: String,
         delimiter: Option<String>,
         continuation_token: Option<String>,
         start_after: Option<String>,
         max_keys: Option<usize>,
     },
+
     GetBucketLocation,
     PresignGet {
         expiry_secs: u32,
@@ -85,7 +92,8 @@ impl<'a> Command<'a> {
         match *self {
             Command::GetObject
             | Command::GetObjectRange { .. }
-            | Command::ListBucket { .. }
+            | Command::ListObjects { .. }
+            | Command::ListObjectsV2 { .. }
             | Command::GetBucketLocation
             | Command::GetObjectTagging
             | Command::PresignGet { .. } => HttpMethod::Get,
