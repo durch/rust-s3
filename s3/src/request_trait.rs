@@ -83,6 +83,7 @@ pub trait Request {
             _ => unreachable!(),
         };
 
+        #[allow(clippy::collapsible_match)]
         if let Command::PresignPut { custom_headers, .. } = self.command() {
             if let Some(custom_headers) = custom_headers {
                 let authorization = self.presigned_authorization(Some(&custom_headers))?;
@@ -127,6 +128,7 @@ pub trait Request {
             _ => unreachable!(),
         };
 
+        #[allow(clippy::collapsible_match)]
         if let Command::PresignPut { custom_headers, .. } = self.command() {
             if let Some(custom_headers) = custom_headers {
                 return Ok(signing::canonical_request(
@@ -189,6 +191,7 @@ pub trait Request {
         url_str.push_str(&signing::uri_encode(&path, true));
 
         // Append to url_path
+        #[allow(clippy::collapsible_match)]
         match self.command() {
             Command::InitiateMultipartUpload | Command::ListMultipartUploads { .. } => {
                 url_str.push_str("?uploads")
