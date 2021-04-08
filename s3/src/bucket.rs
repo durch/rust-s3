@@ -1,5 +1,6 @@
 #[cfg(feature = "blocking")]
 use block_on_proc::block_on;
+use minidom::Element;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::mem;
@@ -38,7 +39,7 @@ use std::io::Read;
 use crate::request_trait::Request;
 use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
-    InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part, Tagging,
+    InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
 use anyhow::anyhow;
 use anyhow::Result;
@@ -46,6 +47,12 @@ use http::header::HeaderName;
 use http::HeaderMap;
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
+
+#[derive(Debug, PartialEq)]
+pub struct Tag {
+    key: String,
+    value: String,
+}
 
 /// Instantiate an existing Bucket
 ///
@@ -1137,23 +1144,31 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object_tagging<S: AsRef<str>>(
-        &self,
-        path: S,
-    ) -> Result<(Option<Tagging>, u16)> {
+    pub async fn get_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<Tag>, u16)> {
         let command = Command::GetObjectTagging {};
         let request = RequestImpl::new(self, path.as_ref(), command);
         let result = request.response_data(false).await?;
 
-        let tagging = if result.1 == 200 {
-            let result_string = String::from_utf8_lossy(&result.0);
-            println!("{}", result_string);
-            Some(serde_xml::from_reader(result_string.as_bytes())?)
-        } else {
-            None
-        };
+        let mut tags = Vec::new();
 
-        Ok((tagging, result.1))
+        if result.1 == 200 {
+            let result_string = String::from_utf8_lossy(&result.0);
+            let tagging: Element = result_string.parse().unwrap();
+            let ns = "http://s3.amazonaws.com/doc/2006-03-01/";
+            for tag_set in tagging.children() {
+                if tag_set.is("TagSet", ns) {
+                    for tag in tag_set.children() {
+                        if tag.is("Tag", ns) {
+                            let key = tag.get_child("Key", ns).unwrap().text();
+                            let value = tag.get_child("Value", ns).unwrap().text();
+                            tags.push(Tag { key, value });
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((tags, result.1))
     }
 
     #[maybe_async::maybe_async]
@@ -1543,6 +1558,7 @@ mod test {
     use crate::region::Region;
     use crate::Bucket;
     use crate::BucketConfiguration;
+    use crate::Tag;
     use cfg_if::cfg_if;
     use http::header::HeaderName;
     use http::HeaderMap;
@@ -1683,6 +1699,41 @@ mod test {
         // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn test_tagging_aws() {
+        let bucket = test_aws_bucket();
+        let target_tags = vec![
+            Tag {
+                key: "Tag1".to_string(),
+                value: "Value1".to_string(),
+            },
+            Tag {
+                key: "Tag2".to_string(),
+                value: "Value2".to_string(),
+            },
+        ];
+        let (_data, code) = bucket
+            .put_object("tagging_test", b"Gimme tags")
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        let (_body, code) = bucket
+            .put_object_tagging("tagging_test", &[("Tag1", "Value1"), ("Tag2", "Value2")])
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        let (tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
+        assert_eq!(tags, target_tags)
     }
 
     #[ignore]
