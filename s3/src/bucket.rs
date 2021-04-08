@@ -429,7 +429,7 @@ impl Bucket {
     pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
-        Ok(request.response_data(false).await?)
+        request.response_data(false).await
     }
 
     /// Gets specified inclusive byte range of file from an S3 path.
@@ -477,7 +477,7 @@ impl Bucket {
 
         let command = Command::GetObjectRange { start, end };
         let request = RequestImpl::new(self, path.as_ref(), command);
-        Ok(request.response_data(false).await?)
+        request.response_data(false).await
     }
 
     /// Stream file from S3 path to a local file, generic over T: Write.
@@ -522,7 +522,7 @@ impl Bucket {
     ) -> Result<u16> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
-        Ok(request.response_data_to_writer(writer).await?)
+        request.response_data_to_writer(writer).await
     }
 
     /// Stream file from local path to s3, generic over T: Write.
@@ -826,7 +826,7 @@ impl Bucket {
     pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
-        Ok(request.response_data(false).await?)
+        request.response_data(false).await
     }
 
     /// Head object from S3.
@@ -916,7 +916,7 @@ impl Bucket {
             multipart: None,
         };
         let request = RequestImpl::new(self, path.as_ref(), command);
-        Ok(request.response_data(true).await?)
+        request.response_data(true).await
     }
 
     /// Put into an S3 bucket.
@@ -1024,7 +1024,7 @@ impl Bucket {
         let content = self._tags_xml(&tags);
         let command = Command::PutObjectTagging { tags: &content };
         let request = RequestImpl::new(self, path, command);
-        Ok(request.response_data(false).await?)
+        request.response_data(false).await
     }
 
     /// Delete tags from an S3 object.
@@ -1063,7 +1063,7 @@ impl Bucket {
     pub async fn delete_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObjectTagging;
         let request = RequestImpl::new(self, path.as_ref(), command);
-        Ok(request.response_data(false).await?)
+        request.response_data(false).await
     }
 
     /// Retrieve an S3 object list of tags.
