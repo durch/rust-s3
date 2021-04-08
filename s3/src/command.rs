@@ -55,6 +55,7 @@ pub enum Command<'a> {
     DeleteObject,
     DeleteObjectTagging,
     GetObject,
+    GetObjectTorrent,
     GetObjectRange {
         start: u64,
         end: Option<u64>,
@@ -112,6 +113,7 @@ impl<'a> Command<'a> {
     pub fn http_verb(&self) -> HttpMethod {
         match *self {
             Command::GetObject
+            | Command::GetObjectTorrent
             | Command::GetObjectRange { .. }
             | Command::ListBucket { .. }
             | Command::GetBucketLocation
