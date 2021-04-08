@@ -1842,7 +1842,8 @@ mod test {
             },
             test_minio_credentials(),
             BucketConfiguration::default(),
-        ).unwrap();
+        )
+        .unwrap();
         put_head_get_delete_object_blocking(test_minio_bucket())
     }
 
