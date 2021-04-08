@@ -202,6 +202,7 @@ pub trait Request {
             Command::CompleteMultipartUpload { upload_id, .. } => {
                 url_str.push_str(&format!("?uploadId={}", upload_id))
             }
+            Command::GetObjectTorrent => url_str.push_str("?torrent"),
             Command::PutObject { multipart, .. } => {
                 if let Some(multipart) = multipart {
                     url_str.push_str(&multipart.query_string())
