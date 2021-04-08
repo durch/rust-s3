@@ -31,15 +31,15 @@ a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the d
 
 |          |                                                                             |
 |----------|-----------------------------------------------------------------------------|
-| `create` | [async](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.create) |
-| `delete` | [async](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.delete) |
+| `create` | [async](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.create) |
+| `delete` | [async](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.delete) |
 
 #### Presign
 
 |       |                                                                                        |
 |-------|----------------------------------------------------------------------------------------|
-| `PUT` | [presign_put](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.presign_put) |
-| `GET` | [presign_get](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.presign_get) |
+| `PUT` | [presign_put](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_put) |
+| `GET` | [presign_get](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_get) |
 
 #### GET
 
@@ -48,8 +48,8 @@ while `tokio` methods are generic over `tokio::io::AsyncWriteExt`.
 
 |         |                                                                                                    |
 |---------|----------------------------------------------------------------------------------------------------|
-| `async` | [get_object](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.get_object)               |
-| `async` | [get_object_stream](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_stream) |
+| `async` | [get_object](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.get_object)               |
+| `async` | [get_object_stream](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.get_object_stream) |
 
 #### PUT
 
@@ -57,40 +57,40 @@ Each `GET` method has a `PUT` companion `sync` and `async` methods are generic o
 
 |         |                                                                                                                          |
 |---------|--------------------------------------------------------------------------------------------------------------------------|
-| `async` | [put_object](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object)                                     |
-| `async` | [put_object_with_content_type](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_with_content_type) |
-| `async` | [put_object_stream](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_stream)                       |
+| `async` | [put_object](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.put_object)                                     |
+| `async` | [put_object_with_content_type](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.put_object_with_content_type) |
+| `async` | [put_object_stream](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.put_object_stream)                       |
 
 #### List
 
 |         |                                                                          |
 |---------|--------------------------------------------------------------------------|
-| `async` | [list](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.list) |
+| `async` | [list](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.list) |
 
 #### DELETE
 
 |         |                                                                                            |
 |---------|--------------------------------------------------------------------------------------------|
-| `async` | [delete_object](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.delete_object) |
+| `async` | [delete_object](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.delete_object) |
 
 #### Location
 
 |         |                                                                                  |
 |---------|----------------------------------------------------------------------------------|
-| `async` | [location](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.location) |
+| `async` | [location](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.location) |
 
 #### Tagging
 
 |         |                                                                                                      |
 |---------|------------------------------------------------------------------------------------------------------|
-| `async` | [put_object_tagging](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.put_object_tagging) |
-| `async` | [get_object_tagging](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.get_object_tagging) |
+| `async` | [put_object_tagging](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.put_object_tagging) |
+| `async` | [get_object_tagging](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.get_object_tagging) |
 
 #### Head
 
 |         |                                                                                        |
 |---------|----------------------------------------------------------------------------------------|
-| `async` | [head_object](https://docs.rs/rust-s3/s3/bucket/struct.Bucket.html#method.head_object) |
+| `async` | [head_object](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.head_object) |
 
 ### Usage (in `Cargo.toml`)
 
@@ -123,3 +123,16 @@ Default is `reqwest/native-tls`, it is possible to switch to `reqwest/rustls-tls
 [dependencies]
 rust-s3 = {version = "0.26.0", features = ["rustls-tls"]}
 ```
+
+
+##### Use async-std instead of tokio
+
+By default the `with-tokio` feature is enabled. To switch to `async-std` you need to disable the default features and specify the `with-async-std` feature
+
+```toml
+[dependencies]
+rust-s3 = {version = "0.27.0-beta8", features = ["with-async-std"], default-features = false}
+```
+
+
+
