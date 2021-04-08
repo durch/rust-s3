@@ -72,7 +72,7 @@ pub struct Tagging {
 #[derive(Deserialize, Debug, Clone)]
 pub struct Tag {
     #[serde(rename = "Tag")]
-    pub kvpair: KVPair,
+    pub kvpair: KvPair,
 }
 
 impl Tag {
@@ -86,7 +86,7 @@ impl Tag {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct KVPair {
+pub struct KvPair {
     #[serde(rename = "Key")]
     pub key: String,
     #[serde(rename = "Value")]
