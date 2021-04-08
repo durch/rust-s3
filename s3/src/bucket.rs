@@ -106,7 +106,7 @@ impl Bucket {
     pub fn presign_get<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
         validate_expiry(expiry_secs)?;
         let request = RequestImpl::new(self, path.as_ref(), Command::PresignGet { expiry_secs });
-        Ok(request.presigned()?)
+        request.presigned()
     }
 
     /// Get a presigned url for putting object to a given path
@@ -149,7 +149,7 @@ impl Bucket {
                 custom_headers,
             },
         );
-        Ok(request.presigned()?)
+        request.presigned()
     }
     /// Create a new `Bucket` and instantiate it
     ///

@@ -31,7 +31,7 @@ pub trait Request {
     fn path(&self) -> String;
 
     fn signing_key(&self) -> Result<Vec<u8>> {
-        Ok(signing::signing_key(
+        signing::signing_key(
             &self.datetime(),
             &self
                 .bucket()
@@ -39,7 +39,7 @@ pub trait Request {
                 .expect("Secret key must be provided to sign headers, found None"),
             &self.bucket().region(),
             "s3",
-        )?)
+        )
     }
 
     fn request_body(&self) -> Vec<u8> {
