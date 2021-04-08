@@ -1,15 +1,16 @@
 #[cfg(feature = "blocking")]
 use block_on_proc::block_on;
+use minidom::Element;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::mem;
 
 use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
-use crate::command::Command;
+use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
+use std::str::FromStr;
 
-pub type Headers = HashMap<String, String>;
 pub type Query = HashMap<String, String>;
 
 #[cfg(feature = "with-tokio")]
@@ -35,25 +36,42 @@ use async_std::path::Path;
     feature = "with-async-std",
     feature = "with-smol"
 ))]
+// #[cfg(feature = "with-async-std")]
+// use async_std::{fs::File, path::Path};
+// #[cfg(feature = "with-tokio")]
+// use tokio::fs::File;
+
+#[cfg(feature = "with-async-std")]
 use futures::io::AsyncRead;
+#[cfg(feature = "with-tokio")]
+use tokio::io::AsyncRead;
 
 #[cfg(feature = "sync")]
 use crate::blocking::AttoRequest as RequestImpl;
-#[cfg(feature = "sync")]
-use std::fs::File;
+// #[cfg(feature = "sync")]
+// use std::fs::File;
 #[cfg(feature = "sync")]
 use std::io::Read;
-#[cfg(feature = "sync")]
-use std::path::Path;
+// #[cfg(any(feature = "sync", feature = "with-tokio"))]
+// use std::path::Path;
 
 use crate::request_trait::Request;
 use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
-    InitiateMultipartUploadResponse, ListBucketResult, Part, Tagging,
+    InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
-use crate::{Result, S3Error};
+use anyhow::anyhow;
+use anyhow::Result;
+use http::header::HeaderName;
+use http::HeaderMap;
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
+
+#[derive(Debug, PartialEq)]
+pub struct Tag {
+    key: String,
+    value: String,
+}
 
 /// Instantiate an existing Bucket
 ///
@@ -74,19 +92,16 @@ pub struct Bucket {
     pub name: String,
     pub region: Region,
     pub credentials: Credentials,
-    pub extra_headers: Headers,
+    pub extra_headers: HeaderMap,
     pub extra_query: Query,
     path_style: bool,
 }
 
 fn validate_expiry(expiry_secs: u32) -> Result<()> {
     if 604800 < expiry_secs {
-        return Err(S3Error::from(
-            format!(
-                "Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead",
-                expiry_secs
-            )
-            .as_ref(),
+        return Err(anyhow!(
+            "Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead",
+            expiry_secs
         ));
     }
     Ok(())
@@ -117,7 +132,7 @@ impl Bucket {
     pub fn presign_get<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
         validate_expiry(expiry_secs)?;
         let request = RequestImpl::new(self, path.as_ref(), Command::PresignGet { expiry_secs });
-        Ok(request.presigned()?)
+        request.presigned()
     }
 
     /// Get a presigned url for putting object to a given path
@@ -127,7 +142,8 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use std::collections::HashMap;
+    /// use http::HeaderMap;
+    /// use http::header::HeaderName;
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
@@ -135,10 +151,10 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// // Add optional custom headers
-    /// let mut custom_headers = HashMap::new();
+    /// let mut custom_headers = HeaderMap::new();
     /// custom_headers.insert(
-    ///    "custom_header".to_string(),
-    ///    "custom_value".to_string(),
+    ///    HeaderName::from_static("custom_header"),
+    ///    "custom_value".parse().unwrap(),
     /// );
     ///
     /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers)).unwrap();
@@ -148,7 +164,7 @@ impl Bucket {
         &self,
         path: S,
         expiry_secs: u32,
-        custom_headers: Option<Headers>,
+        custom_headers: Option<HeaderMap>,
     ) -> Result<String> {
         validate_expiry(expiry_secs)?;
         let request = RequestImpl::new(
@@ -159,7 +175,7 @@ impl Bucket {
                 custom_headers,
             },
         );
-        Ok(request.presigned()?)
+        request.presigned()
     }
     /// Create a new `Bucket` and instantiate it
     ///
@@ -167,10 +183,10 @@ impl Bucket {
     /// use s3::{Bucket, BucketConfiguration};
     /// use s3::creds::Credentials;
     /// # use s3::region::Region;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
     /// let credentials = Credentials::default()?;
@@ -220,10 +236,10 @@ impl Bucket {
     /// use s3::{Bucket, BucketConfiguration};
     /// use s3::creds::Credentials;
     /// # use s3::region::Region;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
     /// let credentials = Credentials::default()?;
@@ -251,8 +267,9 @@ impl Bucket {
         name: &str,
         region: Region,
         credentials: Credentials,
-        mut config: BucketConfiguration,
+        config: BucketConfiguration,
     ) -> Result<CreateBucketResponse> {
+        let mut config = config;
         config.set_region(region.clone());
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new_with_path_style(name, region, credentials)?;
@@ -272,10 +289,10 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
@@ -323,7 +340,7 @@ impl Bucket {
             name: name.into(),
             region,
             credentials,
-            extra_headers: HashMap::new(),
+            extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: false,
         })
@@ -346,7 +363,7 @@ impl Bucket {
             name: name.into(),
             region,
             credentials: Credentials::anonymous()?,
-            extra_headers: HashMap::new(),
+            extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: false,
         })
@@ -374,7 +391,7 @@ impl Bucket {
             name: name.into(),
             region,
             credentials,
-            extra_headers: HashMap::new(),
+            extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: true,
         })
@@ -397,7 +414,7 @@ impl Bucket {
             name: name.into(),
             region,
             credentials: Credentials::anonymous()?,
-            extra_headers: HashMap::new(),
+            extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: true,
         })
@@ -410,10 +427,10 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -438,7 +455,45 @@ impl Bucket {
     pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
-        Ok(request.response_data(false).await?)
+        request.response_data(false).await
+    }
+
+    /// Gets torrent from an S3 path.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let (data, code) = bucket.get_object_torrent("/test.file").await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let (data, code) = bucket.get_object_torrent("/test.file")?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let (data, code) = bucket.get_object_torrent_blocking("/test.file")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn get_object_torrent<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
+        let command = Command::GetObjectTorrent;
+        let request = RequestImpl::new(self, path.as_ref(), command);
+        request.response_data(false).await
     }
 
     /// Gets specified inclusive byte range of file from an S3 path.
@@ -448,10 +503,10 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -486,7 +541,7 @@ impl Bucket {
 
         let command = Command::GetObjectRange { start, end };
         let request = RequestImpl::new(self, path.as_ref(), command);
-        Ok(request.response_data(false).await?)
+        request.response_data(false).await
     }
 
     /// Stream file from S3 path to a local file, generic over T: Write.
@@ -496,11 +551,11 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     /// use std::fs::File;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -524,14 +579,14 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object_stream<T: std::io::Write, S: AsRef<str>>(
+    pub async fn get_object_stream<T: std::io::Write + Send, S: AsRef<str>>(
         &self,
         path: S,
         writer: &mut T,
     ) -> Result<u16> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
-        Ok(request.response_data_to_writer(writer).await?)
+        request.response_data_to_writer(writer).await
     }
 
     /// Stream file from local path to s3, generic over T: Write.
@@ -541,12 +596,12 @@ impl Bucket {
     /// ```rust,no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     /// use std::fs::File;
     /// use std::io::Write;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -557,29 +612,44 @@ impl Bucket {
     /// let mut file = File::create(path)?;
     /// file.write_all(&test)?;
     ///
+    /// #[cfg(feature = "with-tokio")]
+    /// let mut path = tokio::fs::File::open(path).await?;
+    ///
+    /// #[cfg(feature = "with-async-std")]
+    /// let mut path = async_std::fs::File::open(path).await?;
     /// // Async variant with `tokio` or `async-std` features
-    /// let status_code = bucket.put_object_stream(path, "/path").await?;
+    /// // Generic over futures::io::AsyncRead|tokio::io::AsyncRead + Unpin
+    /// let status_code = bucket.put_object_stream(&mut path, "/path").await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// let status_code = bucket.put_object_stream(path, "/path")?;
+    /// // Generic over std::io::Read
+    /// let status_code = bucket.put_object_stream(&mut path, "/path")?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let status_code = bucket.put_object_stream_blocking(path, "/path")?;
+    /// let status_code = bucket.put_object_stream_blocking(&mut path, "/path")?;
     /// #
     /// # Ok(())
     /// # }
     /// ```
-    #[maybe_async::maybe_async]
-    pub async fn put_object_stream(
+    #[maybe_async::async_impl]
+    pub async fn put_object_stream<R: AsyncRead + Unpin>(
         &self,
-        path: impl AsRef<Path>,
+        reader: &mut R,
         s3_path: impl AsRef<str>,
     ) -> Result<u16> {
-        let mut file = File::open(path).await?;
-        self._put_object_stream(&mut file, s3_path.as_ref()).await
+        self._put_object_stream(reader, s3_path.as_ref()).await
+    }
+
+    #[maybe_async::sync_impl]
+    pub fn put_object_stream<R: Read>(
+        &self,
+        reader: &mut R,
+        s3_path: impl AsRef<str>,
+    ) -> Result<u16> {
+        self._put_object_stream(reader, s3_path.as_ref())
     }
 
     #[maybe_async::async_impl]
@@ -589,11 +659,12 @@ impl Bucket {
         s3_path: &str,
     ) -> Result<u16> {
         let command = Command::InitiateMultipartUpload;
-        let path = format!("{}?uploads", s3_path);
-        let request = RequestImpl::new(self, &path, command);
+        let request = RequestImpl::new(self, &s3_path, command);
         let (data, code) = request.response_data(false).await?;
         let msg: InitiateMultipartUploadResponse =
             serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+        let path = msg.key;
+        let upload_id = &msg.upload_id;
 
         let mut part_number: u32 = 0;
         let mut etags = Vec::new();
@@ -603,12 +674,8 @@ impl Bucket {
             if chunk.len() < CHUNK_SIZE {
                 if part_number == 0 {
                     // Files is not big enough for multipart upload, going with regular put_object
-                    let abort = Command::AbortMultipartUpload {
-                        upload_id: &msg.upload_id,
-                    };
-                    let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let abort_request = RequestImpl::new(self, &abort_path, abort);
-                    let (_, _code) = abort_request.response_data(false).await?;
+                    self.abort_upload(&path, upload_id).await?;
+
                     self.put_object(s3_path, chunk.as_slice()).await?;
                     break;
                 } else {
@@ -616,12 +683,9 @@ impl Bucket {
                     let command = Command::PutObject {
                         // part_number,
                         content: &chunk,
-                        content_type: "application/octet-stream", // upload_id: &msg.upload_id,
+                        content_type: "application/octet-stream",
+                        multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
                     };
-                    let path = format!(
-                        "{}?partNumber={}&uploadId={}",
-                        msg.key, part_number, &msg.upload_id
-                    );
                     let request = RequestImpl::new(self, &path, command);
                     let (data, _code) = request.response_data(true).await?;
                     let etag = std::str::from_utf8(data.as_slice())?;
@@ -640,8 +704,7 @@ impl Bucket {
                         upload_id: &msg.upload_id,
                         data,
                     };
-                    let complete_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let complete_request = RequestImpl::new(self, &complete_path, complete);
+                    let complete_request = RequestImpl::new(self, &path, complete);
                     let (_data, _code) = complete_request.response_data(false).await?;
                     // let response = std::str::from_utf8(data.as_slice())?;
                     break;
@@ -651,12 +714,9 @@ impl Bucket {
                 let command = Command::PutObject {
                     // part_number,
                     content: &chunk,
-                    content_type: "application/octet-stream", // upload_id: &msg.upload_id,
+                    content_type: "application/octet-stream",
+                    multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
                 };
-                let path = format!(
-                    "{}?partNumber={}&uploadId={}",
-                    msg.key, part_number, &msg.upload_id
-                );
                 let request = RequestImpl::new(self, &path, command);
                 let (data, _code) = request.response_data(true).await?;
                 let etag = std::str::from_utf8(data.as_slice())?;
@@ -669,11 +729,13 @@ impl Bucket {
     #[maybe_async::sync_impl]
     fn _put_object_stream<R: Read>(&self, reader: &mut R, s3_path: &str) -> Result<u16> {
         let command = Command::InitiateMultipartUpload;
-        let path = format!("{}?uploads", s3_path);
-        let request = RequestImpl::new(self, &path, command);
+        let request = RequestImpl::new(self, &s3_path, command);
         let (data, code) = request.response_data(false)?;
         let msg: InitiateMultipartUploadResponse =
             serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+
+        let path = msg.key;
+        let upload_id = &msg.upload_id;
 
         let mut part_number: u32 = 0;
         let mut etags = Vec::new();
@@ -683,12 +745,8 @@ impl Bucket {
             if chunk.len() < CHUNK_SIZE {
                 if part_number == 0 {
                     // Files is not big enough for multipart upload, going with regular put_object
-                    let abort = Command::AbortMultipartUpload {
-                        upload_id: &msg.upload_id,
-                    };
-                    let abort_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let abort_request = RequestImpl::new(self, &abort_path, abort);
-                    let (_, _code) = abort_request.response_data(false)?;
+                    self.abort_upload(&path, upload_id)?;
+
                     self.put_object(s3_path, chunk.as_slice())?;
                     break;
                 } else {
@@ -696,12 +754,9 @@ impl Bucket {
                     let command = Command::PutObject {
                         // part_number,
                         content: &chunk,
-                        content_type: "application/octet-stream", // upload_id: &msg.upload_id,
+                        content_type: "application/octet-stream",
+                        multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
                     };
-                    let path = format!(
-                        "{}?partNumber={}&uploadId={}",
-                        msg.key, part_number, &msg.upload_id
-                    );
                     let request = RequestImpl::new(self, &path, command);
                     let (data, _code) = request.response_data(true)?;
                     let etag = std::str::from_utf8(data.as_slice())?;
@@ -719,8 +774,7 @@ impl Bucket {
                         upload_id: &msg.upload_id,
                         data,
                     };
-                    let complete_path = format!("{}?uploadId={}", msg.key, &msg.upload_id);
-                    let complete_request = RequestImpl::new(self, &complete_path, complete);
+                    let complete_request = RequestImpl::new(self, &path, complete);
                     let (_data, _code) = complete_request.response_data(false)?;
                     // let response = std::str::from_utf8(data.as_slice())?;
                     break;
@@ -728,14 +782,10 @@ impl Bucket {
             } else {
                 part_number += 1;
                 let command = Command::PutObject {
-                    // part_number,
                     content: &chunk,
-                    content_type: "application/octet-stream", // upload_id: &msg.upload_id,
+                    content_type: "application/octet-stream",
+                    multipart: Some(Multipart::new(part_number, upload_id)),
                 };
-                let path = format!(
-                    "{}?partNumber={}&uploadId={}",
-                    msg.key, part_number, &msg.upload_id
-                );
                 let request = RequestImpl::new(self, &path, command);
                 let (data, _code) = request.response_data(true)?;
                 let etag = std::str::from_utf8(data.as_slice())?;
@@ -752,10 +802,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -811,10 +861,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -840,7 +890,7 @@ impl Bucket {
     pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
-        Ok(request.response_data(false).await?)
+        request.response_data(false).await
     }
 
     /// Head object from S3.
@@ -850,10 +900,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -891,10 +941,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -927,9 +977,10 @@ impl Bucket {
         let command = Command::PutObject {
             content,
             content_type,
+            multipart: None,
         };
         let request = RequestImpl::new(self, path.as_ref(), command);
-        Ok(request.response_data(true).await?)
+        request.response_data(true).await
     }
 
     /// Put into an S3 bucket.
@@ -939,10 +990,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1003,10 +1054,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1037,7 +1088,7 @@ impl Bucket {
         let content = self._tags_xml(&tags);
         let command = Command::PutObjectTagging { tags: &content };
         let request = RequestImpl::new(self, path, command);
-        Ok(request.response_data(false).await?)
+        request.response_data(false).await
     }
 
     /// Delete tags from an S3 object.
@@ -1047,10 +1098,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1076,7 +1127,7 @@ impl Bucket {
     pub async fn delete_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
         let command = Command::DeleteObjectTagging;
         let request = RequestImpl::new(self, path.as_ref(), command);
-        Ok(request.response_data(false).await?)
+        request.response_data(false).await
     }
 
     /// Retrieve an S3 object list of tags.
@@ -1086,10 +1137,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1112,23 +1163,31 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object_tagging<S: AsRef<str>>(
-        &self,
-        path: S,
-    ) -> Result<(Option<Tagging>, u16)> {
+    pub async fn get_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<Tag>, u16)> {
         let command = Command::GetObjectTagging {};
         let request = RequestImpl::new(self, path.as_ref(), command);
         let result = request.response_data(false).await?;
 
-        let tagging = if result.1 == 200 {
-            let result_string = String::from_utf8_lossy(&result.0);
-            println!("{}", result_string);
-            Some(serde_xml::from_reader(result_string.as_bytes())?)
-        } else {
-            None
-        };
+        let mut tags = Vec::new();
 
-        Ok((tagging, result.1))
+        if result.1 == 200 {
+            let result_string = String::from_utf8_lossy(&result.0);
+            let tagging: Element = result_string.parse().unwrap();
+            let ns = "http://s3.amazonaws.com/doc/2006-03-01/";
+            for tag_set in tagging.children() {
+                if tag_set.is("TagSet", ns) {
+                    for tag in tag_set.children() {
+                        if tag.is("Tag", ns) {
+                            let key = tag.get_child("Key", ns).unwrap().text();
+                            let value = tag.get_child("Value", ns).unwrap().text();
+                            tags.push(Tag { key, value });
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((tags, result.1))
     }
 
     #[maybe_async::maybe_async]
@@ -1149,14 +1208,9 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command);
         let (response, status_code) = request.response_data(false).await?;
-        match serde_xml::from_reader(response.as_slice()) {
-            Ok(list_bucket_result) => Ok((list_bucket_result, status_code)),
-            Err(_) => {
-                let mut err = S3Error::from("Could not deserialize result");
-                err.data = Some(String::from_utf8_lossy(response.as_slice()).to_string());
-                Err(err)
-            }
-        }
+        return serde_xml::from_reader(response.as_slice())
+            .map(|list_bucket_result| (list_bucket_result, status_code))
+            .map_err(|e| anyhow!("Could not deserialize result \n {}", e));
     }
 
     /// List the contents of an S3 bucket.
@@ -1166,10 +1220,10 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use s3::S3Error;
+    /// use anyhow::Result;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), S3Error> {
+    /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1221,6 +1275,147 @@ impl Bucket {
         Ok(results)
     }
 
+    #[maybe_async::maybe_async]
+    pub async fn list_multiparts_uploads_page(
+        &self,
+        prefix: Option<&str>,
+        delimiter: Option<&str>,
+        key_marker: Option<String>,
+        max_uploads: Option<usize>,
+    ) -> Result<(ListMultipartUploadsResult, u16)> {
+        let command = Command::ListMultipartUploads {
+            prefix,
+            delimiter,
+            key_marker,
+            max_uploads,
+        };
+        let request = RequestImpl::new(self, "/", command);
+        let (response, status_code) = request.response_data(false).await?;
+        return serde_xml::from_reader(response.as_slice())
+            .map(|list_bucket_result| (list_bucket_result, status_code))
+            .map_err(|e| anyhow!("Could not deserialize result \n {}", e));
+    }
+
+    /// List the ongoing multipart uploads of an S3 bucket. This may be useful to cleanup failed
+    /// uploads, together with [`crate::bucket::Bucket::abort_upload`].
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let results = bucket.list_multiparts_uploads(Some("/"), Some("/")).await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let results = bucket.list_multiparts_uploads(Some("/"), Some("/"))?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let results = bucket.list_multiparts_uploads_blocking(Some("/"), Some("/"))?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn list_multiparts_uploads(
+        &self,
+        prefix: Option<&str>,
+        delimiter: Option<&str>,
+    ) -> Result<Vec<ListMultipartUploadsResult>> {
+        let the_bucket = self.to_owned();
+        let mut results = Vec::new();
+        let mut next_marker: Option<String> = None;
+
+        loop {
+            let (list_multiparts_uploads_result, _) = the_bucket
+                .list_multiparts_uploads_page(prefix, delimiter, next_marker, None)
+                .await?;
+
+            let is_truncated = list_multiparts_uploads_result.is_truncated;
+            next_marker = list_multiparts_uploads_result.next_marker.clone();
+            results.push(list_multiparts_uploads_result);
+
+            if !is_truncated {
+                break;
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Abort a running multipart upload.
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let results = bucket.abort_upload("/some/file.txt", "ZDFjM2I0YmEtMzU3ZC00OTQ1LTlkNGUtMTgxZThjYzIwNjA2").await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let results = bucket.abort_upload("/some/file.txt", "ZDFjM2I0YmEtMzU3ZC00OTQ1LTlkNGUtMTgxZThjYzIwNjA2")?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let results = bucket.abort_upload_blocking("/some/file.txt", "ZDFjM2I0YmEtMzU3ZC00OTQ1LTlkNGUtMTgxZThjYzIwNjA2")?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn abort_upload(&self, key: &str, upload_id: &str) -> Result<()> {
+        let abort = Command::AbortMultipartUpload { upload_id };
+        let abort_request = RequestImpl::new(self, key, abort);
+        let (content, code) = abort_request.response_data(false).await?;
+
+        if (200..300).contains(&code) {
+            Ok(())
+        } else {
+            let utf8_content = String::from_utf8(content);
+            let err = if let Ok(utf8_content) = utf8_content {
+                format!(
+                    "Invalid return code: got HTTP {} with content '{}'",
+                    code, utf8_content
+                )
+            } else {
+                format!(
+                    "Invalid return code: got HTTP {} with invalid UTF8 content",
+                    code
+                )
+            };
+            Err(anyhow::Error::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                err,
+            )))
+        }
+    }
+
     /// Get path_style field of the Bucket struct
     pub fn is_path_style(&self) -> bool {
         self.path_style
@@ -1236,7 +1431,7 @@ impl Bucket {
         self.path_style = true;
     }
 
-    /// Configure bucket to use subdomain style urls and headers [default]
+    /// Configure bucket to use subdomain style urls and headers \[default\]
     pub fn set_subdomain_style(&mut self) {
         self.path_style = false;
     }
@@ -1310,18 +1505,12 @@ impl Bucket {
 
     /// Get a reference to the AWS security token.
     pub fn security_token(&self) -> Option<&str> {
-        self.credentials
-            .security_token
-            .as_ref()
-            .map(std::string::String::as_str)
+        self.credentials.security_token.as_deref()
     }
 
     /// Get a reference to the AWS session token.
     pub fn session_token(&self) -> Option<&str> {
-        self.credentials
-            .session_token
-            .as_ref()
-            .map(std::string::String::as_str)
+        self.credentials.session_token.as_deref()
     }
 
     /// Get a reference to the full [`Credentials`](struct.Credentials.html)
@@ -1349,17 +1538,18 @@ impl Bucket {
     ///   * X-Amz-Content-Sha256
     ///   * X-Amz-Date
     pub fn add_header(&mut self, key: &str, value: &str) {
-        self.extra_headers.insert(key.into(), value.into());
+        self.extra_headers
+            .insert(HeaderName::from_str(key).unwrap(), value.parse().unwrap());
     }
 
     /// Get a reference to the extra headers to be passed to the S3 API.
-    pub fn extra_headers(&self) -> &Headers {
+    pub fn extra_headers(&self) -> &HeaderMap {
         &self.extra_headers
     }
 
     /// Get a mutable reference to the extra headers to be passed to the S3
     /// API.
-    pub fn extra_headers_mut(&mut self) -> &mut Headers {
+    pub fn extra_headers_mut(&mut self) -> &mut HeaderMap {
         &mut self.extra_headers
     }
 
@@ -1387,7 +1577,10 @@ mod test {
     use crate::region::Region;
     use crate::Bucket;
     use crate::BucketConfiguration;
-    use std::collections::HashMap;
+    use crate::Tag;
+    use cfg_if::cfg_if;
+    use http::header::HeaderName;
+    use http::HeaderMap;
     use std::env;
     use std::fs::File;
     use std::io::prelude::*;
@@ -1430,6 +1623,21 @@ mod test {
         .unwrap()
     }
 
+    fn test_minio_credentials() -> Credentials {
+        Credentials::new(Some("test"), Some("test1234"), None, None, None).unwrap()
+    }
+
+    fn test_digital_ocean_credentials() -> Credentials {
+        Credentials::new(
+            Some(&env::var("DIGITAL_OCEAN_ACCESS_KEY_ID").unwrap()),
+            Some(&env::var("DIGITAL_OCEAN_SECRET_ACCESS_KEY").unwrap()),
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+    }
+
     fn test_aws_bucket() -> Bucket {
         Bucket::new(
             "rust-s3-test",
@@ -1460,58 +1668,29 @@ mod test {
         .unwrap()
     }
 
+    fn test_minio_bucket() -> Bucket {
+        Bucket::new_with_path_style(
+            "rust-s3",
+            Region::Custom {
+                region: "eu-central-1".to_owned(),
+                endpoint: "http://localhost:9000".to_owned(),
+            },
+            test_minio_credentials(),
+        )
+        .unwrap()
+    }
+
+    fn test_digital_ocean_bucket() -> Bucket {
+        Bucket::new("rust-s3", Region::DoFra1, test_digital_ocean_credentials()).unwrap()
+    }
+
     fn object(size: u32) -> Vec<u8> {
         (0..size).map(|_| 33).collect()
     }
 
-    #[ignore]
-    #[maybe_async::test(
-        feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
-    )]
-    async fn streaming_test_put_get_delete_big_object() {
-        init();
-        let path = "stream_test_big";
-        std::fs::remove_file(path).unwrap_or_else(|_| {});
-        let bucket = test_aws_bucket();
-        let test: Vec<u8> = object(10_000_000);
-
-        let mut file = File::create(path).unwrap();
-        file.write_all(&test).unwrap();
-
-        let code = bucket
-            .put_object_stream(path, "/stream_test_big.file")
-            .await
-            .unwrap();
-        assert_eq!(code, 200);
-        let mut writer = Vec::new();
-        let code = bucket
-            .get_object_stream("/stream_test_big.file", &mut writer)
-            .await
-            .unwrap();
-        assert_eq!(code, 200);
-        assert_eq!(test, writer);
-        let (_, code) = bucket.delete_object("/stream_test_big.file").await.unwrap();
-        assert_eq!(code, 204);
-        std::fs::remove_file(path).unwrap_or_else(|_| {});
-    }
-
-    #[ignore]
-    #[maybe_async::test(
-        feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
-    )]
-    async fn test_put_head_get_delete_object() {
-        let s3_path = "/test.file";
-        let bucket = test_aws_bucket();
+    #[maybe_async::maybe_async]
+    async fn put_head_get_delete_object(bucket: Bucket) {
+        let s3_path = "/+test.file";
         let test: Vec<u8> = object(3072);
 
         let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
@@ -1542,14 +1721,155 @@ mod test {
     }
 
     #[ignore]
-    #[cfg(all(
-        any(feature = "with-tokio", feature = "with-async-std"),
-        feature = "blocking"
-    ))]
-    #[test]
-    fn test_put_head_get_delete_object_blocking() {
-        let s3_path = "/test_blocking.file";
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn test_tagging_aws() {
         let bucket = test_aws_bucket();
+        let target_tags = vec![
+            Tag {
+                key: "Tag1".to_string(),
+                value: "Value1".to_string(),
+            },
+            Tag {
+                key: "Tag2".to_string(),
+                value: "Value2".to_string(),
+            },
+        ];
+        let (_data, code) = bucket
+            .put_object("tagging_test", b"Gimme tags")
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        let (_body, code) = bucket
+            .put_object_tagging("tagging_test", &[("Tag1", "Value1"), ("Tag2", "Value2")])
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        let (tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
+        assert_eq!(tags, target_tags)
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn streaming_test_put_get_delete_big_object() {
+        init();
+        let remote_path = "+stream_test_big";
+        let local_path = "+stream_test_big";
+        std::fs::remove_file(remote_path).unwrap_or_else(|_| {});
+        let bucket = test_aws_bucket();
+        let test: Vec<u8> = object(10_000_000);
+
+        let mut file = File::create(local_path).unwrap();
+        file.write_all(&test).unwrap();
+        cfg_if! {
+            if #[cfg(feature = "with-tokio")] {
+                let mut reader = tokio::fs::File::open(local_path).await.unwrap();
+            } else if #[cfg(feature = "with-async-std")] {
+                let mut reader = async_std::fs::File::open(local_path).await.unwrap();
+            } else if #[cfg(feature = "sync")] {
+                let mut reader = File::open(local_path).unwrap();
+            }
+        }
+
+        let code = bucket
+            .put_object_stream(&mut reader, remote_path)
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        let mut writer = Vec::new();
+        let code = bucket
+            .get_object_stream(local_path, &mut writer)
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(test, writer);
+        let (body, code) = bucket.get_object_torrent(remote_path).await.unwrap();
+        // let dummy: Vec<u8> = Vec::new();
+        assert_eq!(code, 200);
+        assert_eq!(
+            body,
+            [
+                100, 56, 58, 97, 110, 110, 111, 117, 110, 99, 101, 53, 56, 58, 104, 116, 116, 112,
+                58, 47, 47, 115, 51, 45, 116, 114, 97, 99, 107, 101, 114, 46, 101, 117, 45, 99,
+                101, 110, 116, 114, 97, 108, 45, 49, 46, 97, 109, 97, 122, 111, 110, 97, 119, 115,
+                46, 99, 111, 109, 58, 54, 57, 54, 57, 47, 97, 110, 110, 111, 117, 110, 99, 101, 49,
+                51, 58, 97, 110, 110, 111, 117, 110, 99, 101, 45, 108, 105, 115, 116, 108, 108, 53,
+                56, 58, 104, 116, 116, 112, 58, 47, 47, 115, 51, 45, 116, 114, 97, 99, 107, 101,
+                114, 46, 101, 117, 45, 99, 101, 110, 116, 114, 97, 108, 45, 49, 46, 97, 109, 97,
+                122, 111, 110, 97, 119, 115, 46, 99, 111, 109, 58, 54, 57, 54, 57, 47, 97, 110,
+                110, 111, 117, 110, 99, 101, 101, 101, 52, 58, 105, 110, 102, 111, 100, 54, 58,
+                108, 101, 110, 103, 116, 104, 105, 49, 48, 48, 48, 48, 48, 48, 48, 101, 52, 58,
+                110, 97, 109, 101, 49, 54, 58, 43, 115, 116, 114, 101, 97, 109, 95, 116, 101, 115,
+                116, 95, 98, 105, 103, 49, 50, 58, 112, 105, 101, 99, 101, 32, 108, 101, 110, 103,
+                116, 104, 105, 50, 54, 50, 49, 52, 52, 101, 54, 58, 112, 105, 101, 99, 101, 115,
+                55, 56, 48, 58, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96,
+                103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1,
+                96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16,
+                172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60,
+                16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136,
+                60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206,
+                136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95,
+                206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85,
+                95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56,
+                85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65,
+                56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67,
+                65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157,
+                67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24,
+                157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103,
+                24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146,
+                103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201,
+                146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134,
+                201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49,
+                134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103,
+                49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96,
+                103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1,
+                96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16,
+                172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60,
+                16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136,
+                60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206,
+                136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95,
+                206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85,
+                95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56,
+                85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67, 65,
+                56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157, 67,
+                65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24, 157,
+                67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103, 24,
+                157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146, 103,
+                24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201, 146,
+                103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134, 201,
+                146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49, 134,
+                201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103, 49,
+                134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96, 103,
+                49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1, 96,
+                103, 49, 134, 201, 146, 103, 24, 157, 67, 65, 56, 85, 95, 206, 136, 60, 16, 172, 1,
+                96, 103, 49, 134, 201, 146, 37, 227, 84, 182, 214, 2, 98, 71, 21, 79, 174, 237,
+                155, 252, 61, 238, 62, 140, 232, 193, 49, 50, 58, 120, 45, 97, 109, 122, 45, 98,
+                117, 99, 107, 101, 116, 49, 50, 58, 114, 117, 115, 116, 45, 115, 51, 45, 116, 101,
+                115, 116, 57, 58, 120, 45, 97, 109, 122, 45, 107, 101, 121, 49, 54, 58, 43, 115,
+                116, 114, 101, 97, 109, 95, 116, 101, 115, 116, 95, 98, 105, 103, 101, 101
+            ]
+        );
+        let (_, code) = bucket.delete_object(local_path).await.unwrap();
+        assert_eq!(code, 204);
+        std::fs::remove_file(local_path).unwrap_or_else(|_| {});
+    }
+
+    #[cfg(feature = "blocking")]
+    fn put_head_get_delete_object_blocking(bucket: Bucket) {
+        let s3_path = "/test_blocking.file";
         let test: Vec<u8> = object(3072);
 
         let (_data, code) = bucket.put_object_blocking(s3_path, &test).unwrap();
@@ -1579,6 +1899,79 @@ mod test {
     }
 
     #[ignore]
+    #[cfg(all(
+        any(feature = "with-tokio", feature = "with-async-std"),
+        feature = "blocking"
+    ))]
+    #[test]
+    fn aws_put_head_get_delete_object_blocking() {
+        put_head_get_delete_object_blocking(test_aws_bucket())
+    }
+
+    #[ignore]
+    #[cfg(all(
+        any(feature = "with-tokio", feature = "with-async-std"),
+        feature = "blocking"
+    ))]
+    #[test]
+    fn gc_put_head_get_delete_object_blocking() {
+        put_head_get_delete_object_blocking(test_gc_bucket())
+    }
+
+    #[ignore]
+    #[cfg(all(
+        any(feature = "with-tokio", feature = "with-async-std"),
+        feature = "blocking"
+    ))]
+    #[test]
+    fn wasabi_put_head_get_delete_object_blocking() {
+        put_head_get_delete_object_blocking(test_wasabi_bucket())
+    }
+
+    #[ignore]
+    #[cfg(all(
+        any(feature = "with-tokio", feature = "with-async-std"),
+        feature = "blocking"
+    ))]
+    #[test]
+    fn minio_put_head_get_delete_object_blocking() {
+        Bucket::create_with_path_style_blocking(
+            "rust-s3",
+            Region::Custom {
+                region: "eu-central-1".to_owned(),
+                endpoint: "http://localhost:9000".to_owned(),
+            },
+            test_minio_credentials(),
+            BucketConfiguration::default(),
+        )
+        .unwrap();
+        put_head_get_delete_object_blocking(test_minio_bucket())
+    }
+
+    #[ignore]
+    #[cfg(all(
+        any(feature = "with-tokio", feature = "with-async-std"),
+        feature = "blocking"
+    ))]
+    #[test]
+    fn digital_ocean_put_head_get_delete_object_blocking() {
+        put_head_get_delete_object_blocking(test_digital_ocean_bucket())
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn aws_put_head_get_delete_object() {
+        put_head_get_delete_object(test_aws_bucket()).await;
+    }
+
+    #[ignore]
     #[maybe_async::test(
         feature = "sync",
         async(
@@ -1594,35 +1987,7 @@ mod test {
         )
     )]
     async fn gc_test_put_head_get_delete_object() {
-        let s3_path = "/test.file";
-        let bucket = test_gc_bucket();
-        let test: Vec<u8> = object(3072);
-
-        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(code, 200);
-        let (data, code) = bucket.get_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test, data);
-
-        let (data, code) = bucket
-            .get_object_range(s3_path, 100, Some(1000))
-            .await
-            .unwrap();
-        assert_eq!(code, 206);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test[100..1001].to_vec(), data);
-
-        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        assert_eq!(
-            head_object_result.content_type.unwrap(),
-            "application/octet-stream".to_owned()
-        );
-        // println!("{:?}", head_object_result);
-        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
-        assert_eq!(code, 204);
+        put_head_get_delete_object(test_gc_bucket()).await;
     }
 
     #[ignore]
@@ -1635,35 +2000,44 @@ mod test {
         )
     )]
     async fn wasabi_test_put_head_get_delete_object() {
-        let s3_path = "/test.file";
-        let bucket = test_wasabi_bucket();
-        let test: Vec<u8> = object(3072);
+        put_head_get_delete_object(test_wasabi_bucket()).await;
+    }
 
-        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(code, 200);
-        let (data, code) = bucket.get_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test, data);
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn minio_test_put_head_get_delete_object() {
+        Bucket::create_with_path_style(
+            "rust-s3",
+            Region::Custom {
+                region: "eu-central-1".to_owned(),
+                endpoint: "http://localhost:9000".to_owned(),
+            },
+            test_minio_credentials(),
+            BucketConfiguration::default(),
+        )
+        .await
+        .unwrap();
+        put_head_get_delete_object(test_minio_bucket()).await;
+    }
 
-        let (data, code) = bucket
-            .get_object_range(s3_path, 100, Some(1000))
-            .await
-            .unwrap();
-        assert_eq!(code, 206);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test[100..1001].to_vec(), data);
-
-        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        assert_eq!(
-            head_object_result.content_type.unwrap(),
-            "application/octet-stream".to_owned()
-        );
-        // println!("{:?}", head_object_result);
-        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
-        assert_eq!(code, 204);
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn digital_ocean_test_put_head_get_delete_object() {
+        put_head_get_delete_object(test_digital_ocean_bucket()).await;
     }
 
     #[test]
@@ -1672,8 +2046,11 @@ mod test {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
 
-        let mut custom_headers = HashMap::new();
-        custom_headers.insert("custom_header".to_string(), "custom_value".to_string());
+        let mut custom_headers = HeaderMap::new();
+        custom_headers.insert(
+            HeaderName::from_static("custom_header"),
+            "custom_value".parse().unwrap(),
+        );
 
         let url = bucket
             .presign_put(s3_path, 86400, Some(custom_headers))
@@ -1687,7 +2064,6 @@ mod test {
 
     #[test]
     #[ignore]
-
     fn test_presign_get() {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();

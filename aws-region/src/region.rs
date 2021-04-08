@@ -3,6 +3,8 @@
 use std::fmt;
 use std::str::{self, FromStr};
 
+use anyhow::Result;
+
 /// AWS S3 [region identifier](https://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region),
 /// passing in custom values is also possible, in that case it is up to you to pass a valid endpoint,
 /// otherwise boom will happen :)
@@ -72,6 +74,8 @@ pub enum Region {
     DoAms3,
     /// Digital Ocean sgp1
     DoSgp1,
+    /// Digiral Ocean fra1
+    DoFra1,
     /// Yandex Object Storage
     Yandex,
     /// Wasabi us-east-1
@@ -113,6 +117,7 @@ impl fmt::Display for Region {
             DoNyc3 => write!(f, "nyc3"),
             DoAms3 => write!(f, "ams3"),
             DoSgp1 => write!(f, "sgp1"),
+            DoFra1 => write!(f, "fra1"),
             Yandex => write!(f, "ru-central1"),
             WaUsEast1 => write!(f, "us-east-1"),
             WaUsEast2 => write!(f, "us-east-2"),
@@ -124,9 +129,9 @@ impl fmt::Display for Region {
 }
 
 impl FromStr for Region {
-    type Err = crate::AwsRegionError;
+    type Err = anyhow::Error;
 
-    fn from_str(s: &str) -> crate::Result<Self> {
+    fn from_str(s: &str) -> Result<Self> {
         use self::Region::*;
         match s {
             "us-east-1" => Ok(UsEast1),
@@ -152,6 +157,7 @@ impl FromStr for Region {
             "nyc3" => Ok(DoNyc3),
             "ams3" => Ok(DoAms3),
             "sgp1" => Ok(DoSgp1),
+            "fra1" => Ok(DoFra1),
             "yandex" => Ok(Yandex),
             "ru-central1" => Ok(Yandex),
             "wa-us-east-1" => Ok(WaUsEast1),
@@ -195,6 +201,7 @@ impl Region {
             DoNyc3 => String::from("nyc3.digitaloceanspaces.com"),
             DoAms3 => String::from("ams3.digitaloceanspaces.com"),
             DoSgp1 => String::from("sgp1.digitaloceanspaces.com"),
+            DoFra1 => String::from("fra1.digitaloceanspaces.com"),
             Yandex => String::from("storage.yandexcloud.net"),
             WaUsEast1 => String::from("s3.us-east-1.wasabisys.com"),
             WaUsEast2 => String::from("s3.us-east-2.wasabisys.com"),
