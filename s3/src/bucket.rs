@@ -1761,6 +1761,15 @@ mod test {
     ))]
     #[test]
     fn minio_put_head_get_delete_object_blocking() {
+        Bucket::create_with_path_style_blocking(
+            "rust-s3",
+            Region::Custom {
+                region: "eu-central-1".to_owned(),
+                endpoint: "http://localhost:9000".to_owned(),
+            },
+            test_minio_credentials(),
+            BucketConfiguration::default(),
+        );
         put_head_get_delete_object_blocking(test_minio_bucket())
     }
 
@@ -1829,6 +1838,17 @@ mod test {
         )
     )]
     async fn minio_test_put_head_get_delete_object() {
+        Bucket::create_with_path_style(
+            "rust-s3",
+            Region::Custom {
+                region: "eu-central-1".to_owned(),
+                endpoint: "http://localhost:9000".to_owned(),
+            },
+            test_minio_credentials(),
+            BucketConfiguration::default(),
+        )
+        .await
+        .unwrap();
         put_head_get_delete_object(test_minio_bucket()).await;
     }
 
