@@ -1169,8 +1169,16 @@ impl Bucket {
                     if tag_set.is("TagSet", ns) {
                         for tag in tag_set.children() {
                             if tag.is("Tag", ns) {
-                                let key = tag.get_child("Key", ns).unwrap().text();
-                                let value = tag.get_child("Value", ns).unwrap().text();
+                                let key = if let Some(element) = tag.get_child("Key", ns) {
+                                    element.text()
+                                } else {
+                                    "Could not parse Key from Tag".to_string()
+                                };
+                                let value = if let Some(element) = tag.get_child("Values", ns) {
+                                    element.text()
+                                } else {
+                                    "Could not parse Values from Tag".to_string()
+                                };
                                 tags.push(Tag { key, value });
                             }
                         }
