@@ -1163,15 +1163,16 @@ impl Bucket {
 
         if result.1 == 200 {
             let result_string = String::from_utf8_lossy(&result.0);
-            let tagging: Element = result_string.parse().unwrap();
             let ns = "http://s3.amazonaws.com/doc/2006-03-01/";
-            for tag_set in tagging.children() {
-                if tag_set.is("TagSet", ns) {
-                    for tag in tag_set.children() {
-                        if tag.is("Tag", ns) {
-                            let key = tag.get_child("Key", ns).unwrap().text();
-                            let value = tag.get_child("Value", ns).unwrap().text();
-                            tags.push(Tag { key, value });
+            if let Ok(tagging) = result_string.parse::<Element>() {
+                for tag_set in tagging.children() {
+                    if tag_set.is("TagSet", ns) {
+                        for tag in tag_set.children() {
+                            if tag.is("Tag", ns) {
+                                let key = tag.get_child("Key", ns).unwrap().text();
+                                let value = tag.get_child("Value", ns).unwrap().text();
+                                tags.push(Tag { key, value });
+                            }
                         }
                     }
                 }
@@ -1732,11 +1733,14 @@ mod test {
                 value: "Value2".to_string(),
             },
         ];
+        let empty_tags: Vec<Tag> = Vec::new();
         let (_data, code) = bucket
             .put_object("tagging_test", b"Gimme tags")
             .await
             .unwrap();
         assert_eq!(code, 200);
+        let (tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
+        assert_eq!(tags, empty_tags);
         let (_body, code) = bucket
             .put_object_tagging("tagging_test", &[("Tag1", "Value1"), ("Tag2", "Value2")])
             .await
