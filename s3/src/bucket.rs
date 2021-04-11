@@ -54,6 +54,16 @@ pub struct Tag {
     value: String,
 }
 
+impl Tag {
+    pub fn key(&self) -> String {
+        self.key.to_owned()
+    }
+
+    pub fn value(&self) -> String {
+        self.value.to_owned()
+    }
+}
+
 /// Instantiate an existing Bucket
 ///
 /// # Example
@@ -2135,5 +2145,14 @@ mod test {
 
         let response_code = response.bucket.delete().await.unwrap();
         assert!(response_code < 300);
+    }
+
+    #[test]
+    fn test_tag_has_key_and_value_functions() {
+        let key = "key".to_owned();
+        let value = "value".to_owned();
+        let tag = Tag { key, value };
+        assert_eq!["key", tag.key()];
+        assert_eq!["value", tag.value()];
     }
 }
