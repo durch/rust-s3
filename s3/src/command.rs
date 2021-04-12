@@ -65,6 +65,7 @@ pub enum Command<'a> {
         content: &'a [u8],
         content_type: &'a str,
         multipart: Option<Multipart<'a>>,
+        custom_headers: Option<HeaderMap>,
     },
     PutObjectTagging {
         tags: &'a str,
@@ -90,7 +91,9 @@ pub enum Command<'a> {
         expiry_secs: u32,
         custom_headers: Option<HeaderMap>,
     },
-    InitiateMultipartUpload,
+    InitiateMultipartUpload {
+        custom_headers: Option<HeaderMap>,
+    },
     UploadPart {
         part_number: u32,
         content: &'a [u8],
@@ -129,7 +132,7 @@ impl<'a> Command<'a> {
             | Command::DeleteObjectTagging
             | Command::AbortMultipartUpload { .. }
             | Command::DeleteBucket => HttpMethod::Delete,
-            Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
+            Command::InitiateMultipartUpload { .. } | Command::CompleteMultipartUpload { .. } => {
                 HttpMethod::Post
             }
             Command::HeadObject => HttpMethod::Head,
