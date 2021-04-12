@@ -36,13 +36,12 @@ use std::io::Read;
 // #[cfg(any(feature = "sync", feature = "with-tokio"))]
 // use std::path::Path;
 
+use crate::errors::{PresignError, ResponseError};
 use crate::request_trait::Request;
 use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
-use anyhow::anyhow;
-use anyhow::Result;
 use http::header::HeaderName;
 use http::HeaderMap;
 
@@ -69,11 +68,11 @@ impl Tag {
 /// # Example
 ///
 /// ```no_run
-/// use s3::bucket::Bucket;
+/// use s3::{Bucket, Region};
 /// use s3::creds::Credentials;
 ///
 /// let bucket_name = "rust-s3-test";
-/// let region = "us-east-1".parse().unwrap();
+/// let region = Region::from("us-east-1");
 /// let credentials = Credentials::default().unwrap();
 ///
 /// let bucket = Bucket::new(bucket_name, region, credentials);
@@ -88,12 +87,9 @@ pub struct Bucket {
     path_style: bool,
 }
 
-fn validate_expiry(expiry_secs: u32) -> Result<()> {
+fn validate_expiry(expiry_secs: u32) -> Result<(), PresignError> {
     if 604800 < expiry_secs {
-        return Err(anyhow!(
-            "Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead",
-            expiry_secs
-        ));
+        return Err(PresignError::ExpirationOverflow(expiry_secs));
     }
     Ok(())
 }
@@ -109,18 +105,22 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default().unwrap();
-    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// let url = bucket.presign_get("/test.file", 86400).unwrap();
     /// println!("Presigned url: {}", url);
     /// ```
-    pub fn presign_get<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
+    pub fn presign_get<S: AsRef<str>>(
+        &self,
+        path: S,
+        expiry_secs: u32,
+    ) -> Result<String, PresignError> {
         validate_expiry(expiry_secs)?;
         let request = RequestImpl::new(self, path.as_ref(), Command::PresignGet { expiry_secs });
         request.presigned()
@@ -131,15 +131,15 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use http::HeaderMap;
     /// use http::header::HeaderName;
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default().unwrap();
-    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Add optional custom headers
     /// let mut custom_headers = HeaderMap::new();
@@ -156,7 +156,7 @@ impl Bucket {
         path: S,
         expiry_secs: u32,
         custom_headers: Option<HeaderMap>,
-    ) -> Result<String> {
+    ) -> Result<String, PresignError> {
         validate_expiry(expiry_secs)?;
         let request = RequestImpl::new(
             self,
@@ -171,26 +171,26 @@ impl Bucket {
     /// Create a new `Bucket` and instantiate it
     ///
     /// ```no_run
-    /// use s3::{Bucket, BucketConfiguration};
+    /// use s3::{Bucket, BucketConfiguration, Region};
     /// use s3::creds::Credentials;
-    /// # use s3::region::Region;
     /// use anyhow::Result;
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
     /// let config = BucketConfiguration::default();
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let create_bucket_response = Bucket::create(bucket_name, region, credentials, config).await?;
     ///
     /// // `sync` fature will produce an identical method
     /// #[cfg(feature = "sync")]
     /// let create_bucket_response = Bucket::create(bucket_name, region, credentials, config)?;
     ///
-    /// # let region: Region = "us-east-1".parse()?;
+    /// # let region: Region = Region::from("us-east-1");
     /// # let credentials = Credentials::default()?;
     /// # let config = BucketConfiguration::default();
     /// // Blocking variant, generated with `blocking` feature in combination
@@ -206,17 +206,17 @@ impl Bucket {
         region: Region,
         credentials: Credentials,
         config: BucketConfiguration,
-    ) -> Result<CreateBucketResponse> {
+    ) -> Result<CreateBucketResponse, ResponseError> {
         let mut config = config;
         config.set_region(region.clone());
         let command = Command::CreateBucket { config };
-        let bucket = Bucket::new(name, region, credentials)?;
+        let bucket = Bucket::new(name, region, credentials);
         let request = RequestImpl::new(&bucket, "", command);
         let (data, response_code) = request.response_data(false).await?;
-        let response_text = std::str::from_utf8(&data)?;
+        let response_text = String::from_utf8(data)?;
         Ok(CreateBucketResponse {
             bucket,
-            response_text: response_text.to_string(),
+            response_text,
             response_code,
         })
     }
@@ -224,28 +224,25 @@ impl Bucket {
     /// Create a new `Bucket` with path style and instantiate it
     ///
     /// ```no_run
-    /// use s3::{Bucket, BucketConfiguration};
+    /// use s3::{Bucket, BucketConfiguration, Region};
     /// use s3::creds::Credentials;
-    /// # use s3::region::Region;
     /// use anyhow::Result;
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
     /// let config = BucketConfiguration::default();
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let create_bucket_response = Bucket::create_with_path_style(bucket_name, region, credentials, config).await?;
     ///
     /// // `sync` fature will produce an identical method
     /// #[cfg(feature = "sync")]
     /// let create_bucket_response = Bucket::create_with_path_style(bucket_name, region, credentials, config)?;
     ///
-    /// # let region: Region = "us-east-1".parse()?;
-    /// # let credentials = Credentials::default()?;
-    /// # let config = BucketConfiguration::default();
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
@@ -259,17 +256,17 @@ impl Bucket {
         region: Region,
         credentials: Credentials,
         config: BucketConfiguration,
-    ) -> Result<CreateBucketResponse> {
+    ) -> Result<CreateBucketResponse, ResponseError> {
         let mut config = config;
         config.set_region(region.clone());
         let command = Command::CreateBucket { config };
-        let bucket = Bucket::new_with_path_style(name, region, credentials)?;
+        let bucket = Bucket::new_with_path_style(name, region, credentials);
         let request = RequestImpl::new(&bucket, "", command);
         let (data, response_code) = request.response_data(false).await?;
-        let response_text = std::str::from_utf8(&data)?;
+        let response_text = String::from_utf8(data)?;
         Ok(CreateBucketResponse {
             bucket,
-            response_text: response_text.to_string(),
+            response_text,
             response_code,
         })
     }
@@ -278,18 +275,19 @@ impl Bucket {
     ///
     /// # Example
     /// ```rust,no_run
-    /// use s3::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default().unwrap();
-    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// bucket.delete().await.unwrap();
     /// // `sync` fature will produce an identical method
     ///
@@ -305,7 +303,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn delete(&self) -> Result<u16> {
+    pub async fn delete(&self) -> Result<u16, ResponseError> {
         let command = Command::DeleteBucket;
         let request = RequestImpl::new(self, "", command);
         let (_, response_code) = request.response_data(false).await?;
@@ -316,99 +314,95 @@ impl Bucket {
     ///
     /// # Example
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     ///
     /// // Fake  credentials so we don't access user's real credentials in tests
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default().unwrap();
     ///
-    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     /// ```
-    pub fn new(name: &str, region: Region, credentials: Credentials) -> Result<Bucket> {
-        Ok(Bucket {
+    pub fn new(name: &str, region: Region, credentials: Credentials) -> Bucket {
+        Bucket {
             name: name.into(),
             region,
             credentials,
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: false,
-        })
+        }
     }
 
     /// Instantiate a public existing `Bucket`.
     ///
     /// # Example
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = Region::from("us-east-1");
     ///
-    /// let bucket = Bucket::new_public(bucket_name, region).unwrap();
+    /// let bucket = Bucket::new_public(bucket_name, region);
     /// ```
-    pub fn new_public(name: &str, region: Region) -> Result<Bucket> {
-        Ok(Bucket {
+    pub fn new_public(name: &str, region: Region) -> Bucket {
+        Bucket {
             name: name.into(),
             region,
-            credentials: Credentials::anonymous()?,
+            credentials: Credentials::anonymous(),
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: false,
-        })
+        }
     }
 
     /// Instantiate an existing `Bucket` with path style addressing. Useful for compatibility with some storage APIs, like MinIO.
     ///
     /// # Example
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default().unwrap();
     ///
-    /// let bucket = Bucket::new_with_path_style(bucket_name, region, credentials).unwrap();
+    /// let bucket = Bucket::new_with_path_style(bucket_name, region, credentials);
     /// ```
-    pub fn new_with_path_style(
-        name: &str,
-        region: Region,
-        credentials: Credentials,
-    ) -> Result<Bucket> {
-        Ok(Bucket {
+    pub fn new_with_path_style(name: &str, region: Region, credentials: Credentials) -> Bucket {
+        Bucket {
             name: name.into(),
             region,
             credentials,
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: true,
-        })
+        }
     }
 
     /// Instantiate a public existing `Bucket` with path style addressing. Useful for compatibility with some storage APIs, like MinIO.
     ///
     /// # Example
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
+    /// let region = Region::from("us-east-1");
     ///
-    /// let bucket = Bucket::new_public_with_path_style(bucket_name, region).unwrap();
+    /// let bucket = Bucket::new_public_with_path_style(bucket_name, region);
     /// ```
-    pub fn new_public_with_path_style(name: &str, region: Region) -> Result<Bucket> {
-        Ok(Bucket {
+    pub fn new_public_with_path_style(name: &str, region: Region) -> Bucket {
+        Bucket {
             name: name.into(),
             region,
-            credentials: Credentials::anonymous()?,
+            credentials: Credentials::anonymous(),
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             path_style: true,
-        })
+        }
     }
 
     /// Gets file from an S3 path.
@@ -416,7 +410,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```rust,no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -424,11 +418,12 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (data, code) = bucket.get_object("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -443,7 +438,10 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
+    pub async fn get_object<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> Result<(Vec<u8>, u16), ResponseError> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data(false).await
@@ -454,7 +452,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```rust,no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -462,11 +460,12 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (data, code) = bucket.get_object_torrent("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -481,7 +480,10 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object_torrent<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
+    pub async fn get_object_torrent<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> Result<(Vec<u8>, u16), ResponseError> {
         let command = Command::GetObjectTorrent;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data(false).await
@@ -492,7 +494,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```rust,no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -500,11 +502,12 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (data, code) = bucket.get_object_range("/test.file", 0, Some(31)).await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -525,7 +528,7 @@ impl Bucket {
         path: S,
         start: u64,
         end: Option<u64>,
-    ) -> Result<(Vec<u8>, u16)> {
+    ) -> Result<(Vec<u8>, u16), ResponseError> {
         if let Some(end) = end {
             assert!(start < end);
         }
@@ -540,7 +543,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```rust,no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     /// use std::fs::File;
@@ -549,12 +552,13 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     /// let mut output_file = File::create("output_file").expect("Unable to create file");
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let status_code = bucket.get_object_stream("/test.file", &mut output_file).await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -574,7 +578,7 @@ impl Bucket {
         &self,
         path: S,
         writer: &mut T,
-    ) -> Result<u16> {
+    ) -> Result<u16, ResponseError> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data_to_writer(writer).await
@@ -585,7 +589,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```rust,no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     /// use std::fs::File;
@@ -595,9 +599,9 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     /// let path = "path";
     /// let test: Vec<u8> = (0..1000).map(|_| 42).collect();
     /// let mut file = File::create(path)?;
@@ -610,6 +614,7 @@ impl Bucket {
     /// let mut path = async_std::fs::File::open(path).await?;
     /// // Async variant with `tokio` or `async-std` features
     /// // Generic over futures::io::AsyncRead|tokio::io::AsyncRead + Unpin
+    /// #[cfg(not(feature = "sync"))]
     /// let status_code = bucket.put_object_stream(&mut path, "/path").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -630,7 +635,7 @@ impl Bucket {
         &self,
         reader: &mut R,
         s3_path: impl AsRef<str>,
-    ) -> Result<u16> {
+    ) -> Result<u16, ResponseError> {
         self._put_object_stream(reader, s3_path.as_ref()).await
     }
 
@@ -639,7 +644,7 @@ impl Bucket {
         &self,
         reader: &mut R,
         s3_path: impl AsRef<str>,
-    ) -> Result<u16> {
+    ) -> Result<u16, ResponseError> {
         self._put_object_stream(reader, s3_path.as_ref())
     }
 
@@ -648,12 +653,11 @@ impl Bucket {
         &self,
         reader: &mut R,
         s3_path: &str,
-    ) -> Result<u16> {
+    ) -> Result<u16, ResponseError> {
         let command = Command::InitiateMultipartUpload;
         let request = RequestImpl::new(self, &s3_path, command);
         let (data, code) = request.response_data(false).await?;
-        let msg: InitiateMultipartUploadResponse =
-            serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+        let msg: InitiateMultipartUploadResponse = serde_xml::from_str(&String::from_utf8(data)?)?;
         let path = msg.key;
         let upload_id = &msg.upload_id;
 
@@ -679,8 +683,8 @@ impl Bucket {
                     };
                     let request = RequestImpl::new(self, &path, command);
                     let (data, _code) = request.response_data(true).await?;
-                    let etag = std::str::from_utf8(data.as_slice())?;
-                    etags.push(etag.to_string());
+                    let etag = String::from_utf8(data)?;
+                    etags.push(etag);
                     let inner_data = etags
                         .clone()
                         .into_iter()
@@ -710,20 +714,23 @@ impl Bucket {
                 };
                 let request = RequestImpl::new(self, &path, command);
                 let (data, _code) = request.response_data(true).await?;
-                let etag = std::str::from_utf8(data.as_slice())?;
-                etags.push(etag.to_string());
+                let etag = String::from_utf8(data)?;
+                etags.push(etag);
             }
         }
         Ok(code)
     }
 
     #[maybe_async::sync_impl]
-    fn _put_object_stream<R: Read>(&self, reader: &mut R, s3_path: &str) -> Result<u16> {
+    fn _put_object_stream<R: Read>(
+        &self,
+        reader: &mut R,
+        s3_path: &str,
+    ) -> Result<u16, ResponseError> {
         let command = Command::InitiateMultipartUpload;
         let request = RequestImpl::new(self, &s3_path, command);
         let (data, code) = request.response_data(false)?;
-        let msg: InitiateMultipartUploadResponse =
-            serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+        let msg: InitiateMultipartUploadResponse = serde_xml::from_str(&String::from_utf8(data)?)?;
 
         let path = msg.key;
         let upload_id = &msg.upload_id;
@@ -750,8 +757,8 @@ impl Bucket {
                     };
                     let request = RequestImpl::new(self, &path, command);
                     let (data, _code) = request.response_data(true)?;
-                    let etag = std::str::from_utf8(data.as_slice())?;
-                    etags.push(etag.to_string());
+                    let etag = String::from_utf8(data)?;
+                    etags.push(etag);
                     let inner_data = etags
                         .into_iter()
                         .enumerate()
@@ -779,8 +786,8 @@ impl Bucket {
                 };
                 let request = RequestImpl::new(self, &path, command);
                 let (data, _code) = request.response_data(true)?;
-                let etag = std::str::from_utf8(data.as_slice())?;
-                etags.push(etag.to_string());
+                let etag = String::from_utf8(data)?;
+                etags.push(etag);
             }
         }
         Ok(code)
@@ -791,7 +798,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -799,11 +806,12 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (region, status_code) = bucket.location().await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -819,29 +827,27 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn location(&self) -> Result<(Region, u16)> {
+    pub async fn location(&self) -> Result<(Region, u16), ResponseError> {
         let request = RequestImpl::new(self, "?location", Command::GetBucketLocation);
         let result = request.response_data(false).await?;
         let region_string = String::from_utf8_lossy(&result.0);
-        let region = match serde_xml::from_reader(region_string.as_bytes()) {
-            Ok(r) => {
-                let location_result: BucketLocationResult = r;
-                location_result.region.parse()?
-            }
-            Err(e) => {
-                if result.1 == 200 {
-                    Region::Custom {
-                        region: "Custom".to_string(),
-                        endpoint: "".to_string(),
-                    }
-                } else {
-                    Region::Custom {
-                        region: format!("Error encountered : {}", e),
-                        endpoint: "".to_string(),
+        let region =
+            match serde_xml::from_reader::<&[u8], BucketLocationResult>(region_string.as_bytes()) {
+                Ok(location_result) => Region::from(location_result.region.as_str()),
+                Err(e) => {
+                    if result.1 == 200 {
+                        Region::Custom {
+                            region: "Custom".to_string(),
+                            endpoint: "".to_string(),
+                        }
+                    } else {
+                        Region::Custom {
+                            region: format!("Error encountered : {}", e),
+                            endpoint: "".to_string(),
+                        }
                     }
                 }
-            }
-        };
+            };
         Ok((region, result.1))
     }
 
@@ -850,7 +856,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -858,11 +864,12 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (_, code) = bucket.delete_object("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -878,7 +885,10 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
+    pub async fn delete_object<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> Result<(Vec<u8>, u16), ResponseError> {
         let command = Command::DeleteObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data(false).await
@@ -889,7 +899,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -897,11 +907,12 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (head_object_result, code) = bucket.head_object("/test.png").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -917,7 +928,10 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn head_object<S: AsRef<str>>(&self, path: S) -> Result<(HeadObjectResult, u16)> {
+    pub async fn head_object<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> Result<(HeadObjectResult, u16), ResponseError> {
         let command = Command::HeadObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         let (headers, status) = request.response_header().await?;
@@ -930,7 +944,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -938,12 +952,13 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     /// let content = "I want to go to S3".as_bytes();
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (_, code) = bucket.put_object_with_content_type("/test.file", content, "text/plain").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -964,7 +979,7 @@ impl Bucket {
         path: S,
         content: &[u8],
         content_type: &str,
-    ) -> Result<(Vec<u8>, u16)> {
+    ) -> Result<(Vec<u8>, u16), ResponseError> {
         let command = Command::PutObject {
             content,
             content_type,
@@ -979,7 +994,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -987,12 +1002,13 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     /// let content = "I want to go to S3".as_bytes();
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (_, code) = bucket.put_object("/test.file", content).await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1012,7 +1028,7 @@ impl Bucket {
         &self,
         path: S,
         content: &[u8],
-    ) -> Result<(Vec<u8>, u16)> {
+    ) -> Result<(Vec<u8>, u16), ResponseError> {
         self.put_object_with_content_type(path, content, "application/octet-stream")
             .await
     }
@@ -1043,7 +1059,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -1051,11 +1067,12 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (_, code) = bucket.put_object_tagging("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1075,7 +1092,7 @@ impl Bucket {
         &self,
         path: &str,
         tags: &[(S, S)],
-    ) -> Result<(Vec<u8>, u16)> {
+    ) -> Result<(Vec<u8>, u16), ResponseError> {
         let content = self._tags_xml(&tags);
         let command = Command::PutObjectTagging { tags: &content };
         let request = RequestImpl::new(self, path, command);
@@ -1087,7 +1104,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -1095,11 +1112,12 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (_, code) = bucket.delete_object_tagging("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1115,7 +1133,10 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn delete_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
+    pub async fn delete_object_tagging<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> Result<(Vec<u8>, u16), ResponseError> {
         let command = Command::DeleteObjectTagging;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data(false).await
@@ -1126,7 +1147,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -1134,11 +1155,12 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (_, code) = bucket.get_object_tagging("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1154,7 +1176,10 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<Tag>, u16)> {
+    pub async fn get_object_tagging<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> Result<(Vec<Tag>, u16), ResponseError> {
         let command = Command::GetObjectTagging {};
         let request = RequestImpl::new(self, path.as_ref(), command);
         let result = request.response_data(false).await?;
@@ -1198,7 +1223,7 @@ impl Bucket {
         continuation_token: Option<String>,
         start_after: Option<String>,
         max_keys: Option<usize>,
-    ) -> Result<(ListBucketResult, u16)> {
+    ) -> Result<(ListBucketResult, u16), ResponseError> {
         let command = Command::ListBucket {
             prefix,
             delimiter,
@@ -1208,9 +1233,9 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command);
         let (response, status_code) = request.response_data(false).await?;
-        return serde_xml::from_reader(response.as_slice())
-            .map(|list_bucket_result| (list_bucket_result, status_code))
-            .map_err(|e| anyhow!("Could not deserialize result \n {}", e));
+
+        let list_bucket_result = serde_xml::from_reader(response.as_slice())?;
+        Ok((list_bucket_result, status_code))
     }
 
     /// List the contents of an S3 bucket.
@@ -1218,7 +1243,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -1226,11 +1251,12 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let results = bucket.list("/".to_string(), Some("/".to_string())).await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1250,7 +1276,7 @@ impl Bucket {
         &self,
         prefix: String,
         delimiter: Option<String>,
-    ) -> Result<Vec<ListBucketResult>> {
+    ) -> Result<Vec<ListBucketResult>, ResponseError> {
         let the_bucket = self.to_owned();
         let mut results = Vec::new();
         let mut continuation_token = None;
@@ -1282,7 +1308,7 @@ impl Bucket {
         delimiter: Option<&str>,
         key_marker: Option<String>,
         max_uploads: Option<usize>,
-    ) -> Result<(ListMultipartUploadsResult, u16)> {
+    ) -> Result<(ListMultipartUploadsResult, u16), ResponseError> {
         let command = Command::ListMultipartUploads {
             prefix,
             delimiter,
@@ -1291,9 +1317,9 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command);
         let (response, status_code) = request.response_data(false).await?;
-        return serde_xml::from_reader(response.as_slice())
-            .map(|list_bucket_result| (list_bucket_result, status_code))
-            .map_err(|e| anyhow!("Could not deserialize result \n {}", e));
+        let list_bucket_result = serde_xml::from_reader(response.as_slice())?;
+
+        Ok((list_bucket_result, status_code))
     }
 
     /// List the ongoing multipart uploads of an S3 bucket. This may be useful to cleanup failed
@@ -1302,7 +1328,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -1310,11 +1336,12 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let results = bucket.list_multiparts_uploads(Some("/"), Some("/")).await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1334,7 +1361,7 @@ impl Bucket {
         &self,
         prefix: Option<&str>,
         delimiter: Option<&str>,
-    ) -> Result<Vec<ListMultipartUploadsResult>> {
+    ) -> Result<Vec<ListMultipartUploadsResult>, ResponseError> {
         let the_bucket = self.to_owned();
         let mut results = Vec::new();
         let mut next_marker: Option<String> = None;
@@ -1361,7 +1388,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
-    /// use s3::bucket::Bucket;
+    /// use s3::{Bucket, Region};
     /// use s3::creds::Credentials;
     /// use anyhow::Result;
     ///
@@ -1369,11 +1396,12 @@ impl Bucket {
     /// # async fn main() -> Result<()> {
     ///
     /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse()?;
+    /// let region = Region::from("us-east-1");
     /// let credentials = Credentials::default()?;
-    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials);
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let results = bucket.abort_upload("/some/file.txt", "ZDFjM2I0YmEtMzU3ZC00OTQ1LTlkNGUtMTgxZThjYzIwNjA2").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1389,7 +1417,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn abort_upload(&self, key: &str, upload_id: &str) -> Result<()> {
+    pub async fn abort_upload(&self, key: &str, upload_id: &str) -> Result<(), ResponseError> {
         let abort = Command::AbortMultipartUpload { upload_id };
         let abort_request = RequestImpl::new(self, key, abort);
         let (content, code) = abort_request.response_data(false).await?;
@@ -1397,22 +1425,8 @@ impl Bucket {
         if (200..300).contains(&code) {
             Ok(())
         } else {
-            let utf8_content = String::from_utf8(content);
-            let err = if let Ok(utf8_content) = utf8_content {
-                format!(
-                    "Invalid return code: got HTTP {} with content '{}'",
-                    code, utf8_content
-                )
-            } else {
-                format!(
-                    "Invalid return code: got HTTP {} with invalid UTF8 content",
-                    code
-                )
-            };
-            Err(anyhow::Error::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                err,
-            )))
+            let utf8_content = String::from_utf8(content)?;
+            Err(ResponseError::StatusCode(code, Some(utf8_content)))
         }
     }
 
@@ -1641,19 +1655,17 @@ mod test {
     fn test_aws_bucket() -> Bucket {
         Bucket::new(
             "rust-s3-test",
-            "eu-central-1".parse().unwrap(),
+            Region::from("eu-central-1"),
             test_aws_credentials(),
         )
-        .unwrap()
     }
 
     fn test_wasabi_bucket() -> Bucket {
         Bucket::new(
             "rust-s3",
-            "wa-eu-central-1".parse().unwrap(),
+            Region::from("wa-eu-central-1"),
             test_wasabi_credentials(),
         )
-        .unwrap()
     }
 
     fn test_gc_bucket() -> Bucket {
@@ -1665,7 +1677,6 @@ mod test {
             },
             test_gc_credentials(),
         )
-        .unwrap()
     }
 
     fn test_minio_bucket() -> Bucket {
@@ -1677,11 +1688,10 @@ mod test {
             },
             test_minio_credentials(),
         )
-        .unwrap()
     }
 
     fn test_digital_ocean_bucket() -> Bucket {
-        Bucket::new("rust-s3", Region::DoFra1, test_digital_ocean_credentials()).unwrap()
+        Bucket::new("rust-s3", Region::DoFra1, test_digital_ocean_credentials())
     }
 
     fn object(size: u32) -> Vec<u8> {
@@ -2088,7 +2098,7 @@ mod test {
         let config = BucketConfiguration::default();
         let response = Bucket::create(
             &uuid::Uuid::new_v4().to_string(),
-            "us-east-1".parse().unwrap(),
+            Region::from("us-east-1"),
             test_aws_credentials(),
             config,
         )
@@ -2116,7 +2126,7 @@ mod test {
         let config = BucketConfiguration::default();
         let response = Bucket::create(
             &uuid::Uuid::new_v4().to_string(),
-            "eu-central-1".parse().unwrap(),
+            Region::from("eu-central-1"),
             test_aws_credentials(),
             config,
         )
@@ -2144,7 +2154,7 @@ mod test {
         let config = BucketConfiguration::public();
         let response = Bucket::create(
             &uuid::Uuid::new_v4().to_string(),
-            "eu-central-1".parse().unwrap(),
+            Region::from("eu-central-1"),
             test_aws_credentials(),
             config,
         )

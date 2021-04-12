@@ -3,8 +3,6 @@
 use std::fmt;
 use std::str::{self, FromStr};
 
-use anyhow::Result;
-
 /// AWS S3 [region identifier](https://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region),
 /// passing in custom values is also possible, in that case it is up to you to pass a valid endpoint,
 /// otherwise boom will happen :)
@@ -15,7 +13,7 @@ use anyhow::Result;
 /// use awsregion::Region;
 ///
 /// // Parse from a string
-/// let region: Region = "us-east-1".parse().unwrap();
+/// let region: Region = Region::from("us-east-1");
 ///
 /// // Choose region directly
 /// let region = Region::EuWest2;
@@ -128,46 +126,44 @@ impl fmt::Display for Region {
     }
 }
 
-impl FromStr for Region {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self> {
+impl From<&str> for Region {
+    fn from(s: &str) -> Region {
         use self::Region::*;
         match s {
-            "us-east-1" => Ok(UsEast1),
-            "us-east-2" => Ok(UsEast2),
-            "us-west-1" => Ok(UsWest1),
-            "us-west-2" => Ok(UsWest2),
-            "ca-central-1" => Ok(CaCentral1),
-            "ap-south-1" => Ok(ApSouth1),
-            "ap-northeast-1" => Ok(ApNortheast1),
-            "ap-northeast-2" => Ok(ApNortheast2),
-            "ap-northeast-3" => Ok(ApNortheast3),
-            "ap-southeast-1" => Ok(ApSoutheast1),
-            "ap-southeast-2" => Ok(ApSoutheast2),
-            "cn-north-1" => Ok(CnNorth1),
-            "cn-northwest-1" => Ok(CnNorthwest1),
-            "eu-north-1" => Ok(EuNorth1),
-            "eu-central-1" => Ok(EuCentral1),
-            "eu-west-1" => Ok(EuWest1),
-            "eu-west-2" => Ok(EuWest2),
-            "eu-west-3" => Ok(EuWest3),
-            "sa-east-1" => Ok(SaEast1),
-            "me-south-1" => Ok(MeSouth1),
-            "nyc3" => Ok(DoNyc3),
-            "ams3" => Ok(DoAms3),
-            "sgp1" => Ok(DoSgp1),
-            "fra1" => Ok(DoFra1),
-            "yandex" => Ok(Yandex),
-            "ru-central1" => Ok(Yandex),
-            "wa-us-east-1" => Ok(WaUsEast1),
-            "wa-us-east-2" => Ok(WaUsEast2),
-            "wa-us-west-1" => Ok(WaUsWest1),
-            "wa-eu-central-1" => Ok(WaEuCentral1),
-            x => Ok(Custom {
+            "us-east-1" => UsEast1,
+            "us-east-2" => UsEast2,
+            "us-west-1" => UsWest1,
+            "us-west-2" => UsWest2,
+            "ca-central-1" => CaCentral1,
+            "ap-south-1" => ApSouth1,
+            "ap-northeast-1" => ApNortheast1,
+            "ap-northeast-2" => ApNortheast2,
+            "ap-northeast-3" => ApNortheast3,
+            "ap-southeast-1" => ApSoutheast1,
+            "ap-southeast-2" => ApSoutheast2,
+            "cn-north-1" => CnNorth1,
+            "cn-northwest-1" => CnNorthwest1,
+            "eu-north-1" => EuNorth1,
+            "eu-central-1" => EuCentral1,
+            "eu-west-1" => EuWest1,
+            "eu-west-2" => EuWest2,
+            "eu-west-3" => EuWest3,
+            "sa-east-1" => SaEast1,
+            "me-south-1" => MeSouth1,
+            "nyc3" => DoNyc3,
+            "ams3" => DoAms3,
+            "sgp1" => DoSgp1,
+            "fra1" => DoFra1,
+            "yandex" => Yandex,
+            "ru-central1" => Yandex,
+            "wa-us-east-1" => WaUsEast1,
+            "wa-us-east-2" => WaUsEast2,
+            "wa-us-west-1" => WaUsWest1,
+            "wa-eu-central-1" => WaEuCentral1,
+            x => Custom {
                 region: x.to_string(),
                 endpoint: x.to_string(),
-            }),
+            },
         }
     }
 }
@@ -239,7 +235,7 @@ fn yandex_object_storage() {
         region: "ru-central1".to_string(),
     };
 
-    let yandex_region = "ru-central1".parse::<Region>().unwrap();
+    let yandex_region = Region::from("ru-central1");
 
     assert_eq!(yandex.endpoint(), yandex_region.endpoint());
 

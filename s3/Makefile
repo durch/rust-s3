@@ -9,7 +9,7 @@ sync-clippy: sync-nativetls-clippy sync-nossl-clippy sync-rustlstls-clippy
 
 # tokio
 tokio: tokio-nativetls tokio-nossl tokio-noverify tokio-rustlstls
-tokio-not-ignored: tokio-nativetls-test-not-ignored tokio-nossl-test-not-ignored tokio-noverify-test-not-ignored tokio-rustlstls-test-not-ignored
+tokio-not-ignored: tokio-nativetls-test-not-ignored tokio-nossl-test-not-ignored tokio-noverify-test-not-ignored tokio-rustlstls-test-not-ignored sync-nativetls-test-not-ignored sync-rustlstls-test-not-ignored
 
 tokio-nativetls: tokio-nativetls-clippy tokio-nativetls-test tokio-nativetls-blocking-test-ignored
 tokio-nativetls-clippy:
@@ -57,17 +57,21 @@ async-std-test-blocking-ignored:
 # sync
 sync-nativetls: sync-nativetls-clippy sync-nativetls-test
 sync-nativetls-clippy:
-	cargo clippy --no-default-features --features sync --features sync-native-tls -- -D warnings
-sync-nativetls-test: sync-nativetls-test-ignored
+	cargo clippy --no-default-features --features sync-native-tls -- -D warnings
+sync-nativetls-test: sync-nativetls-test-ignored sync-nativetls-test-not-ignored
 sync-nativetls-test-ignored:
-	cargo test --no-default-features --features sync --features sync-native-tls -- --ignored
+	cargo test --no-default-features --features sync-native-tls -- --ignored
+sync-nativetls-test-not-ignored:
+	cargo test --no-default-features --features sync-native-tls
 
 sync-rustlstls: sync-rustlstls-clippy sync-rustlstls-test
 sync-rustlstls-clippy:
-	cargo clippy --no-default-features --features sync --features sync-rustls-tls -- -D warnings
-sync-rustlstls-test: sync-rustlstls-test-ignored
+	cargo clippy --no-default-features --features sync-rustls-tls -- -D warnings
+sync-rustlstls-test: sync-rustlstls-test-ignored sync-rustlstls-test-not-ignored
 sync-rustlstls-test-ignored:
-	cargo test --no-default-features --features sync --features sync-rustls-tls -- --ignored
+	cargo test --no-default-features --features sync-rustls-tls -- --ignored
+sync-rustlstls-test-not-ignored:
+	cargo test --no-default-features --features sync-rustls-tls
 
 sync-nossl: sync-nossl-clippy
 sync-nossl-clippy:

@@ -18,6 +18,7 @@ pub mod bucket;
 pub mod bucket_ops;
 pub mod command;
 pub mod deserializer;
+pub mod errors;
 #[cfg(feature = "with-tokio")]
 pub mod request;
 pub mod serde_types;

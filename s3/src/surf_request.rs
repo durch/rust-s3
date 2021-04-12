@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
 
-use anyhow::{anyhow, Result};
+use crate::errors::ResponseError;
 use http::HeaderMap;
 use maybe_async::maybe_async;
 use surf::http::headers::{HeaderName, HeaderValue};
@@ -44,7 +44,7 @@ impl<'a> Request for SurfRequest<'a> {
         self.path.to_string()
     }
 
-    async fn response(&self) -> Result<surf::Response> {
+    async fn response(&self) -> Result<surf::Response, ResponseError> {
         // Build headers
         let headers = self.headers()?;
 
@@ -68,13 +68,13 @@ impl<'a> Request for SurfRequest<'a> {
         let response = request.send().await.unwrap();
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-            return Err(anyhow!("Request failed with code {}", response.status()));
+            return Err(ResponseError::StatusCode(response.status().into(), None));
         }
 
         Ok(response)
     }
 
-    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
+    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16), ResponseError> {
         let mut response = self.response().await?;
         let status_code = response.status();
         let body = response.body_bytes().await.unwrap();
@@ -88,7 +88,10 @@ impl<'a> Request for SurfRequest<'a> {
         Ok((body_vec, status_code.into()))
     }
 
-    async fn response_data_to_writer<T: Write + Send>(&self, writer: &mut T) -> Result<u16> {
+    async fn response_data_to_writer<T: Write + Send>(
+        &self,
+        writer: &mut T,
+    ) -> Result<u16, ResponseError> {
         let mut buffer = Vec::new();
 
         let response = self.response().await?;
@@ -104,7 +107,7 @@ impl<'a> Request for SurfRequest<'a> {
         Ok(status_code.into())
     }
 
-    async fn response_header(&self) -> Result<(HeaderMap, u16)> {
+    async fn response_header(&self) -> Result<(HeaderMap, u16), ResponseError> {
         let mut header_map = HeaderMap::new();
         let response = self.response().await?;
         let status_code = response.status();
@@ -140,6 +143,7 @@ mod tests {
     use crate::command::Command;
     use crate::request_trait::Request;
     use crate::surf_request::SurfRequest;
+    use crate::Region;
     use anyhow::Result;
     use awscreds::Credentials;
 
@@ -153,8 +157,8 @@ mod tests {
 
     #[test]
     fn url_uses_https_by_default() -> Result<()> {
-        let region = "custom-region".parse()?;
-        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
+        let region = Region::from("custom-region");
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials());
         let path = "/my-first/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject);
 
@@ -169,8 +173,8 @@ mod tests {
 
     #[test]
     fn url_uses_https_by_default_path_style() -> Result<()> {
-        let region = "custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-first-bucket", region, fake_credentials())?;
+        let region = Region::from("custom-region");
+        let bucket = Bucket::new_with_path_style("my-first-bucket", region, fake_credentials());
         let path = "/my-first/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject);
 
@@ -185,8 +189,8 @@ mod tests {
 
     #[test]
     fn url_uses_scheme_from_custom_region_if_defined() -> Result<()> {
-        let region = "http://custom-region".parse()?;
-        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
+        let region = Region::from("http://custom-region");
+        let bucket = Bucket::new("my-second-bucket", region, fake_credentials());
         let path = "/my-second/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject);
 
@@ -200,8 +204,8 @@ mod tests {
 
     #[test]
     fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
-        let region = "http://custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
+        let region = Region::from("http://custom-region");
+        let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials());
         let path = "/my-second/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject);
 

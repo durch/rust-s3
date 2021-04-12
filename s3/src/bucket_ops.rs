@@ -1,5 +1,4 @@
 use crate::{Bucket, Region};
-use anyhow::Result;
 
 /// [AWS Documentation](https://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#CannedACL)
 #[allow(dead_code)]
@@ -119,7 +118,7 @@ impl BucketConfiguration {
         }
     }
 
-    pub fn add_headers(&self, headers: &mut HeaderMap) -> Result<()> {
+    pub fn add_headers(&self, headers: &mut HeaderMap) {
         headers.insert(
             HeaderName::from_static("x-amz-acl"),
             self.acl.to_string().parse().unwrap(),
@@ -160,7 +159,6 @@ impl BucketConfiguration {
                 acl_list(value).parse().unwrap(),
             );
         }
-        Ok(())
     }
 }
 
