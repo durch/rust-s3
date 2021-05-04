@@ -80,6 +80,7 @@ pub trait Request {
         let expiry = match self.command() {
             Command::PresignGet { expiry_secs } => expiry_secs,
             Command::PresignPut { expiry_secs, .. } => expiry_secs,
+            Command::PresignDelete { expiry_secs } => expiry_secs,
             _ => unreachable!(),
         };
 
@@ -125,6 +126,7 @@ pub trait Request {
         let expiry = match self.command() {
             Command::PresignGet { expiry_secs } => expiry_secs,
             Command::PresignPut { expiry_secs, .. } => expiry_secs,
+            Command::PresignDelete { expiry_secs } => expiry_secs,
             _ => unreachable!(),
         };
 
