@@ -52,6 +52,9 @@ impl<'a> Multipart<'a> {
 #[derive(Clone, Debug)]
 pub enum Command<'a> {
     HeadObject,
+    CopyObject {
+        source: &'a str,
+    },
     DeleteObject,
     DeleteObjectTagging,
     GetObject,
@@ -124,6 +127,7 @@ impl<'a> Command<'a> {
             | Command::PutObjectTagging { .. }
             | Command::PresignPut { .. }
             | Command::UploadPart { .. }
+            | Command::CopyObject { .. }
             | Command::CreateBucket { .. } => HttpMethod::Put,
             Command::DeleteObject
             | Command::DeleteObjectTagging

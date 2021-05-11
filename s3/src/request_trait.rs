@@ -83,7 +83,7 @@ pub trait Request {
             _ => unreachable!(),
         };
 
-        #[allow(clippy::collapsible_match)]
+        #[allow(clippy::collapsible_if)]
         if let Command::PresignPut { custom_headers, .. } = self.command() {
             if let Some(custom_headers) = custom_headers {
                 let authorization = self.presigned_authorization(Some(&custom_headers))?;
@@ -128,7 +128,7 @@ pub trait Request {
             _ => unreachable!(),
         };
 
-        #[allow(clippy::collapsible_match)]
+        #[allow(clippy::collapsible_if)]
         if let Command::PresignPut { custom_headers, .. } = self.command() {
             if let Some(custom_headers) = custom_headers {
                 return Ok(signing::canonical_request(
@@ -191,7 +191,7 @@ pub trait Request {
         url_str.push_str(&signing::uri_encode(&path, true));
 
         // Append to url_path
-        #[allow(clippy::collapsible_match)]
+        #[allow(clippy::collapsible_if)]
         match self.command() {
             Command::InitiateMultipartUpload | Command::ListMultipartUploads { .. } => {
                 url_str.push_str("?uploads")
@@ -322,6 +322,12 @@ pub trait Request {
             Command::GetObject => {}
             Command::GetObjectTagging => {}
             Command::GetBucketLocation => {}
+            Command::CopyObject { source } => {
+                headers.insert(
+                    HeaderName::from_static("x-amz-copy-source"),
+                    source.to_string().parse().unwrap(),
+                );
+            }
             _ => {
                 headers.insert(
                     CONTENT_LENGTH,

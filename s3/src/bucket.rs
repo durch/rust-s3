@@ -1017,6 +1017,29 @@ impl Bucket {
             .await
     }
 
+    #[maybe_async::maybe_async]
+    pub async fn copy_object<S: AsRef<str>>(&self, source: S, path: S) -> Result<(Vec<u8>, u16)> {
+        let command = Command::CopyObject {
+            source: source.as_ref(),
+        };
+        let request = RequestImpl::new(self, path.as_ref(), command);
+        request.response_data(true).await
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn copy_object_in_same_bucket<S: AsRef<str>>(
+        &self,
+        source: S,
+        path: S,
+    ) -> Result<(Vec<u8>, u16)> {
+        let real_source = format!("/{}/{}", self.name, source.as_ref());
+        let command = Command::CopyObject {
+            source: real_source.as_str(),
+        };
+        let request = RequestImpl::new(self, path.as_ref(), command);
+        request.response_data(true).await
+    }
+
     fn _tags_xml<S: AsRef<str>>(&self, tags: &[(S, S)]) -> String {
         let mut s = String::new();
         let content = tags
@@ -1691,6 +1714,7 @@ mod test {
     #[maybe_async::maybe_async]
     async fn put_head_get_delete_object(bucket: Bucket) {
         let s3_path = "/+test.file";
+        let s3_path_dest = "/+test.dest.file";
         let test: Vec<u8> = object(3072);
 
         let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
@@ -1715,6 +1739,16 @@ mod test {
             head_object_result.content_type.unwrap(),
             "application/octet-stream".to_owned()
         );
+
+        let (_data, code) = bucket
+            .copy_object_in_same_bucket(s3_path, s3_path_dest)
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        let (data, code) = bucket.get_object(s3_path_dest).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(test, data);
+
         // println!("{:?}", head_object_result);
         let (_, code) = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(code, 204);
