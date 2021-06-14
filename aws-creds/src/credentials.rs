@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use anyhow::anyhow;
 use anyhow::Result;
+use anyhow::{anyhow, bail};
 use ini::Ini;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
@@ -226,55 +226,57 @@ impl Credentials {
     }
 
     pub fn from_instance_metadata() -> Result<Credentials> {
-        if !Credentials::is_ec2() {
-            return Err(anyhow!("Not an EC2 instance"));
+        #[derive(Deserialize)]
+        #[serde(rename_all = "PascalCase")]
+        struct Response {
+            access_key_id: String,
+            secret_access_key: String,
+            token: String,
+            //expiration: chrono::DateTime<chrono::Utc>, // TODO fix #163
         }
-        let mut resp: HashMap<String, String> =
-            match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
-                Ok(credentials_path) => Some(
-                    attohttpc::get(&format!("http://169.254.170.2{}", credentials_path))
-                        .send()?
-                        .json()?,
-                ),
-                Err(_) => {
-                    let role = attohttpc::get(
-                        "http://169.254.169.254/latest/meta-data/iam/security-credentials",
-                    )
-                    .send()?
-                    .text()?;
 
-                    let creds = attohttpc::get(&format!(
-                        "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
-                        role
-                    ))
+        let resp: Response = match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
+            Ok(credentials_path) => {
+                // We are on ECS
+                attohttpc::get(&format!("http://169.254.170.2{}", credentials_path))
                     .send()?
-                    .json()?;
-
-                    Some(creds)
-                }
+                    .json()?
             }
-            .unwrap();
+            Err(_) => {
+                if !(std::fs::read_to_string("/sys/hypervisor/uuid")
+                    .map_or(false, |uuid| uuid.len() >= 3 && &uuid[..3] == "ec2")
+                    || std::fs::read_to_string("/sys/class/dmi/id/board_vendor")
+                        .map_or(false, |uuid| {
+                            uuid.len() >= 10 && &uuid[..10] == "Amazon EC2"
+                        }))
+                {
+                    bail!("Not an AWS instance")
+                }
+                // We are on EC2
+
+                let role = attohttpc::get(
+                    "http://169.254.169.254/latest/meta-data/iam/security-credentials",
+                )
+                .send()?
+                .text()?;
+
+                let creds = attohttpc::get(&format!(
+                    "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
+                    role
+                ))
+                .send()?
+                .json()?;
+
+                creds
+            }
+        };
 
         Ok(Credentials {
-            access_key: resp.remove("AccessKeyId"),
-            secret_key: resp.remove("SecretAccessKey"),
-            security_token: resp.remove("Token"),
+            access_key: Some(resp.access_key_id),
+            secret_key: Some(resp.secret_access_key),
+            security_token: Some(resp.token),
             session_token: None,
         })
-    }
-
-    fn is_ec2() -> bool {
-        if let Ok(uuid) = std::fs::read_to_string("/sys/hypervisor/uuid") {
-            if uuid.len() >= 3 && &uuid[..3] == "ec2" {
-                return true;
-            }
-        }
-        if let Ok(uuid) = std::fs::read_to_string("/sys/class/dmi/id/board_vendor") {
-            if uuid.len() >= 10 && &uuid[..10] == "Amazon EC2" {
-                return true;
-            }
-        }
-        false
     }
 
     pub fn from_profile(section: Option<&str>) -> Result<Credentials> {
