@@ -260,14 +260,12 @@ impl Credentials {
                 .send()?
                 .text()?;
 
-                let creds = attohttpc::get(&format!(
+                attohttpc::get(&format!(
                     "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
                     role
                 ))
                 .send()?
-                .json()?;
-
-                creds
+                .json()?
             }
         };
 
