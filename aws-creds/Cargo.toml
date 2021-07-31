@@ -17,8 +17,8 @@ path = "src/lib.rs"
 [dependencies]
 anyhow = "1.0"
 dirs = "3"
-rust-ini = "0.16"
-attohttpc = { version = "0.16", default-features = false, features = ["json"] }
+rust-ini = "0.17"
+attohttpc = { version = "0.17", default-features = false, features = ["json"] }
 url = "2"
 serde-xml-rs = "0.4"
 serde = "1"
@@ -31,4 +31,4 @@ native-tls = ["attohttpc/tls"]
 rustls-tls = ["attohttpc/tls-rustls"]
 
 [dev-dependencies]
-env_logger = "0.8"
+env_logger = "0.9"
