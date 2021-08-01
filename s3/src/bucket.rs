@@ -43,7 +43,6 @@ use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
-use crate::utils::error_from_response_data;
 use anyhow::anyhow;
 use anyhow::Result;
 use http::header::HeaderName;
@@ -758,20 +757,12 @@ impl Bucket {
         if first_chunk.len() < CHUNK_SIZE {
             let (data, code) = self.put_object(s3_path, first_chunk.as_slice()).await?;
             if code >= 300 {
-                return Err(error_from_response_data(data, code));
+                return Err(crate::utils::error_from_response_data(data, code));
             }
             return Ok(code);
         }
 
-        let command = Command::InitiateMultipartUpload;
-        let request = RequestImpl::new(self, s3_path, command);
-        let (data, code) = request.response_data(false).await?;
-        if code >= 300 {
-            return Err(error_from_response_data(data, code));
-        }
-
-        let msg: InitiateMultipartUploadResponse =
-            serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+        let msg = self.initiate_multipart_upload(s3_path).await?;
         let path = msg.key;
         let upload_id = &msg.upload_id;
 
@@ -810,34 +801,22 @@ impl Bucket {
                 part_number: i as u32 + 1,
             })
             .collect::<Vec<Part>>();
-        let data = CompleteMultipartUploadData { parts: inner_data };
-        let complete = Command::CompleteMultipartUpload {
-            upload_id: &msg.upload_id,
-            data,
-        };
-        let complete_request = RequestImpl::new(self, &path, complete);
-        let (_data, _code) = complete_request.response_data(false).await?;
-        // let response = std::str::from_utf8(data.as_slice())?;
+        let code = self
+            .complete_multipart_upload(&path, &msg.upload_id, inner_data)
+            .await?;
 
         Ok(code)
     }
 
     #[maybe_async::sync_impl]
     fn _put_object_stream<R: Read>(&self, reader: &mut R, s3_path: &str) -> Result<u16> {
-        let command = Command::InitiateMultipartUpload;
-        let request = RequestImpl::new(self, s3_path, command);
-        let (data, code) = request.response_data(false)?;
-        if code >= 300 {
-            return Err(error_from_response_data(data, code));
-        }
-        let msg: InitiateMultipartUploadResponse =
-            serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
-
+        let msg = self.initiate_multipart_upload(s3_path)?;
         let path = msg.key;
         let upload_id = &msg.upload_id;
 
         let mut part_number: u32 = 0;
         let mut etags = Vec::new();
+        let mut code = 0;
         loop {
             let chunk = crate::utils::read_chunk(reader)?;
 
@@ -849,16 +828,8 @@ impl Bucket {
                     self.put_object(s3_path, chunk.as_slice())?;
                 } else {
                     part_number += 1;
-                    let command = Command::PutObject {
-                        // part_number,
-                        content: &chunk,
-                        content_type: "application/octet-stream",
-                        multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
-                    };
-                    let request = RequestImpl::new(self, &path, command);
-                    let (data, _code) = request.response_data(true)?;
-                    let etag = std::str::from_utf8(data.as_slice())?;
-                    etags.push(etag.to_string());
+                    let part = self.put_multipart_chunk(chunk, &path, part_number, upload_id)?;
+                    etags.push(part.etag);
                     let inner_data = etags
                         .into_iter()
                         .enumerate()
@@ -867,29 +838,149 @@ impl Bucket {
                             part_number: i as u32 + 1,
                         })
                         .collect::<Vec<Part>>();
-                    let data = CompleteMultipartUploadData { parts: inner_data };
-                    let complete = Command::CompleteMultipartUpload {
-                        upload_id: &msg.upload_id,
-                        data,
-                    };
-                    let complete_request = RequestImpl::new(self, &path, complete);
-                    let (_data, _code) = complete_request.response_data(false)?;
+                    code = self.complete_multipart_upload(&path, upload_id, inner_data)?;
                     // let response = std::str::from_utf8(data.as_slice())?;
                 }
                 break;
             } else {
                 part_number += 1;
-                let command = Command::PutObject {
-                    content: &chunk,
-                    content_type: "application/octet-stream",
-                    multipart: Some(Multipart::new(part_number, upload_id)),
-                };
-                let request = RequestImpl::new(self, &path, command);
-                let (data, _code) = request.response_data(true)?;
-                let etag = std::str::from_utf8(data.as_slice())?;
-                etags.push(etag.to_string());
+                let part = self.put_multipart_chunk(chunk, &path, part_number, upload_id)?;
+                etags.push(part.etag.to_string());
             }
         }
+        Ok(code)
+    }
+
+    /// Initiate multipart upload to s3.
+    #[maybe_async::async_impl]
+    pub async fn initiate_multipart_upload(
+        &self,
+        s3_path: &str,
+    ) -> Result<InitiateMultipartUploadResponse> {
+        let command = Command::InitiateMultipartUpload;
+        let request = RequestImpl::new(self, s3_path, command);
+        let (data, code) = request.response_data(false).await?;
+        if code >= 300 {
+            return Err(crate::utils::error_from_response_data(data, code));
+        }
+        let msg: InitiateMultipartUploadResponse =
+            serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+        Ok(msg)
+    }
+
+    #[maybe_async::sync_impl]
+    pub fn initiate_multipart_upload(
+        &self,
+        s3_path: &str,
+    ) -> Result<InitiateMultipartUploadResponse> {
+        let command = Command::InitiateMultipartUpload;
+        let request = RequestImpl::new(self, s3_path, command);
+        let (data, code) = request.response_data(false)?;
+        if code >= 300 {
+            return Err(crate::utils::error_from_response_data(data, code));
+        }
+        let msg: InitiateMultipartUploadResponse =
+            serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+        Ok(msg)
+    }
+
+    /// Upload a streamed multipart chunk to s3 using a previously initiated multipart upload
+    #[maybe_async::async_impl]
+    pub async fn put_multipart_stream<R: AsyncRead + Unpin>(
+        &self,
+        reader: &mut R,
+        path: &str,
+        part_number: u32,
+        upload_id: &str,
+    ) -> Result<Part> {
+        let chunk = crate::utils::read_chunk(reader).await?;
+        self.put_multipart_chunk(chunk, path, part_number, upload_id)
+            .await
+    }
+
+    #[maybe_async::sync_impl]
+    pub async fn put_multipart_stream<R: Read + Unpin>(
+        &self,
+        reader: &mut R,
+        path: &str,
+        part_number: u32,
+        upload_id: &str,
+    ) -> Result<Part> {
+        let chunk = crate::utils::read_chunk(reader)?;
+        self.put_multipart_chunk(chunk, path, part_number, upload_id)
+    }
+
+    /// Upload a buffered multipart chunk to s3 using a previously initiated multipart upload
+    #[maybe_async::async_impl]
+    pub async fn put_multipart_chunk(
+        &self,
+        chunk: Vec<u8>,
+        path: &str,
+        part_number: u32,
+        upload_id: &str,
+    ) -> Result<Part> {
+        let command = Command::PutObject {
+            content: &chunk,
+            content_type: "application/octet-stream",
+            multipart: Some(Multipart::new(part_number, upload_id)),
+        };
+        let request = RequestImpl::new(self, path, command);
+        let (data, _code) = request.response_data(true).await?;
+        let etag = std::str::from_utf8(data.as_slice())?;
+        Ok(Part {
+            etag: etag.to_string(),
+            part_number,
+        })
+    }
+
+    #[maybe_async::sync_impl]
+    pub fn put_multipart_chunk(
+        &self,
+        chunk: Vec<u8>,
+        path: &str,
+        part_number: u32,
+        upload_id: &str,
+    ) -> Result<Part> {
+        let command = Command::PutObject {
+            content: &chunk,
+            content_type: "application/octet-stream",
+            multipart: Some(Multipart::new(part_number, upload_id)),
+        };
+        let request = RequestImpl::new(self, path, command);
+        let (data, _code) = request.response_data(true)?;
+        let etag = std::str::from_utf8(data.as_slice())?;
+        Ok(Part {
+            etag: etag.to_string(),
+            part_number,
+        })
+    }
+
+    /// Completes a previously initiated multipart upload, with optional final data chunks
+    #[maybe_async::async_impl]
+    pub async fn complete_multipart_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+        parts: Vec<Part>,
+    ) -> Result<u16> {
+        let data = CompleteMultipartUploadData { parts };
+        let complete = Command::CompleteMultipartUpload { upload_id, data };
+        let complete_request = RequestImpl::new(self, path, complete);
+        let (_data, code) = complete_request.response_data(false).await?;
+        Ok(code)
+    }
+
+    #[maybe_async::sync_impl]
+    pub fn complete_multipart_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+        parts: Vec<Part>,
+    ) -> Result<u16> {
+        let data = CompleteMultipartUploadData { parts };
+        let complete = Command::CompleteMultipartUpload { upload_id, data };
+        let complete_request = RequestImpl::new(self, path, complete);
+        let (_data, code) = complete_request.response_data(false)?;
         Ok(code)
     }
 
@@ -1720,12 +1811,9 @@ mod test {
     use crate::Bucket;
     use crate::BucketConfiguration;
     use crate::Tag;
-    use cfg_if::cfg_if;
     use http::header::HeaderName;
     use http::HeaderMap;
     use std::env;
-    use std::fs::File;
-    use std::io::prelude::*;
     // use log::info;
 
     fn init() {
