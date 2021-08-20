@@ -70,53 +70,45 @@ pub struct Credentials {
     /// Temporary token issued by AWS service.
     pub security_token: Option<String>,
     pub session_token: Option<String>,
+    pub expiration: Option<time::OffsetDateTime>,
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
 pub struct AssumeRoleWithWebIdentityResponse {
-    #[serde(rename = "AssumeRoleWithWebIdentityResult")]
     pub assume_role_with_web_identity_result: AssumeRoleWithWebIdentityResult,
-    #[serde(rename = "ResponseMetadata")]
     pub response_metadata: ResponseMetadata,
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
 pub struct AssumeRoleWithWebIdentityResult {
-    #[serde(rename = "SubjectFromWebIdentityToken")]
     pub subject_from_web_identity_token: String,
-    #[serde(rename = "Audience")]
     pub audience: String,
-    #[serde(rename = "AssumedRoleUser")]
     pub assumed_role_user: AssumedRoleUser,
-    #[serde(rename = "Credentials")]
     pub credentials: StsResponseCredentials,
-    #[serde(rename = "Provider")]
     pub provider: String,
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
 pub struct StsResponseCredentials {
-    #[serde(rename = "SessionToken")]
     pub session_token: String,
-    #[serde(rename = "SecretAccessKey")]
     pub secret_access_key: String,
-    #[serde(rename = "Expiration")]
-    pub expiration: String,
-    #[serde(rename = "AccessKeyId")]
+    pub expiration: time::OffsetDateTime,
     pub access_key_id: String,
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
 pub struct AssumedRoleUser {
-    #[serde(rename = "Arn")]
     pub arn: String,
-    #[serde(rename = "AssumedRoleId")]
     pub assumed_role_id: String,
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
 pub struct ResponseMetadata {
-    #[serde(rename = "RequestId")]
     pub request_id: String,
 }
 
@@ -216,6 +208,12 @@ impl Credentials {
                     .credentials
                     .session_token,
             ),
+            expiration: Some(
+                serde_response
+                    .assume_role_with_web_identity_result
+                    .credentials
+                    .expiration,
+            ),
         })
     }
 
@@ -230,6 +228,7 @@ impl Credentials {
             secret_key: None,
             security_token: None,
             session_token: None,
+            expiration: None,
         })
     }
 
@@ -249,6 +248,7 @@ impl Credentials {
                 secret_key: secret_key.map(|s| s.to_string()),
                 security_token: security_token.map(|s| s.to_string()),
                 session_token: session_token.map(|s| s.to_string()),
+                expiration: None,
             });
         }
 
@@ -274,6 +274,7 @@ impl Credentials {
             secret_key: Some(secret_key),
             security_token,
             session_token,
+            expiration: None,
         })
     }
 
@@ -289,7 +290,7 @@ impl Credentials {
             access_key_id: String,
             secret_access_key: String,
             token: String,
-            //expiration: time::OffsetDateTime, // TODO fix #163
+            expiration: time::OffsetDateTime, // TODO fix #163
         }
 
         let resp: Response = match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
@@ -323,6 +324,7 @@ impl Credentials {
             access_key: Some(resp.access_key_id),
             secret_key: Some(resp.secret_access_key),
             security_token: Some(resp.token),
+            expiration: Some(resp.expiration),
             session_token: None,
         })
     }
@@ -348,6 +350,7 @@ impl Credentials {
             secret_key: Some(secret_key),
             security_token: data.get("aws_security_token").map(|s| s.to_string()),
             session_token: data.get("aws_session_token").map(|s| s.to_string()),
+            expiration: None,
         };
         Ok(credentials)
     }

@@ -23,7 +23,7 @@ url = "2"
 serde-xml-rs = "0.5"
 serde = "1"
 serde_derive = "1"
-
+time = { version = "0.3", features = ["serde"] }
 
 [features]
 default = ["native-tls"]
