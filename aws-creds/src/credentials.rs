@@ -71,6 +71,7 @@ pub struct Credentials {
     /// Temporary token issued by AWS service.
     pub security_token: Option<String>,
     pub session_token: Option<String>,
+    pub expiration: Option<time::OffsetDateTime>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -95,7 +96,7 @@ pub struct AssumeRoleWithWebIdentityResult {
 pub struct StsResponseCredentials {
     pub session_token: String,
     pub secret_access_key: String,
-    pub expiration: String,
+    pub expiration: time::OffsetDateTime,
     pub access_key_id: String,
 }
 
@@ -208,6 +209,12 @@ impl Credentials {
                     .credentials
                     .session_token,
             ),
+            expiration: Some(
+                serde_response
+                    .assume_role_with_web_identity_result
+                    .credentials
+                    .expiration,
+            ),
         })
     }
 
@@ -222,6 +229,7 @@ impl Credentials {
             secret_key: None,
             security_token: None,
             session_token: None,
+            expiration: None,
         })
     }
 
@@ -241,6 +249,7 @@ impl Credentials {
                 secret_key: secret_key.map(|s| s.to_string()),
                 security_token: security_token.map(|s| s.to_string()),
                 session_token: session_token.map(|s| s.to_string()),
+                expiration: None,
             });
         }
 
@@ -266,6 +275,7 @@ impl Credentials {
             secret_key: Some(secret_key),
             security_token,
             session_token,
+            expiration: None,
         })
     }
 
@@ -281,7 +291,7 @@ impl Credentials {
             access_key_id: String,
             secret_access_key: String,
             token: String,
-            //expiration: time::OffsetDateTime, // TODO fix #163
+            expiration: time::OffsetDateTime, // TODO fix #163
         }
 
         let resp: Response = match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
@@ -315,6 +325,7 @@ impl Credentials {
             access_key: Some(resp.access_key_id),
             secret_key: Some(resp.secret_access_key),
             security_token: Some(resp.token),
+            expiration: Some(resp.expiration),
             session_token: None,
         })
     }
@@ -340,6 +351,7 @@ impl Credentials {
             secret_key: Some(secret_key),
             security_token: data.get("aws_security_token").map(|s| s.to_string()),
             session_token: data.get("aws_session_token").map(|s| s.to_string()),
+            expiration: None,
         };
         Ok(credentials)
     }
