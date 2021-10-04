@@ -116,7 +116,9 @@ pub struct ResponseMetadata {
 }
 
 /// The global request timeout in milliseconds. 0 means no timeout.
-static REQUEST_TIMEOUT_MS: AtomicU32 = AtomicU32::new(0);
+///
+/// Defaults to 30 seconds.
+static REQUEST_TIMEOUT_MS: AtomicU32 = AtomicU32::new(30_000);
 
 /// Sets the timeout for all credentials HTTP requests; this timeout
 /// applies after a 30-second connection timeout.
@@ -124,6 +126,8 @@ static REQUEST_TIMEOUT_MS: AtomicU32 = AtomicU32::new(0);
 /// Short durations are bumped to one millisecond, and durations
 /// greater than 4 billion milliseconds (49 days) are rounded up to
 /// infinity (no timeout).
+///
+/// The global default value is 30 seconds.
 pub fn set_request_timeout(timeout: Option<Duration>) {
     use std::convert::TryInto;
     let duration_ms = timeout
