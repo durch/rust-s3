@@ -118,13 +118,14 @@ pub struct ResponseMetadata {
 /// The global request timeout in milliseconds. 0 means no timeout.
 static REQUEST_TIMEOUT_MS: AtomicU32 = AtomicU32::new(0);
 
-/// Sets the timeout for all credentials HTTP requests; this timeout
-/// applies after a 30-second connection timeout.
+/// Sets the timeout for all credentials HTTP requests and returns the
+/// old timeout value, if any; this timeout applies after a 30-second
+/// connection timeout.
 ///
 /// Short durations are bumped to one millisecond, and durations
 /// greater than 4 billion milliseconds (49 days) are rounded up to
 /// infinity (no timeout).
-pub fn set_request_timeout(timeout: Option<Duration>) {
+pub fn set_request_timeout(timeout: Option<Duration>) -> Option<Duration> {
     use std::convert::TryInto;
     let duration_ms = timeout
         .as_ref()
@@ -134,7 +135,13 @@ pub fn set_request_timeout(timeout: Option<Duration>) {
 
     // Store that non-zero u128 value in an AtomicU32 by mapping large
     // values to 0: `http_get` maps that to no (infinite) timeout.
-    REQUEST_TIMEOUT_MS.store(duration_ms.try_into().unwrap_or(0), Ordering::Relaxed);
+    let prev = REQUEST_TIMEOUT_MS.swap(duration_ms.try_into().unwrap_or(0), Ordering::Relaxed);
+
+    if prev == 0 {
+        None
+    } else {
+        Some(Duration::from_millis(prev as u64))
+    }
 }
 
 /// Sends a GET request to `url` with a request timeout if one was set.
