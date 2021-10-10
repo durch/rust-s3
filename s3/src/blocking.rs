@@ -67,6 +67,10 @@ impl<'a> Request for AttoRequest<'a> {
             session.header(HeaderName::from_bytes(name.as_ref()).unwrap(), value);
         }
 
+        if let Some(timeout) = self.bucket.request_timeout {
+            session.timeout(timeout)
+        }
+
         let request = match self.command.http_verb() {
             HttpMethod::Get => session.get(self.url()),
             HttpMethod::Delete => session.delete(self.url()),

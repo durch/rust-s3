@@ -4,6 +4,7 @@ use minidom::Element;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::mem;
+use std::time::Duration;
 
 use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
 use crate::command::{Command, Multipart};
@@ -85,6 +86,7 @@ pub struct Bucket {
     pub credentials: Credentials,
     pub extra_headers: HeaderMap,
     pub extra_query: Query,
+    pub request_timeout: Option<Duration>,
     path_style: bool,
 }
 
@@ -333,6 +335,7 @@ impl Bucket {
             credentials,
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
+            request_timeout: None,
             path_style: false,
         })
     }
@@ -356,6 +359,7 @@ impl Bucket {
             credentials: Credentials::anonymous()?,
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
+            request_timeout: None,
             path_style: false,
         })
     }
@@ -384,6 +388,7 @@ impl Bucket {
             credentials,
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
+            request_timeout: None,
             path_style: true,
         })
     }
@@ -407,6 +412,7 @@ impl Bucket {
             credentials: Credentials::anonymous()?,
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
+            request_timeout: None,
             path_style: true,
         })
     }
@@ -1420,7 +1426,7 @@ impl Bucket {
         self.path_style
     }
 
-    // Get negated path_style field of the Bucket struct
+    /// Get negated path_style field of the Bucket struct
     pub fn is_subdomain_style(&self) -> bool {
         !self.path_style
     }
@@ -1433,6 +1439,15 @@ impl Bucket {
     /// Configure bucket to use subdomain style urls and headers \[default\]
     pub fn set_subdomain_style(&mut self) {
         self.path_style = false;
+    }
+
+    /// Configure bucket to apply this request timeout to all HTTP
+    /// requests, or no (infinity) timeout if `None`.
+    ///
+    /// Only the attohttpc and the Reqwest backends obey this option;
+    /// async code may instead await with a timeout.
+    pub fn set_request_timeout(&mut self, timeout: Option<Duration>) {
+        self.request_timeout = timeout;
     }
 
     /// Get a reference to the name of the S3 bucket.
