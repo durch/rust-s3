@@ -157,15 +157,15 @@ pub fn signing_key(
     service: &str,
 ) -> Result<Vec<u8>> {
     let secret = format!("AWS4{}", secret_key);
-    let mut date_hmac = HmacSha256::new_varkey(secret.as_bytes()).map_err(|e| anyhow! {"{}",e})?;
+    let mut date_hmac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| anyhow! {"{}",e})?;
     date_hmac.update(datetime.format(SHORT_DATE).to_string().as_bytes());
     let mut region_hmac =
-        HmacSha256::new_varkey(&date_hmac.finalize().into_bytes()).map_err(|e| anyhow! {"{}",e})?;
+        HmacSha256::new_from_slice(&date_hmac.finalize().into_bytes()).map_err(|e| anyhow! {"{}",e})?;
     region_hmac.update(region.to_string().as_bytes());
-    let mut service_hmac = HmacSha256::new_varkey(&region_hmac.finalize().into_bytes())
+    let mut service_hmac = HmacSha256::new_from_slice(&region_hmac.finalize().into_bytes())
         .map_err(|e| anyhow! {"{}",e})?;
     service_hmac.update(service.as_bytes());
-    let mut signing_hmac = HmacSha256::new_varkey(&service_hmac.finalize().into_bytes())
+    let mut signing_hmac = HmacSha256::new_from_slice(&service_hmac.finalize().into_bytes())
         .map_err(|e| anyhow! {"{}",e})?;
     signing_hmac.update(b"aws4_request");
     Ok(signing_hmac.finalize().into_bytes().to_vec())
@@ -370,7 +370,7 @@ mod tests {
         let expected = "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41";
         let secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
         let signing_key = signing_key(&datetime, secret, &"us-east-1".parse().unwrap(), "s3");
-        let mut hmac = Hmac::<Sha256>::new_varkey(&signing_key.unwrap()).unwrap();
+        let mut hmac = Hmac::<Sha256>::new_from_slice(&signing_key.unwrap()).unwrap();
         hmac.update(string_to_sign.as_bytes());
         assert_eq!(expected, hex::encode(hmac.finalize().into_bytes()));
     }
