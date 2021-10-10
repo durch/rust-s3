@@ -316,6 +316,10 @@ pub trait Request {
         headers.insert(HOST, host_header.parse().unwrap());
 
         match self.command() {
+            Command::CopyObject { from } => {
+                headers.insert(HeaderName::from_static("x-amz-copy-source"),
+                from.parse().unwrap());
+            }
             Command::ListBucket { .. } => {}
             Command::GetObject => {}
             Command::GetObjectTagging => {}
