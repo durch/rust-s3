@@ -43,10 +43,15 @@ pub fn main() -> Result<(), S3Error> {
     // let minio = Storage {
     //     name: "minio".into(),
     //     region: Region::Custom {
-    //         region: "us-east-1".into(),
-    //         endpoint: "https://minio.adder.black".into(),
+    //         region: "".into(),
+    //         endpoint: "http://127.0.0.1:9001".into(),
     //     },
-    //     credentials: Credentials::from_profile(Some("minio"))?,
+    //     credentials: Credentials {
+    //          access_key: Some("ACCESS_KEY".to_owned()),
+    //          secret_key: Some("SECRET_KEY".to_owned()),
+    //          security_token: None,
+    //          session_token: None,
+    //     },
     //     bucket: "rust-s3".to_string(),
     //     location_supported: false,
     // };
@@ -63,6 +68,10 @@ pub fn main() -> Result<(), S3Error> {
         println!("Running {}", backend.name);
         // Create Bucket in REGION for BUCKET
         let bucket = Bucket::new(&backend.bucket, backend.region, backend.credentials)?;
+
+        // With Minio, the bucket name is part of the path of the requests.
+        // You will need to instantiante bucket using the `new_with_path_style` method.
+        // let bucket = Bucket::new_with_path_style(&backend.bucket, backend.region, backend.credentials)?;
 
         // List out contents of directory
         let results = bucket.list_blocking("".to_string(), None)?;
