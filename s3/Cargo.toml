@@ -29,7 +29,7 @@ cfg-if = "1"
 chrono = "0.4"
 futures = { version = "0.3", optional = true }
 hex = "0.4"
-hmac = "0.10"
+hmac = "0.11"
 http = "0.2"
 log = "0.4"
 maybe-async = { version = "0.2" }
@@ -38,7 +38,7 @@ percent-encoding = "2"
 reqwest = { version = "0.11", default-features = false, features = ["json", "stream"], optional = true }
 serde = "1"
 serde_derive = "1"
-serde-xml-rs = "0.4"
+serde-xml-rs = "0.5"
 sha2 = "0.9"
 anyhow = "1.0"
 surf = { version = "2", optional = true, default-features = false, features = ["h1-client-rustls"]}
@@ -67,4 +67,4 @@ never-encode-slash = []
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 async-std = { version = "1", features = ["attributes"] }
 uuid = { version = "0.8", features = ["v4"] }
-env_logger = "0.8"
+env_logger = "0.9"

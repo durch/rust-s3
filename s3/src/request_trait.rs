@@ -80,6 +80,7 @@ pub trait Request {
         let expiry = match self.command() {
             Command::PresignGet { expiry_secs } => expiry_secs,
             Command::PresignPut { expiry_secs, .. } => expiry_secs,
+            Command::PresignDelete { expiry_secs } => expiry_secs,
             _ => unreachable!(),
         };
 
@@ -113,8 +114,8 @@ pub trait Request {
         }
         let canonical_request = self.presigned_canonical_request(&headers)?;
         let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac =
-            signing::HmacSha256::new_varkey(&self.signing_key()?).map_err(|e| anyhow! {"{}",e})?;
+        let mut hmac = signing::HmacSha256::new_from_slice(&self.signing_key()?)
+            .map_err(|e| anyhow! {"{}",e})?;
         hmac.update(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         // let signed_header = signing::signed_header_string(&headers);
@@ -125,6 +126,7 @@ pub trait Request {
         let expiry = match self.command() {
             Command::PresignGet { expiry_secs } => expiry_secs,
             Command::PresignPut { expiry_secs, .. } => expiry_secs,
+            Command::PresignDelete { expiry_secs } => expiry_secs,
             _ => unreachable!(),
         };
 
@@ -152,10 +154,8 @@ pub trait Request {
         let bucket = self.bucket();
         let token = if let Some(security_token) = bucket.security_token() {
             Some(security_token)
-        } else if let Some(session_token) = bucket.session_token() {
-            Some(session_token)
         } else {
-            None
+            bucket.session_token()
         };
         let url = Url::parse(&format!(
             "{}{}",
@@ -252,7 +252,7 @@ pub trait Request {
                 max_uploads,
             } => {
                 let mut query_pairs = url.query_pairs_mut();
-                delimiter.map(|d| query_pairs.append_pair("delimiter", &d));
+                delimiter.map(|d| query_pairs.append_pair("delimiter", d));
                 if let Some(prefix) = prefix {
                     query_pairs.append_pair("prefix", prefix);
                 }
@@ -286,8 +286,8 @@ pub trait Request {
     fn authorization(&self, headers: &HeaderMap) -> Result<String> {
         let canonical_request = self.canonical_request(headers);
         let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac =
-            signing::HmacSha256::new_varkey(&self.signing_key()?).map_err(|e| anyhow! {"{}",e})?;
+        let mut hmac = signing::HmacSha256::new_from_slice(&self.signing_key()?)
+            .map_err(|e| anyhow! {"{}",e})?;
         hmac.update(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         let signed_header = signing::signed_header_string(headers);
@@ -318,6 +318,12 @@ pub trait Request {
         headers.insert(HOST, host_header.parse().unwrap());
 
         match self.command() {
+            Command::CopyObject { from } => {
+                headers.insert(
+                    HeaderName::from_static("x-amz-copy-source"),
+                    from.parse().unwrap(),
+                );
+            }
             Command::ListBucket { .. } => {}
             Command::GetObject => {}
             Command::GetObjectTagging => {}

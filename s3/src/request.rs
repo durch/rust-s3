@@ -53,13 +53,16 @@ impl<'a> Request for Reqwest<'a> {
             Err(e) => return Err(e),
         };
 
-        let client = if cfg!(feature = "no-verify-ssl") {
-            let client = Client::builder();
+        let mut client_builder = Client::builder();
+        if let Some(timeout) = self.bucket.request_timeout {
+            client_builder = client_builder.timeout(timeout)
+        }
 
+        if cfg!(feature = "no-verify-ssl") {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "tokio-native-tls")]
                 {
-                    let client = client.danger_accept_invalid_hostnames(true);
+                    client_builder = client_builder.danger_accept_invalid_hostnames(true);
                 }
 
             }
@@ -67,15 +70,13 @@ impl<'a> Request for Reqwest<'a> {
             cfg_if::cfg_if! {
                 if #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
                 {
-                    let client = client.danger_accept_invalid_certs(true);
+                    client_builder = client_builder.danger_accept_invalid_certs(true);
                 }
 
             }
+        }
 
-            client.build().expect("Could not build dangerous client!")
-        } else {
-            Client::new()
-        };
+        let client = client_builder.build().expect("Could not build client!");
 
         let method = match self.command.http_verb() {
             HttpMethod::Delete => reqwest::Method::DELETE,

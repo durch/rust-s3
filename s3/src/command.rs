@@ -53,7 +53,7 @@ impl<'a> Multipart<'a> {
 pub enum Command<'a> {
     HeadObject,
     CopyObject {
-        source: &'a str,
+        from: &'a str,
     },
     DeleteObject,
     DeleteObjectTagging,
@@ -93,6 +93,9 @@ pub enum Command<'a> {
         expiry_secs: u32,
         custom_headers: Option<HeaderMap>,
     },
+    PresignDelete {
+        expiry_secs: u32,
+    },
     InitiateMultipartUpload,
     UploadPart {
         part_number: u32,
@@ -115,6 +118,7 @@ pub enum Command<'a> {
 impl<'a> Command<'a> {
     pub fn http_verb(&self) -> HttpMethod {
         match *self {
+            Command::CopyObject { from: _ } => HttpMethod::Put,
             Command::GetObject
             | Command::GetObjectTorrent
             | Command::GetObjectRange { .. }
@@ -132,6 +136,7 @@ impl<'a> Command<'a> {
             Command::DeleteObject
             | Command::DeleteObjectTagging
             | Command::AbortMultipartUpload { .. }
+            | Command::PresignDelete { .. }
             | Command::DeleteBucket => HttpMethod::Delete,
             Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
                 HttpMethod::Post
@@ -142,6 +147,7 @@ impl<'a> Command<'a> {
 
     pub fn content_length(&self) -> usize {
         match &self {
+            Command::CopyObject { from: _ } => 0,
             Command::PutObject { content, .. } => content.len(),
             Command::PutObjectTagging { tags } => tags.len(),
             Command::UploadPart { content, .. } => content.len(),
