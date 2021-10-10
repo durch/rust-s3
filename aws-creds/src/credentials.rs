@@ -1,11 +1,12 @@
 #![allow(dead_code)]
-
-use anyhow::anyhow;
-use anyhow::Result;
+use anyhow::{anyhow, bail, Result};
 use ini::Ini;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::env;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 use url::Url;
 
 /// AWS access credentials: access key, secret key, and optional token.
@@ -114,6 +115,40 @@ pub struct ResponseMetadata {
     pub request_id: String,
 }
 
+/// The global request timeout in milliseconds. 0 means no timeout.
+static REQUEST_TIMEOUT_MS: AtomicU32 = AtomicU32::new(0);
+
+/// Sets the timeout for all credentials HTTP requests; this timeout
+/// applies after a 30-second connection timeout.
+///
+/// Short durations are bumped to one millisecond, and durations
+/// greater than 4 billion milliseconds (49 days) are rounded up to
+/// infinity (no timeout).
+pub fn set_request_timeout(timeout: Option<Duration>) {
+    use std::convert::TryInto;
+    let duration_ms = timeout
+        .as_ref()
+        .map(Duration::as_millis)
+        .unwrap_or(u128::MAX)
+        .max(1); // A 0 duration means infinity.
+
+    // Store that non-zero u128 value in an AtomicU32 by mapping large
+    // values to 0: `http_get` maps that to no (infinite) timeout.
+    REQUEST_TIMEOUT_MS.store(duration_ms.try_into().unwrap_or(0), Ordering::Relaxed);
+}
+
+/// Sends a GET request to `url` with a request timeout if one was set.
+fn http_get(url: &str) -> attohttpc::Result<attohttpc::Response> {
+    let mut builder = attohttpc::get(url);
+
+    let timeout_ms = REQUEST_TIMEOUT_MS.load(Ordering::Relaxed);
+    if timeout_ms > 0 {
+        builder = builder.timeout(Duration::from_millis(timeout_ms as u64));
+    }
+
+    builder.send()
+}
+
 impl Credentials {
     pub fn from_sts_env(session_name: &str) -> Result<Credentials> {
         let role_arn = env::var("AWS_ROLE_ARN")?;
@@ -137,7 +172,7 @@ impl Credentials {
                 ("Version", "2011-06-15"),
             ],
         )?;
-        let response = attohttpc::get(url.as_str()).send()?;
+        let response = http_get(url.as_str())?;
         let serde_response =
             serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?)?;
         // assert!(serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap());
@@ -226,39 +261,53 @@ impl Credentials {
     }
 
     pub fn from_instance_metadata() -> Result<Credentials> {
-        if !Credentials::is_ec2() {
-            return Err(anyhow!("Not an EC2 instance"));
+        #[derive(Deserialize)]
+        #[serde(rename_all = "PascalCase")]
+        struct Response {
+            access_key_id: String,
+            secret_access_key: String,
+            token: String,
+            //expiration: chrono::DateTime<chrono::Utc>, // TODO fix #163
         }
-        let mut resp: HashMap<String, String> =
-            match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
-                Ok(credentials_path) => Some(
-                    attohttpc::get(&format!("http://169.254.170.2{}", credentials_path))
-                        .send()?
-                        .json()?,
-                ),
-                Err(_) => {
-                    let role = attohttpc::get(
-                        "http://169.254.169.254/latest/meta-data/iam/security-credentials",
-                    )
-                    .send()?
-                    .text()?;
 
-                    let creds = attohttpc::get(&format!(
-                        "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
-                        role
-                    ))
+        let resp: Response = match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
+            Ok(credentials_path) => {
+                // We are on ECS
+                attohttpc::get(&format!("http://169.254.170.2{}", credentials_path))
                     .send()?
-                    .json()?;
-
-                    Some(creds)
-                }
+                    .json()?
             }
-            .unwrap();
+            Err(_) => {
+                if !(std::fs::read_to_string("/sys/hypervisor/uuid")
+                    .map_or(false, |uuid| uuid.len() >= 3 && &uuid[..3] == "ec2")
+                    || std::fs::read_to_string("/sys/class/dmi/id/board_vendor")
+                        .map_or(false, |uuid| {
+                            uuid.len() >= 10 && &uuid[..10] == "Amazon EC2"
+                        }))
+                {
+                    bail!("Not an AWS instance")
+                }
+                // We are on EC2
+
+                let role = attohttpc::get(
+                    "http://169.254.169.254/latest/meta-data/iam/security-credentials",
+                )
+                .send()?
+                .text()?;
+
+                attohttpc::get(&format!(
+                    "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
+                    role
+                ))
+                .send()?
+                .json()?
+            }
+        };
 
         Ok(Credentials {
-            access_key: resp.remove("AccessKeyId"),
-            secret_key: resp.remove("SecretAccessKey"),
-            security_token: resp.remove("Token"),
+            access_key: Some(resp.access_key_id),
+            secret_key: Some(resp.secret_access_key),
+            security_token: Some(resp.token),
             session_token: None,
         })
     }

@@ -6,7 +6,7 @@
 <!-- [![Join the chat at https://gitter.im/durch/rust-s3](https://badges.gitter.im/durch/rust-s3.svg)](https://gitter.im/durch/rust-s3?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) -->
 ## rust-s3 [[docs](https://docs.rs/rust-s3/)]
 
-Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with **async/await** and `futures ^0.3`
+Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with **async/await** and `futures ^0.3`. All `async` features can be turned off and sync only implementations can be used.
 
 ### Support further development
 
@@ -23,9 +23,26 @@ a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the d
 
 **[AWS, Yandex and Custom (Minio) Example](https://github.com/durch/rust-s3/blob/master/s3/bin/simple_crud.rs)**
 
+#### Features
+
+There are a lot of various featuers that enable a wide variaty of use cases, refer to `s3/Cargo.toml` for an exhaustive list. Below is a table of various useful features as well as a short description for each.
+
++ `default` - `tokio` runtime and a `native-tls` implementation
++ `blocking` - generates `*_blocking` variant of all `Bucket` methods, otherwise only `async` versions are available
++ `fail-on-err` - `panic` on any error
++ `no-verify-ssl` - disable SSL verification for endpoints, useful for custom regions
++ `never-encode-slash` - never encode slashes in paths
+
+##### with `default-features = false`
+
++ `with-async-std` - `async-std` runtime
++ `sync` - no async rutime, `attohttpc` is used for HTTP requests
+
+All runtimes support either `native-tls` or `rustls-tls`, there are features for all combinations, refer to `s3/Cargo.toml` for a complete list
+
 #### Path or subdomain style URLs and headers
 
-`Bucket` struct provides constructors for `path-style` paths, `subdomain` style is the default. `Bucket` exposes methods for configuring and accessing `path-style` configuration.
+`Bucket` struct provides constructors for `path-style` paths, `subdomain` style is the default. `Bucket` exposes methods for configuring and accessing `path-style` configuration. `blocking` feature will generate a `*_blocking` variant of all of the methods listed below.
 
 #### Buckets
 
@@ -98,41 +115,4 @@ Each `GET` method has a `PUT` companion `sync` and `async` methods are generic o
 [dependencies]
 rust-s3 = "0.27"
 ```
-
-#### Features
-
-##### Disable SSL verification for endpoints, useful for custom regions
-
-```toml
-[dependencies]
-rust-s3 = {version = "0.26.0", features = ["no-verify-ssl"]}
-```
-
-##### Fail on HTTP error responses
-
-```toml
-[dependencies]
-rust-s3 = {version = "0.26.0", features = ["fail-on-err"]}
-```
-
-##### Different SSL backends
-
-Default is `reqwest/native-tls`, it is possible to switch to `reqwest/rustls-tls` which is more portable
-
-```toml
-[dependencies]
-rust-s3 = {version = "0.26.0", features = ["rustls-tls"]}
-```
-
-
-##### Use async-std instead of tokio
-
-By default the `with-tokio` feature is enabled. To switch to `async-std` you need to disable the default features and specify the `with-async-std` feature
-
-```toml
-[dependencies]
-rust-s3 = {version = "0.27.0-beta8", features = ["with-async-std"], default-features = false}
-```
-
-
 
