@@ -650,7 +650,7 @@ impl Bucket {
         s3_path: &str,
     ) -> Result<u16> {
         let command = Command::InitiateMultipartUpload;
-        let request = RequestImpl::new(self, &s3_path, command);
+        let request = RequestImpl::new(self, s3_path, command);
         let (data, code) = request.response_data(false).await?;
         let msg: InitiateMultipartUploadResponse =
             serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
@@ -668,7 +668,6 @@ impl Bucket {
                     self.abort_upload(&path, upload_id).await?;
 
                     self.put_object(s3_path, chunk.as_slice()).await?;
-                    break;
                 } else {
                     part_number += 1;
                     let command = Command::PutObject {
@@ -698,8 +697,8 @@ impl Bucket {
                     let complete_request = RequestImpl::new(self, &path, complete);
                     let (_data, _code) = complete_request.response_data(false).await?;
                     // let response = std::str::from_utf8(data.as_slice())?;
-                    break;
                 }
+                break;
             } else {
                 part_number += 1;
                 let command = Command::PutObject {
@@ -1076,7 +1075,7 @@ impl Bucket {
         path: &str,
         tags: &[(S, S)],
     ) -> Result<(Vec<u8>, u16)> {
-        let content = self._tags_xml(&tags);
+        let content = self._tags_xml(tags);
         let command = Command::PutObjectTagging { tags: &content };
         let request = RequestImpl::new(self, path, command);
         request.response_data(false).await
@@ -1487,20 +1486,18 @@ impl Bucket {
 
     /// Get a reference to the AWS access key.
     pub fn access_key(&self) -> Option<String> {
-        if let Some(access_key) = self.credentials.access_key.clone() {
-            Some(access_key.replace('\n', ""))
-        } else {
-            None
-        }
+        self.credentials
+            .access_key
+            .clone()
+            .map(|key| key.replace('\n', ""))
     }
 
     /// Get a reference to the AWS secret key.
     pub fn secret_key(&self) -> Option<String> {
-        if let Some(secret_key) = self.credentials.secret_key.clone() {
-            Some(secret_key.replace('\n', ""))
-        } else {
-            None
-        }
+        self.credentials
+            .secret_key
+            .clone()
+            .map(|key| key.replace('\n', ""))
     }
 
     /// Get a reference to the AWS security token.

@@ -152,10 +152,8 @@ pub trait Request {
         let bucket = self.bucket();
         let token = if let Some(security_token) = bucket.security_token() {
             Some(security_token)
-        } else if let Some(session_token) = bucket.session_token() {
-            Some(session_token)
         } else {
-            None
+            bucket.session_token()
         };
         let url = Url::parse(&format!(
             "{}{}",
@@ -252,7 +250,7 @@ pub trait Request {
                 max_uploads,
             } => {
                 let mut query_pairs = url.query_pairs_mut();
-                delimiter.map(|d| query_pairs.append_pair("delimiter", &d));
+                delimiter.map(|d| query_pairs.append_pair("delimiter", d));
                 if let Some(prefix) = prefix {
                     query_pairs.append_pair("prefix", prefix);
                 }
