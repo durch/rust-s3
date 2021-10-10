@@ -157,10 +157,11 @@ pub fn signing_key(
     service: &str,
 ) -> Result<Vec<u8>> {
     let secret = format!("AWS4{}", secret_key);
-    let mut date_hmac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| anyhow! {"{}",e})?;
+    let mut date_hmac =
+        HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| anyhow! {"{}",e})?;
     date_hmac.update(datetime.format(SHORT_DATE).to_string().as_bytes());
-    let mut region_hmac =
-        HmacSha256::new_from_slice(&date_hmac.finalize().into_bytes()).map_err(|e| anyhow! {"{}",e})?;
+    let mut region_hmac = HmacSha256::new_from_slice(&date_hmac.finalize().into_bytes())
+        .map_err(|e| anyhow! {"{}",e})?;
     region_hmac.update(region.to_string().as_bytes());
     let mut service_hmac = HmacSha256::new_from_slice(&region_hmac.finalize().into_bytes())
         .map_err(|e| anyhow! {"{}",e})?;

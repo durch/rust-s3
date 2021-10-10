@@ -16,11 +16,11 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1.0"
-dirs = "3"
+dirs = "4"
 rust-ini = "0.17"
 attohttpc = { version = "0.17", default-features = false, features = ["json"] }
 url = "2"
-serde-xml-rs = "0.4"
+serde-xml-rs = "0.5"
 serde = "1"
 serde_derive = "1"
 

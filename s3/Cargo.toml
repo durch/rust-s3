@@ -38,7 +38,7 @@ percent-encoding = "2"
 reqwest = { version = "0.11", default-features = false, features = ["json", "stream"], optional = true }
 serde = "1"
 serde_derive = "1"
-serde-xml-rs = "0.4"
+serde-xml-rs = "0.5"
 sha2 = "0.9"
 anyhow = "1.0"
 surf = { version = "2", optional = true, default-features = false, features = ["hyper-client"] }

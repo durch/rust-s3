@@ -1817,8 +1817,9 @@ mod test {
             .unwrap();
         assert_eq!(code, 200);
         // This could be eventually consistent now
-        // let (tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
+        let (_tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
         // assert_eq!(tags, target_tags)
+        let (_data, _code) = bucket.delete_object("tagging_test").await.unwrap();
     }
 
     #[ignore]
