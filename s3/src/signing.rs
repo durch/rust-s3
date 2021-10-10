@@ -85,8 +85,10 @@ pub fn canonical_query_string(uri: &Url) -> String {
         .map(|(key, value)| (key.to_string(), value.to_string()))
         .collect();
     keyvalues.sort();
-    let keyvalues: Vec<String> = keyvalues.iter()
-        .map(|(k, v)| uri_encode(&k, true) + "=" + &uri_encode(&v, true)).collect();
+    let keyvalues: Vec<String> = keyvalues
+        .iter()
+        .map(|(k, v)| uri_encode(k, true) + "=" + &uri_encode(v, true))
+        .collect();
     keyvalues.join("&")
 }
 
@@ -282,7 +284,8 @@ mod tests {
         let url = Url::parse(
             "http://s3.amazonaws.com/examplebucket?\
                               prefix=somePrefix&marker=someMarker&max-keys=20",
-        ).unwrap();
+        )
+        .unwrap();
         let canonical = canonical_query_string(&url);
         assert_eq!("marker=someMarker&max-keys=20&prefix=somePrefix", canonical);
 
@@ -293,19 +296,18 @@ mod tests {
         let url = Url::parse(
             "http://s3.amazonaws.com/examplebucket?\
                               key=with%20space&also+space=with+plus",
-        ).unwrap();
+        )
+        .unwrap();
         let canonical = canonical_query_string(&url);
         assert_eq!("also%20space=with%20plus&key=with%20space", canonical);
 
-        let url = Url::parse(
-            "http://s3.amazonaws.com/examplebucket?key-with-postfix=something&key=",
-        ).unwrap();
+        let url =
+            Url::parse("http://s3.amazonaws.com/examplebucket?key-with-postfix=something&key=")
+                .unwrap();
         let canonical = canonical_query_string(&url);
         assert_eq!("key=&key-with-postfix=something", canonical);
 
-        let url = Url::parse(
-            "http://s3.amazonaws.com/examplebucket?key=c&key=a&key=b",
-        ).unwrap();
+        let url = Url::parse("http://s3.amazonaws.com/examplebucket?key=c&key=a&key=b").unwrap();
         let canonical = canonical_query_string(&url);
         assert_eq!("key=a&key=b&key=c", canonical);
     }
