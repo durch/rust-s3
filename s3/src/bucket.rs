@@ -170,6 +170,29 @@ impl Bucket {
         );
         request.presigned()
     }
+
+    /// Get a presigned url for deleting object on a given path
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default().unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// let url = bucket.presign_delete("/test.file", 86400).unwrap();
+    /// println!("Presigned url: {}", url);
+    /// ```
+    pub fn presign_delete<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
+        validate_expiry(expiry_secs)?;
+        let request = RequestImpl::new(self, path.as_ref(), Command::PresignDelete { expiry_secs });
+        request.presigned()
+    }
+
     /// Create a new `Bucket` and instantiate it
     ///
     /// ```no_run
@@ -2137,6 +2160,16 @@ mod test {
         let bucket = test_aws_bucket();
 
         let url = bucket.presign_get(s3_path, 86400).unwrap();
+        assert!(url.contains("/test%2Ftest.file?"))
+    }
+
+    #[test]
+    #[ignore]
+    fn test_presign_delete() {
+        let s3_path = "/test/test.file";
+        let bucket = test_aws_bucket();
+
+        let url = bucket.presign_delete(s3_path, 86400).unwrap();
         assert!(url.contains("/test%2Ftest.file?"))
     }
 

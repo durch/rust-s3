@@ -93,6 +93,9 @@ pub enum Command<'a> {
         expiry_secs: u32,
         custom_headers: Option<HeaderMap>,
     },
+    PresignDelete {
+        expiry_secs: u32,
+    },
     InitiateMultipartUpload,
     UploadPart {
         part_number: u32,
@@ -132,6 +135,7 @@ impl<'a> Command<'a> {
             Command::DeleteObject
             | Command::DeleteObjectTagging
             | Command::AbortMultipartUpload { .. }
+            | Command::PresignDelete { .. }
             | Command::DeleteBucket => HttpMethod::Delete,
             Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
                 HttpMethod::Post
