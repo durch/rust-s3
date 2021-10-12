@@ -37,6 +37,7 @@ There are a lot of various featuers that enable a wide variaty of use cases, ref
 
 + `with-async-std` - `async-std` runtime
 + `sync` - no async runtime, `attohttpc` is used for HTTP requests
++ `tags` - required for `Bucket::get_object_tagging`
 
 All runtimes support either `native-tls` or `rustls-tls`, there are features for all combinations, refer to `s3/Cargo.toml` for a complete list
 

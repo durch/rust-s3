@@ -1,5 +1,6 @@
 #[cfg(feature = "blocking")]
 use block_on_proc::block_on;
+#[cfg(feature = "tags")]
 use minidom::Element;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
@@ -1231,6 +1232,7 @@ impl Bucket {
     /// # Ok(())
     /// # }
     /// ```
+    #[cfg(feature = "tags")]
     #[maybe_async::maybe_async]
     pub async fn get_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<Tag>, u16)> {
         let command = Command::GetObjectTagging {};
@@ -1806,6 +1808,7 @@ mod test {
     }
 
     #[ignore]
+    #[cfg(feature = "tags")]
     #[maybe_async::test(
         feature = "sync",
         async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
