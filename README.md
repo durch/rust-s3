@@ -36,7 +36,7 @@ There are a lot of various featuers that enable a wide variaty of use cases, ref
 ##### with `default-features = false`
 
 + `with-async-std` - `async-std` runtime
-+ `sync` - no async rutime, `attohttpc` is used for HTTP requests
++ `sync` - no async runtime, `attohttpc` is used for HTTP requests
 
 All runtimes support either `native-tls` or `rustls-tls`, there are features for all combinations, refer to `s3/Cargo.toml` for a complete list
 
