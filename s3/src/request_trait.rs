@@ -1,8 +1,6 @@
 use chrono::{DateTime, Utc};
 use hmac::Mac;
 use hmac::NewMac;
-use maybe_async::maybe_async;
-use std::io::Write;
 use url::Url;
 
 use crate::bucket::Bucket;
@@ -16,14 +14,25 @@ use http::header::{
 };
 use http::HeaderMap;
 
-#[maybe_async]
+#[maybe_async::maybe_async]
 pub trait Request {
     type Response;
     type HeaderMap;
 
     async fn response(&self) -> Result<Self::Response>;
     async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)>;
-    async fn response_data_to_writer<T: Write + Send>(&self, writer: &mut T) -> Result<u16>;
+    #[cfg(feature = "with-tokio")]
+    async fn response_data_to_writer<T: tokio::io::AsyncWrite + Send + Unpin>(
+        &self,
+        writer: &mut T,
+    ) -> Result<u16>;
+    #[cfg(feature = "with-async-std")]
+    async fn response_data_to_writer<T: futures::io::AsyncWrite + Send + Unpin>(
+        &self,
+        writer: &mut T,
+    ) -> Result<u16>;
+    #[cfg(feature = "sync")]
+    fn response_data_to_writer<T: std::io::Write + Send>(&self, writer: &mut T) -> Result<u16>;
     async fn response_header(&self) -> Result<(Self::HeaderMap, u16)>;
     fn datetime(&self) -> DateTime<Utc>;
     fn bucket(&self) -> Bucket;

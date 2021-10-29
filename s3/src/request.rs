@@ -1,8 +1,6 @@
 extern crate base64;
 extern crate md5;
 
-use std::io::Write;
-
 use chrono::{DateTime, Utc};
 use maybe_async::maybe_async;
 use reqwest::{Client, Response};
@@ -120,14 +118,18 @@ impl<'a> Request for Reqwest<'a> {
         Ok((body_vec, status_code))
     }
 
-    async fn response_data_to_writer<T: Write + Send>(&self, writer: &mut T) -> Result<u16> {
+    async fn response_data_to_writer<T: tokio::io::AsyncWrite + Send + Unpin>(
+        &self,
+        writer: &mut T,
+    ) -> Result<u16> {
+        use tokio::io::AsyncWriteExt;
         let response = self.response().await?;
 
         let status_code = response.status();
         let mut stream = response.bytes_stream();
 
         while let Some(item) = stream.next().await {
-            writer.write_all(&item?)?;
+            writer.write_all(&item?).await?;
         }
 
         Ok(status_code.as_u16())

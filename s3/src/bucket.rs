@@ -24,9 +24,9 @@ use crate::surf_request::SurfRequest as RequestImpl;
 // use tokio::fs::File;
 
 #[cfg(feature = "with-async-std")]
-use futures::io::AsyncRead;
+use futures::io::{AsyncRead, AsyncWrite};
 #[cfg(feature = "with-tokio")]
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 #[cfg(feature = "sync")]
 use crate::blocking::AttoRequest as RequestImpl;
@@ -649,8 +649,8 @@ impl Bucket {
     /// # Ok(())
     /// # }
     /// ```
-    #[maybe_async::maybe_async]
-    pub async fn get_object_stream<T: std::io::Write + Send, S: AsRef<str>>(
+    #[maybe_async::async_impl]
+    pub async fn get_object_stream<T: AsyncWrite + Send + Unpin, S: AsRef<str>>(
         &self,
         path: S,
         writer: &mut T,
@@ -658,6 +658,17 @@ impl Bucket {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data_to_writer(writer).await
+    }
+
+    #[maybe_async::sync_impl]
+    pub async fn get_object_stream<T: std::io::Write + Send, S: AsRef<str>>(
+        &self,
+        path: S,
+        writer: &mut T,
+    ) -> Result<u16> {
+        let command = Command::GetObject;
+        let request = RequestImpl::new(self, path.as_ref(), command);
+        request.response_data_to_writer(writer)
     }
 
     /// Stream file from local path to s3, generic over T: Write.
