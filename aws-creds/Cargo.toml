@@ -26,10 +26,10 @@ serde_derive = "1"
 
 
 [features]
-default = ["http-credentials", "native-tls"]
+default = ["native-tls"]
 http-credentials = ["attohttpc"]
-native-tls = ["attohttpc/tls"]
-rustls-tls = ["attohttpc/tls-rustls"]
+native-tls = ["http-credentials", "attohttpc/tls"]
+rustls-tls = ["http-credentials", "attohttpc/tls-rustls"]
 
 [dev-dependencies]
 env_logger = "0.9"
