@@ -7,19 +7,13 @@ pub trait Client<'a> {
 }
 
 #[cfg(feature = "with-attohttpc")]
-pub use self::attohttpc::AttoHttpClient;
-
-#[cfg(feature = "with-attohttpc")]
 mod attohttpc {
     use super::Client;
     use crate::blocking::AttoRequest;
     use crate::{bucket::Bucket, command::Command};
     use time::OffsetDateTime;
 
-    #[derive(Clone)]
-    pub struct AttoHttpClient;
-
-    impl<'a> Client<'a> for AttoHttpClient {
+    impl<'a> Client<'a> for attohttpc::Session {
         type Request = AttoRequest<'a>;
 
         fn request(
@@ -29,6 +23,7 @@ mod attohttpc {
             command: Command<'a>,
         ) -> Self::Request {
             AttoRequest {
+                session: self,
                 bucket,
                 path,
                 command,
@@ -44,7 +39,6 @@ mod surf {
     use super::Client;
     use crate::surf_request::SurfRequest;
     use crate::{bucket::Bucket, command::Command};
-    use std::borrow::Cow;
     use time::OffsetDateTime;
 
     impl<'a> Client<'a> for surf::Client {
@@ -57,7 +51,7 @@ mod surf {
             command: Command<'a>,
         ) -> Self::Request {
             SurfRequest {
-                client: Cow::Borrowed(self),
+                client: self,
                 bucket,
                 path,
                 command,
@@ -73,7 +67,6 @@ mod reqwest {
     use super::Client;
     use crate::request::Reqwest;
     use crate::{bucket::Bucket, command::Command};
-    use std::borrow::Cow;
     use time::OffsetDateTime;
 
     impl<'a> Client<'a> for reqwest::Client {
@@ -86,7 +79,7 @@ mod reqwest {
             command: Command<'a>,
         ) -> Self::Request {
             Reqwest {
-                client: Cow::Borrowed(self),
+                client: self,
                 bucket,
                 path,
                 command,

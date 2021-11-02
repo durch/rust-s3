@@ -16,9 +16,9 @@ use async_std::path::Path;
 use std::path::Path;
 
 #[cfg(feature = "with-async-std")]
-use futures_io::AsyncRead;
+use async_std::io::ReadExt;
 #[cfg(feature = "with-async-std")]
-use futures_util::AsyncReadExt;
+use futures_io::AsyncRead;
 #[cfg(feature = "sync")]
 use std::io::Read;
 #[cfg(feature = "with-tokio")]

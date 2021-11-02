@@ -3,7 +3,7 @@ extern crate md5;
 
 use std::io::Write;
 
-use attohttpc::header::HeaderName;
+use attohttpc::{header::HeaderName, Session};
 
 use super::bucket::Bucket;
 use super::command::Command;
@@ -12,20 +12,10 @@ use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
-// static CLIENT: Lazy<Client> = Lazy::new(|| {
-//     if cfg!(feature = "no-verify-ssl") {
-//         Client::builder()
-//             .danger_accept_invalid_certs(true)
-//             .danger_accept_invalid_hostnames(true)
-//             .build()
-//             .expect("Could not build dangerous client!")
-//     } else {
-//         Client::new()
-//     }
-// });
 
 // Temporary structure for making a request
 pub struct AttoRequest<'a> {
+    pub session: &'a Session,
     pub bucket: &'a Bucket,
     pub path: &'a str,
     pub command: Command<'a>,
@@ -60,23 +50,21 @@ impl<'a> Request for AttoRequest<'a> {
             Err(e) => return Err(e),
         };
 
-        let mut session = attohttpc::Session::new();
+        let mut request = match self.command.http_verb() {
+            HttpMethod::Get => self.session.get(self.url()),
+            HttpMethod::Delete => self.session.delete(self.url()),
+            HttpMethod::Put => self.session.put(self.url()),
+            HttpMethod::Post => self.session.post(self.url()),
+            HttpMethod::Head => self.session.head(self.url()),
+        };
 
         for (name, value) in headers.iter() {
-            session.header(HeaderName::from_bytes(name.as_ref()).unwrap(), value);
+            request = request.header(HeaderName::from_bytes(name.as_ref()).unwrap(), value);
         }
 
         if let Some(timeout) = self.bucket.request_timeout {
-            session.timeout(timeout)
+            request = request.timeout(timeout);
         }
-
-        let request = match self.command.http_verb() {
-            HttpMethod::Get => session.get(self.url()),
-            HttpMethod::Delete => session.delete(self.url()),
-            HttpMethod::Put => session.put(self.url()),
-            HttpMethod::Post => session.post(self.url()),
-            HttpMethod::Head => session.head(self.url()),
-        };
 
         let response = request.bytes(&self.request_body()).send()?;
 
@@ -124,26 +112,15 @@ impl<'a> Request for AttoRequest<'a> {
     }
 }
 
-impl<'a> AttoRequest<'a> {
-    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> AttoRequest<'b> {
-        AttoRequest {
-            bucket,
-            path,
-            command,
-            datetime: OffsetDateTime::now_utc(),
-            sync: false,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::blocking::AttoRequest;
     use crate::bucket::Bucket;
     use crate::command::Command;
+    use crate::error::S3Error;
     use crate::request_trait::Request;
-    use anyhow::Result;
     use awscreds::Credentials;
+    use time::OffsetDateTime;
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
@@ -154,11 +131,19 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_https_by_default() -> Result<()> {
+    fn url_uses_https_by_default() -> Result<(), S3Error> {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject);
+        let session = attohttpc::Session::new();
+        let request = AttoRequest {
+            session: &session,
+            bucket: &bucket,
+            path,
+            command: Command::GetObject,
+            datetime: OffsetDateTime::now_utc(),
+            sync: true,
+        };
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -170,11 +155,19 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_https_by_default_path_style() -> Result<()> {
+    fn url_uses_https_by_default_path_style() -> Result<(), S3Error> {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-first/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject);
+        let session = attohttpc::Session::new();
+        let request = AttoRequest {
+            session: &session,
+            bucket: &bucket,
+            path,
+            command: Command::GetObject,
+            datetime: OffsetDateTime::now_utc(),
+            sync: true,
+        };
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -186,11 +179,19 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_scheme_from_custom_region_if_defined() -> Result<()> {
+    fn url_uses_scheme_from_custom_region_if_defined() -> Result<(), S3Error> {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject);
+        let session = attohttpc::Session::new();
+        let request = AttoRequest {
+            session: &session,
+            bucket: &bucket,
+            path,
+            command: Command::GetObject,
+            datetime: OffsetDateTime::now_utc(),
+            sync: true,
+        };
 
         assert_eq!(request.url().scheme(), "http");
 
@@ -201,11 +202,19 @@ mod tests {
     }
 
     #[test]
-    fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
+    fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<(), S3Error> {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-second/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject);
+        let session = attohttpc::Session::new();
+        let request = AttoRequest {
+            session: &session,
+            bucket: &bucket,
+            path,
+            command: Command::GetObject,
+            datetime: OffsetDateTime::now_utc(),
+            sync: true,
+        };
 
         assert_eq!(request.url().scheme(), "http");
 

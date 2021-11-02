@@ -53,20 +53,24 @@ minidom = { version = "0.14", optional = true }
 block_on_proc = { version = "0.2", optional = true }
 
 [features]
-with-tokio = ["tokio", "tokio/fs", "tokio-stream"]
-with-reqwest = ["reqwest", "with-tokio"]
-with-async-std = ["async-std", "futures-io", "futures-util"]
-with-surf = ["surf", "with-async-std"]
-sync = ["maybe-async/is_sync"]
-default = ["tags", "tokio-native-tls", "with-reqwest"]
+default = ["tags", "with-reqwest"]
+
+# http clients
 with-attohttpc = ["attohttpc", "sync"]
-no-verify-ssl = []
-fail-on-err = []
-tokio-native-tls = ["with-tokio", "reqwest/native-tls", "aws-creds/native-tls"]
-tokio-rustls-tls = ["with-tokio", "reqwest/rustls-tls", "aws-creds/rustls-tls"]
-sync-native-tls = ["sync", "aws-creds/native-tls", "attohttpc/tls"]
-sync-rustls-tls = ["sync", "aws-creds/rustls-tls", "attohttpc/tls-rustls"]
+with-reqwest = ["reqwest", "with-tokio"]
+with-surf = ["surf", "with-async-std"]
+
+# runtimes
+sync = ["maybe-async/is_sync"]
+with-tokio = ["tokio", "tokio/fs", "tokio-stream"]
+with-async-std = ["async-std", "futures-io"]
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]
+
+fail-on-err = []
+creds-http = ["aws-creds/http-credentials"]
+creds-native-tls = ["aws-creds/native-tls"]
+creds-rustls-tls = ["aws-creds/rustls-tls"]
+never-encode-slash = []
 tags = ["minidom"]
 
 [dev-dependencies]
@@ -76,4 +80,3 @@ uuid = { version = "1", features = ["v4"] }
 env_logger = "0.9"
 # aws-creds = { version = "0.29", default-features = false }
 aws-creds = { path = "../aws-creds", features = ["http-credentials"] }
-anyhow = "1"

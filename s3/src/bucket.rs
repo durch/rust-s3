@@ -128,7 +128,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// let url = bucket.presign_get(&client, "/test.file", 86400, Some(custom_queries)).unwrap();
     /// println!("Presigned url: {}", url);
@@ -171,7 +171,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Add optional custom headers
     /// let mut custom_headers = HeaderMap::new();
@@ -219,7 +219,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// let url = bucket.presign_delete(&client, "/test.file", 86400).unwrap();
     /// println!("Presigned url: {}", url);
@@ -254,7 +254,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -316,7 +316,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -378,7 +378,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -605,7 +605,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -669,7 +669,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -718,7 +718,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -767,7 +767,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -819,12 +819,14 @@ impl Bucket {
     /// let region = "us-east-1".parse()?;
     /// let credentials = Credentials::default()?;
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
     /// #[cfg(feature = "with-reqwest")]
     /// let client = reqwest::Client::new();
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
+    ///
     /// #[cfg(feature = "sync")]
     /// let mut output_file = File::create("output_file").expect("Unable to create file");
     /// #[cfg(feature = "with-tokio")]
@@ -903,7 +905,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// #[cfg(feature = "with-reqwest")]
     /// let mut path = tokio::fs::File::open(path).await?;
@@ -1126,7 +1128,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -1190,7 +1192,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse()?;
@@ -1245,7 +1247,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -1301,7 +1303,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -1358,7 +1360,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -1429,7 +1431,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -1481,7 +1483,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -1531,7 +1533,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -1648,7 +1650,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -1742,7 +1744,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -1809,7 +1811,7 @@ impl Bucket {
     /// #[cfg(feature = "with-surf")]
     /// let client = surf::Client::new();;
     /// #[cfg(feature = "with-attohttpc")]
-    /// let client = s3::client::AttoHttpClient;
+    /// let client = attohttpc::Session::new();
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
@@ -2052,8 +2054,8 @@ mod test {
     }
 
     #[cfg(feature = "with-attohttpc")]
-    fn make_client() -> crate::client::AttoHttpClient {
-        crate::client::AttoHttpClient
+    fn make_client() -> attohttpc::Session {
+        attohttpc::Session::new()
     }
 
     fn init() {
@@ -2594,13 +2596,7 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(
-            all(
-                not(any(feature = "sync", feature = "tokio-rustls-tls")),
-                feature = "with-tokio"
-            ),
-            tokio::test
-        ),
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
         async(
             all(not(feature = "sync"), feature = "with-async-std"),
             async_std::test
