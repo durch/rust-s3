@@ -12,17 +12,18 @@ pub use bucket::Tag;
 pub use bucket_ops::BucketConfiguration;
 pub use region::Region;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "with-attohttpc")]
 pub mod blocking;
 pub mod bucket;
 pub mod bucket_ops;
+pub mod client;
 pub mod command;
 pub mod deserializer;
-#[cfg(feature = "with-tokio")]
+#[cfg(feature = "with-reqwest")]
 pub mod request;
 pub mod serde_types;
 pub mod signing;
-#[cfg(feature = "with-async-std")]
+#[cfg(feature = "with-surf")]
 pub mod surf_request;
 
 pub mod error;

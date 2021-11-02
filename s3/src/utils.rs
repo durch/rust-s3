@@ -120,8 +120,8 @@ impl GetAndConvertHeaders for http::header::HeaderMap {
     }
 }
 
-impl From<&http::HeaderMap> for HeadObjectResult {
-    fn from(headers: &http::HeaderMap) -> Self {
+impl From<http::HeaderMap> for HeadObjectResult {
+    fn from(headers: http::HeaderMap) -> Self {
         let mut result = HeadObjectResult {
             accept_ranges: headers.get_string("accept-ranges"),
             cache_control: headers.get_string("Cache-Control"),

@@ -1,6 +1,8 @@
 extern crate base64;
 extern crate md5;
 
+use std::borrow::Cow;
+
 use maybe_async::maybe_async;
 use reqwest::{Client, Response};
 use time::OffsetDateTime;
@@ -15,6 +17,7 @@ use tokio_stream::StreamExt;
 
 // Temporary structure for making a request
 pub struct Reqwest<'a> {
+    pub client: Cow<'a, reqwest::Client>,
     pub bucket: &'a Bucket,
     pub path: &'a str,
     pub command: Command<'a>,
@@ -50,31 +53,6 @@ impl<'a> Request for Reqwest<'a> {
             Err(e) => return Err(e),
         };
 
-        let mut client_builder = Client::builder();
-        if let Some(timeout) = self.bucket.request_timeout {
-            client_builder = client_builder.timeout(timeout)
-        }
-
-        if cfg!(feature = "no-verify-ssl") {
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "tokio-native-tls")]
-                {
-                    client_builder = client_builder.danger_accept_invalid_hostnames(true);
-                }
-
-            }
-
-            cfg_if::cfg_if! {
-                if #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
-                {
-                    client_builder = client_builder.danger_accept_invalid_certs(true);
-                }
-
-            }
-        }
-
-        let client = client_builder.build().expect("Could not build client!");
-
         let method = match self.command.http_verb() {
             HttpMethod::Delete => reqwest::Method::DELETE,
             HttpMethod::Get => reqwest::Method::GET,
@@ -83,10 +61,18 @@ impl<'a> Request for Reqwest<'a> {
             HttpMethod::Head => reqwest::Method::HEAD,
         };
 
-        let request = client
+        let request = self
+            .client
             .request(method, self.url().as_str())
-            .headers(headers)
-            .body(self.request_body());
+            .headers(headers);
+
+        let request = if let Some(timeout) = self.bucket.request_timeout {
+            request.timeout(timeout)
+        } else {
+            request
+        };
+
+        let request = request.body(self.request_body());
 
         let response = request.send().await?;
 
@@ -143,12 +129,36 @@ impl<'a> Request for Reqwest<'a> {
 impl<'a> Reqwest<'a> {
     pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> Reqwest<'b> {
         Reqwest {
+            client: Cow::Owned(Self::build_client()),
             bucket,
             path,
             command,
             datetime: OffsetDateTime::now_utc(),
             sync: false,
         }
+    }
+
+    fn build_client() -> reqwest::Client {
+        #[allow(unused_mut)]
+        let mut client_builder = Client::builder();
+
+        if cfg!(feature = "no-verify-ssl") {
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "tokio-native-tls")]
+                {
+                    client_builder = client_builder.danger_accept_invalid_hostnames(true)
+                }
+            }
+
+            cfg_if::cfg_if! {
+                if #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+                {
+                    client_builder = client_builder.danger_accept_invalid_certs(true);
+                }
+            }
+        }
+
+        client_builder.build().expect("Could not build client!")
     }
 }
 

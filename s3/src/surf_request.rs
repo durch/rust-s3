@@ -1,5 +1,6 @@
 use async_std::io::{ReadExt, WriteExt};
 use futures_io::AsyncWrite;
+use std::borrow::Cow;
 
 use super::bucket::Bucket;
 use super::command::Command;
@@ -13,9 +14,11 @@ use http::HeaderMap;
 use maybe_async::maybe_async;
 use surf::http::headers::{HeaderName, HeaderValue};
 use surf::http::Method;
+use surf::Client;
 
 // Temporary structure for making a request
 pub struct SurfRequest<'a> {
+    pub client: Cow<'a, Client>,
     pub bucket: &'a Bucket,
     pub path: &'a str,
     pub command: Command<'a>,
@@ -49,11 +52,11 @@ impl<'a> Request for SurfRequest<'a> {
         let headers = self.headers()?;
 
         let request = match self.command.http_verb() {
-            HttpMethod::Get => surf::Request::builder(Method::Get, self.url()),
-            HttpMethod::Delete => surf::Request::builder(Method::Delete, self.url()),
-            HttpMethod::Put => surf::Request::builder(Method::Put, self.url()),
-            HttpMethod::Post => surf::Request::builder(Method::Post, self.url()),
-            HttpMethod::Head => surf::Request::builder(Method::Head, self.url()),
+            HttpMethod::Get => self.client.request(Method::Get, self.url()),
+            HttpMethod::Delete => self.client.request(Method::Delete, self.url()),
+            HttpMethod::Put => self.client.request(Method::Put, self.url()),
+            HttpMethod::Post => self.client.request(Method::Post, self.url()),
+            HttpMethod::Head => self.client.request(Method::Head, self.url()),
         };
 
         let mut request = request.body(self.request_body());
@@ -133,6 +136,7 @@ impl<'a> Request for SurfRequest<'a> {
 impl<'a> SurfRequest<'a> {
     pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> SurfRequest<'b> {
         SurfRequest {
+            client: Cow::Owned(surf::Client::new()),
             bucket,
             path,
             command,
@@ -178,7 +182,7 @@ mod tests {
     #[test]
     fn url_uses_https_by_default_path_style() -> Result<()> {
         let region = "custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-first-bucket", region, fake_credentials())?;
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-first/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject);
 
@@ -209,7 +213,7 @@ mod tests {
     #[test]
     fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
         let region = "http://custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
+        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-second/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject);
 
