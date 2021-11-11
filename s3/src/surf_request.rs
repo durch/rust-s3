@@ -1,5 +1,5 @@
 use async_std::io::{ReadExt, WriteExt};
-use futures::io::AsyncWrite;
+use futures_io::AsyncWrite;
 
 use super::bucket::Bucket;
 use super::command::Command;
