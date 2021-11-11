@@ -1,8 +1,6 @@
 use chrono::{DateTime, Utc};
 use hmac::Mac;
 use hmac::NewMac;
-use maybe_async::maybe_async;
-use std::io::Write;
 use url::Url;
 
 use crate::bucket::Bucket;
@@ -16,14 +14,25 @@ use http::header::{
 };
 use http::HeaderMap;
 
-#[maybe_async]
+#[maybe_async::maybe_async]
 pub trait Request {
     type Response;
     type HeaderMap;
 
     async fn response(&self) -> Result<Self::Response>;
     async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)>;
-    async fn response_data_to_writer<T: Write + Send>(&self, writer: &mut T) -> Result<u16>;
+    #[cfg(feature = "with-tokio")]
+    async fn response_data_to_writer<T: tokio::io::AsyncWrite + Send + Unpin>(
+        &self,
+        writer: &mut T,
+    ) -> Result<u16>;
+    #[cfg(feature = "with-async-std")]
+    async fn response_data_to_writer<T: futures_io::AsyncWrite + Send + Unpin>(
+        &self,
+        writer: &mut T,
+    ) -> Result<u16>;
+    #[cfg(feature = "sync")]
+    fn response_data_to_writer<T: std::io::Write + Send>(&self, writer: &mut T) -> Result<u16>;
     async fn response_header(&self) -> Result<(Self::HeaderMap, u16)>;
     fn datetime(&self) -> DateTime<Utc>;
     fn bucket(&self) -> Bucket;
@@ -221,7 +230,7 @@ pub trait Request {
 
         // println!("{}", url_str);
 
-        if let Command::ListBucket {
+        if let Command::ListObjectsV2 {
             prefix,
             delimiter,
             continuation_token,
@@ -231,6 +240,7 @@ pub trait Request {
         {
             let mut query_pairs = url.query_pairs_mut();
             delimiter.map(|d| query_pairs.append_pair("delimiter", &d));
+
             query_pairs.append_pair("prefix", &prefix);
             query_pairs.append_pair("list-type", "2");
             if let Some(token) = continuation_token {
@@ -238,6 +248,25 @@ pub trait Request {
             }
             if let Some(start_after) = start_after {
                 query_pairs.append_pair("start-after", &start_after);
+            }
+            if let Some(max_keys) = max_keys {
+                query_pairs.append_pair("max-keys", &max_keys.to_string());
+            }
+        }
+
+        if let Command::ListObjects {
+            prefix,
+            delimiter,
+            marker,
+            max_keys,
+        } = self.command().clone()
+        {
+            let mut query_pairs = url.query_pairs_mut();
+            delimiter.map(|d| query_pairs.append_pair("delimiter", &d));
+
+            query_pairs.append_pair("prefix", &prefix);
+            if let Some(marker) = marker {
+                query_pairs.append_pair("marker", &marker);
             }
             if let Some(max_keys) = max_keys {
                 query_pairs.append_pair("max-keys", &max_keys.to_string());
@@ -324,7 +353,8 @@ pub trait Request {
                     from.parse().unwrap(),
                 );
             }
-            Command::ListBucket { .. } => {}
+            Command::ListObjects { .. } => {}
+            Command::ListObjectsV2 { .. } => {}
             Command::GetObject => {}
             Command::GetObjectTagging => {}
             Command::GetBucketLocation => {}

@@ -78,7 +78,13 @@ pub enum Command<'a> {
         key_marker: Option<String>,
         max_uploads: Option<usize>,
     },
-    ListBucket {
+    ListObjects {
+        prefix: String,
+        delimiter: Option<String>,
+        marker: Option<String>,
+        max_keys: Option<usize>,
+    },
+    ListObjectsV2 {
         prefix: String,
         delimiter: Option<String>,
         continuation_token: Option<String>,
@@ -122,7 +128,8 @@ impl<'a> Command<'a> {
             Command::GetObject
             | Command::GetObjectTorrent
             | Command::GetObjectRange { .. }
-            | Command::ListBucket { .. }
+            | Command::ListObjects { .. }
+            | Command::ListObjectsV2 { .. }
             | Command::GetBucketLocation
             | Command::GetObjectTagging
             | Command::ListMultipartUploads { .. }

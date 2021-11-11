@@ -16,7 +16,9 @@ use async_std::path::Path;
 use std::path::Path;
 
 #[cfg(feature = "with-async-std")]
-use futures::io::{AsyncRead, AsyncReadExt};
+use futures_io::AsyncRead;
+#[cfg(feature = "with-async-std")]
+use futures_util::AsyncReadExt;
 #[cfg(feature = "sync")]
 use std::io::Read;
 #[cfg(feature = "with-tokio")]
@@ -33,7 +35,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 ///     println!("{}", etag);
 /// }
 /// ```
-#[cfg(any(feature = "tokio", feature = "async-std"))]
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
     let mut file = File::open(path).await?;
     let mut digests = Vec::new();
@@ -87,7 +89,7 @@ pub fn etag_for_path(path: impl AsRef<Path>) -> Result<String> {
     Ok(etag)
 }
 
-#[cfg(any(feature = "tokio", feature = "async-std"))]
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>> {
     let mut chunk = Vec::with_capacity(CHUNK_SIZE);
     let mut take = reader.take(CHUNK_SIZE as u64);

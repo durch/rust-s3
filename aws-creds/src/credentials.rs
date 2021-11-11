@@ -22,12 +22,15 @@ use url::Url;
 /// use awscreds::Credentials;
 ///
 /// // Load credentials from `[default]` profile
+/// #[cfg(feature="http-credentials")]
 /// let credentials = Credentials::default();
 ///
 /// // Also loads credentials from `[default]` profile
+/// #[cfg(feature="http-credentials")]
 /// let credentials = Credentials::new(None, None, None, None, None);
 ///
 /// // Load credentials from `[my-profile]` profile
+/// #[cfg(feature="http-credentials")]
 /// let credentials = Credentials::new(None, None, None, None, Some("my-profile".into()));
 /// ```
 /// // Use anonymous credentials for public objects
@@ -48,12 +51,14 @@ use url::Url;
 /// // Load credentials directly
 /// let access_key = "AKIAIOSFODNN7EXAMPLE";
 /// let secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+/// #[cfg(feature="http-credentials")]
 /// let credentials = Credentials::new(Some(access_key), Some(secret_key), None, None, None);
 ///
 /// // Load credentials from the environment
 /// use std::env;
 /// env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
 /// env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+/// #[cfg(feature="http-credentials")]
 /// let credentials = Credentials::new(None, None, None, None, None);
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -116,15 +121,20 @@ pub struct ResponseMetadata {
 }
 
 /// The global request timeout in milliseconds. 0 means no timeout.
-static REQUEST_TIMEOUT_MS: AtomicU32 = AtomicU32::new(0);
+///
+/// Defaults to 30 seconds.
+static REQUEST_TIMEOUT_MS: AtomicU32 = AtomicU32::new(30_000);
 
-/// Sets the timeout for all credentials HTTP requests; this timeout
-/// applies after a 30-second connection timeout.
+/// Sets the timeout for all credentials HTTP requests and returns the
+/// old timeout value, if any; this timeout applies after a 30-second
+/// connection timeout.
 ///
 /// Short durations are bumped to one millisecond, and durations
 /// greater than 4 billion milliseconds (49 days) are rounded up to
 /// infinity (no timeout).
-pub fn set_request_timeout(timeout: Option<Duration>) {
+/// The global default value is 30 seconds.
+#[cfg(feature = "http-credentials")]
+pub fn set_request_timeout(timeout: Option<Duration>) -> Option<Duration> {
     use std::convert::TryInto;
     let duration_ms = timeout
         .as_ref()
@@ -134,10 +144,17 @@ pub fn set_request_timeout(timeout: Option<Duration>) {
 
     // Store that non-zero u128 value in an AtomicU32 by mapping large
     // values to 0: `http_get` maps that to no (infinite) timeout.
-    REQUEST_TIMEOUT_MS.store(duration_ms.try_into().unwrap_or(0), Ordering::Relaxed);
+    let prev = REQUEST_TIMEOUT_MS.swap(duration_ms.try_into().unwrap_or(0), Ordering::Relaxed);
+
+    if prev == 0 {
+        None
+    } else {
+        Some(Duration::from_millis(prev as u64))
+    }
 }
 
 /// Sends a GET request to `url` with a request timeout if one was set.
+#[cfg(feature = "http-credentials")]
 fn http_get(url: &str) -> attohttpc::Result<attohttpc::Response> {
     let mut builder = attohttpc::get(url);
 
@@ -150,6 +167,7 @@ fn http_get(url: &str) -> attohttpc::Result<attohttpc::Response> {
 }
 
 impl Credentials {
+    #[cfg(feature = "http-credentials")]
     pub fn from_sts_env(session_name: &str) -> Result<Credentials> {
         let role_arn = env::var("AWS_ROLE_ARN")?;
         let web_identity_token_file = env::var("AWS_WEB_IDENTITY_TOKEN_FILE")?;
@@ -157,6 +175,7 @@ impl Credentials {
         Credentials::from_sts(&role_arn, session_name, &web_identity_token)
     }
 
+    #[cfg(feature = "http-credentials")]
     pub fn from_sts(
         role_arn: &str,
         session_name: &str,
@@ -200,6 +219,7 @@ impl Credentials {
         })
     }
 
+    #[cfg(feature = "http-credentials")]
     pub fn default() -> Result<Credentials> {
         Credentials::new(None, None, None, None, None)
     }
@@ -215,6 +235,7 @@ impl Credentials {
 
     /// Initialize Credentials directly with key ID, secret key, and optional
     /// token.
+    #[cfg(feature = "http-credentials")]
     pub fn new(
         access_key: Option<&str>,
         secret_key: Option<&str>,
@@ -260,6 +281,7 @@ impl Credentials {
         Credentials::from_env_specific(None, None, None, None)
     }
 
+    #[cfg(feature = "http-credentials")]
     pub fn from_instance_metadata() -> Result<Credentials> {
         #[derive(Deserialize)]
         #[serde(rename_all = "PascalCase")]
@@ -278,16 +300,9 @@ impl Credentials {
                     .json()?
             }
             Err(_) => {
-                if !(std::fs::read_to_string("/sys/hypervisor/uuid")
-                    .map_or(false, |uuid| uuid.len() >= 3 && &uuid[..3] == "ec2")
-                    || std::fs::read_to_string("/sys/class/dmi/id/board_vendor")
-                        .map_or(false, |uuid| {
-                            uuid.len() >= 10 && &uuid[..10] == "Amazon EC2"
-                        }))
-                {
+                if !is_ec2() {
                     bail!("Not an AWS instance")
                 }
-                // We are on EC2
 
                 let role = attohttpc::get(
                     "http://169.254.169.254/latest/meta-data/iam/security-credentials",
@@ -310,20 +325,6 @@ impl Credentials {
             security_token: Some(resp.token),
             session_token: None,
         })
-    }
-
-    fn is_ec2() -> bool {
-        if let Ok(uuid) = std::fs::read_to_string("/sys/hypervisor/uuid") {
-            if uuid.len() >= 3 && &uuid[..3] == "ec2" {
-                return true;
-            }
-        }
-        if let Ok(uuid) = std::fs::read_to_string("/sys/class/dmi/id/board_vendor") {
-            if uuid.len() >= 10 && &uuid[..10] == "Amazon EC2" {
-                return true;
-            }
-        }
-        false
     }
 
     pub fn from_profile(section: Option<&str>) -> Result<Credentials> {
@@ -361,4 +362,18 @@ fn from_env_with_default(var: Option<&str>, default: &str) -> Result<String> {
             default
         )
     })
+}
+
+fn is_ec2() -> bool {
+    if let Ok(uuid) = std::fs::read_to_string("/sys/hypervisor/uuid") {
+        if uuid.starts_with("ec2") {
+            return true;
+        }
+    }
+    if let Ok(vendor) = std::fs::read_to_string("/sys/class/dmi/id/board_vendor") {
+        if vendor.starts_with("Amazon EC2") {
+            return true;
+        }
+    }
+    false
 }

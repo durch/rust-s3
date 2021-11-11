@@ -38,6 +38,8 @@ pub enum Region {
     UsWest2,
     /// ca-central-1
     CaCentral1,
+    /// ap-east-1
+    ApEast1,
     /// ap-south-1
     ApSouth1,
     /// ap-northeast-1
@@ -99,6 +101,7 @@ impl fmt::Display for Region {
             UsWest1 => write!(f, "us-west-1"),
             UsWest2 => write!(f, "us-west-2"),
             CaCentral1 => write!(f, "ca-central-1"),
+            ApEast1 => write!(f, "ap-east-1"),
             ApSouth1 => write!(f, "ap-south-1"),
             ApNortheast1 => write!(f, "ap-northeast-1"),
             ApNortheast2 => write!(f, "ap-northeast-2"),
@@ -139,6 +142,7 @@ impl FromStr for Region {
             "us-west-1" => Ok(UsWest1),
             "us-west-2" => Ok(UsWest2),
             "ca-central-1" => Ok(CaCentral1),
+            "ap-east-1" => Ok(ApEast1),
             "ap-south-1" => Ok(ApSouth1),
             "ap-northeast-1" => Ok(ApNortheast1),
             "ap-northeast-2" => Ok(ApNortheast2),
@@ -183,6 +187,7 @@ impl Region {
             UsWest1 => String::from("s3-us-west-1.amazonaws.com"),
             UsWest2 => String::from("s3-us-west-2.amazonaws.com"),
             CaCentral1 => String::from("s3-ca-central-1.amazonaws.com"),
+            ApEast1 => String::from("s3-ap-east-1.amazonaws.com"),
             ApSouth1 => String::from("s3-ap-south-1.amazonaws.com"),
             ApNortheast1 => String::from("s3-ap-northeast-1.amazonaws.com"),
             ApNortheast2 => String::from("s3-ap-northeast-2.amazonaws.com"),
