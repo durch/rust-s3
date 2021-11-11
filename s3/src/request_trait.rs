@@ -230,7 +230,7 @@ pub trait Request {
 
         // println!("{}", url_str);
 
-        if let Command::ListBucket {
+        if let Command::ListObjectsV2 {
             prefix,
             delimiter,
             continuation_token,
@@ -240,6 +240,7 @@ pub trait Request {
         {
             let mut query_pairs = url.query_pairs_mut();
             delimiter.map(|d| query_pairs.append_pair("delimiter", &d));
+
             query_pairs.append_pair("prefix", &prefix);
             query_pairs.append_pair("list-type", "2");
             if let Some(token) = continuation_token {
@@ -247,6 +248,25 @@ pub trait Request {
             }
             if let Some(start_after) = start_after {
                 query_pairs.append_pair("start-after", &start_after);
+            }
+            if let Some(max_keys) = max_keys {
+                query_pairs.append_pair("max-keys", &max_keys.to_string());
+            }
+        }
+
+        if let Command::ListObjects {
+            prefix,
+            delimiter,
+            marker,
+            max_keys,
+        } = self.command().clone()
+        {
+            let mut query_pairs = url.query_pairs_mut();
+            delimiter.map(|d| query_pairs.append_pair("delimiter", &d));
+
+            query_pairs.append_pair("prefix", &prefix);
+            if let Some(marker) = marker {
+                query_pairs.append_pair("marker", &marker);
             }
             if let Some(max_keys) = max_keys {
                 query_pairs.append_pair("max-keys", &max_keys.to_string());
@@ -333,7 +353,8 @@ pub trait Request {
                     from.parse().unwrap(),
                 );
             }
-            Command::ListBucket { .. } => {}
+            Command::ListObjects { .. } => {}
+            Command::ListObjectsV2 { .. } => {}
             Command::GetObject => {}
             Command::GetObjectTagging => {}
             Command::GetBucketLocation => {}
