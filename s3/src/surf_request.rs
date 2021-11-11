@@ -1,5 +1,5 @@
-use async_std::io::ReadExt;
-use std::io::Write;
+use async_std::io::{ReadExt, WriteExt};
+use futures::io::AsyncWrite;
 
 use super::bucket::Bucket;
 use super::command::Command;
@@ -88,7 +88,7 @@ impl<'a> Request for SurfRequest<'a> {
         Ok((body_vec, status_code.into()))
     }
 
-    async fn response_data_to_writer<T: Write + Send>(&self, writer: &mut T) -> Result<u16> {
+    async fn response_data_to_writer<T: AsyncWrite + Send + Unpin>(&self, writer: &mut T) -> Result<u16> {
         let mut buffer = Vec::new();
 
         let response = self.response().await?;
@@ -99,7 +99,7 @@ impl<'a> Request for SurfRequest<'a> {
 
         stream.read_to_end(&mut buffer).await?;
 
-        writer.write_all(&buffer)?;
+        writer.write_all(&buffer).await?;
 
         Ok(status_code.into())
     }
