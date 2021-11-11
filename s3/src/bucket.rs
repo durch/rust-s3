@@ -648,9 +648,9 @@ impl Bucket {
     /// let status_code = bucket.get_object_stream("/test.file", &mut output_file)?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
-    /// // with `tokio` or `async-std` features.
+    /// // with `tokio` or `async-std` features. Based of the async branch
     /// #[cfg(feature = "blocking")]
-    /// let status_code = bucket.get_object_stream_blocking("/test.file", &mut output_file)?;
+    /// let status_code = bucket.get_object_stream_blocking("/test.file", &mut async_output_file)?;
     /// #
     /// # Ok(())
     /// # }
@@ -1291,27 +1291,25 @@ impl Bucket {
         start_after: Option<String>,
         max_keys: Option<usize>,
     ) -> Result<(ListBucketResult, u16)> {
-
-        let command =
-            if self.listobjects_v2 {
-                Command::ListObjectsV2 {
-                    prefix,
-                    delimiter,
-                    continuation_token,
-                    start_after,
-                    max_keys,
-                }
-            } else {
-                // In the v1 ListObjects request, there is only one "marker"
-                // field that serves as both the initial starting position,
-                // and as the continuation token.
-                Command::ListObjects {
-                    prefix,
-                    delimiter,
-                    marker: std::cmp::max(continuation_token, start_after),
-                    max_keys,
-                }
-            };
+        let command = if self.listobjects_v2 {
+            Command::ListObjectsV2 {
+                prefix,
+                delimiter,
+                continuation_token,
+                start_after,
+                max_keys,
+            }
+        } else {
+            // In the v1 ListObjects request, there is only one "marker"
+            // field that serves as both the initial starting position,
+            // and as the continuation token.
+            Command::ListObjects {
+                prefix,
+                delimiter,
+                marker: std::cmp::max(continuation_token, start_after),
+                max_keys,
+            }
+        };
         let request = RequestImpl::new(self, "/", command);
         let (response, status_code) = request.response_data(false).await?;
         return serde_xml::from_reader(response.as_slice())
@@ -1784,7 +1782,7 @@ mod test {
     }
 
     fn test_gc_bucket() -> Bucket {
-        let mut bucket =  Bucket::new(
+        let mut bucket = Bucket::new(
             "rust-s3",
             Region::Custom {
                 region: "us-east1".to_owned(),
@@ -2042,6 +2040,8 @@ mod test {
     #[cfg(feature = "blocking")]
     fn put_head_get_list_delete_object_blocking(bucket: Bucket) {
         let s3_path = "/test_blocking.file";
+        let s3_path_2 = "/test_blocking.file2";
+        let s3_path_3 = "/test_blocking.file3";
         let test: Vec<u8> = object(3072);
 
         // Test PutObject
@@ -2073,40 +2073,48 @@ mod test {
         // println!("{:?}", head_object_result);
 
         // Put some additional objects, so that we can test ListObjects
-        let (_data, code) = bucket.put_object(s3_path2, &test).await.unwrap();
+        let (_data, code) = bucket.put_object_blocking(s3_path_2, &test).unwrap();
         assert_eq!(code, 200);
-        let (_data, code) = bucket.put_object(s3_path3, &test).await.unwrap();
+        let (_data, code) = bucket.put_object_blocking(s3_path_3, &test).unwrap();
         assert_eq!(code, 200);
 
         // Test ListObjects, with continuation
-        let (result, code) = bucket.list_page("test.".to_string(),
-                                              Some("/".to_string()),
-                                              None,
-                                              None,
-                                              Some(2)).await.unwrap();
+        let (result, code) = bucket
+            .list_page_blocking(
+                "test_blocking.".to_string(),
+                Some("/".to_string()),
+                None,
+                None,
+                Some(2),
+            )
+            .unwrap();
         assert_eq!(code, 200);
         assert_eq!(result.contents.len(), 2);
-        assert_eq!(result.contents[0].key, "test.file");
-        assert_eq!(result.contents[1].key, "test.file2");
+        assert_eq!(result.contents[0].key, s3_path[1..]);
+        assert_eq!(result.contents[1].key, s3_path_2[1..]);
 
         let cont_token = result.next_continuation_token.unwrap();
 
-        let (result, code) = bucket.list_page("test.".to_string(),
-                                              Some("/".to_string()),
-                                              Some(cont_token),
-                                              None,
-                                              Some(2)).await.unwrap();
+        let (result, code) = bucket
+            .list_page_blocking(
+                "test_blocking.".to_string(),
+                Some("/".to_string()),
+                Some(cont_token),
+                None,
+                Some(2),
+            )
+            .unwrap();
         assert_eq!(code, 200);
         assert_eq!(result.contents.len(), 1);
-        assert_eq!(result.contents[0].key, "test.file3");
+        assert_eq!(result.contents[0].key, s3_path_3[1..]);
         assert!(result.next_continuation_token.is_none());
 
         // cleanup (and test Delete)
         let (_, code) = bucket.delete_object_blocking(s3_path).unwrap();
         assert_eq!(code, 204);
-        let (_, code) = bucket.delete_object(s3_path2).await.unwrap();
+        let (_, code) = bucket.delete_object_blocking(s3_path_2).unwrap();
         assert_eq!(code, 204);
-        let (_, code) = bucket.delete_object(s3_path3).await.unwrap();
+        let (_, code) = bucket.delete_object_blocking(s3_path_3).unwrap();
         assert_eq!(code, 204);
     }
 
@@ -2117,7 +2125,7 @@ mod test {
     ))]
     #[test]
     fn aws_put_head_get_delete_object_blocking() {
-        put_head_get_delete_object_blocking(test_aws_bucket())
+        put_head_get_list_delete_object_blocking(test_aws_bucket())
     }
 
     #[ignore]
@@ -2127,7 +2135,7 @@ mod test {
     ))]
     #[test]
     fn gc_put_head_get_delete_object_blocking() {
-        put_head_get_delete_object_blocking(test_gc_bucket())
+        put_head_get_list_delete_object_blocking(test_gc_bucket())
     }
 
     #[ignore]
@@ -2137,7 +2145,7 @@ mod test {
     ))]
     #[test]
     fn wasabi_put_head_get_delete_object_blocking() {
-        put_head_get_delete_object_blocking(test_wasabi_bucket())
+        put_head_get_list_delete_object_blocking(test_wasabi_bucket())
     }
 
     #[ignore]
@@ -2157,7 +2165,7 @@ mod test {
             BucketConfiguration::default(),
         )
         .unwrap();
-        put_head_get_delete_object_blocking(test_minio_bucket())
+        put_head_get_list_delete_object_blocking(test_minio_bucket())
     }
 
     #[ignore]
@@ -2167,7 +2175,7 @@ mod test {
     ))]
     #[test]
     fn digital_ocean_put_head_get_delete_object_blocking() {
-        put_head_get_delete_object_blocking(test_digital_ocean_bucket())
+        put_head_get_list_delete_object_blocking(test_digital_ocean_bucket())
     }
 
     #[ignore]

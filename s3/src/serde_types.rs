@@ -125,8 +125,8 @@ pub struct ListBucketResult {
     #[serde(rename = "Prefix")]
     /// Limits the response to keys that begin with the specified prefix.
     pub prefix: String,
-    #[serde(rename = "ContinuationToken")]  // for ListObjectsV2 request
-    #[serde(alias = "Marker")]  // for ListObjects request
+    #[serde(rename = "ContinuationToken")] // for ListObjectsV2 request
+    #[serde(alias = "Marker")] // for ListObjects request
     /// Indicates where in the bucket listing begins. It is included in the response if
     /// it was sent with the request.
     pub continuation_token: Option<String>,
@@ -146,8 +146,8 @@ pub struct ListBucketResult {
     /// subsequent request to get next set of objects. Amazon S3 lists objects in UTF-8 character
     /// encoding in lexicographical order.
     pub is_truncated: bool,
-    #[serde(rename = "NextContinuationToken", default)]  // for ListObjectsV2 request
-    #[serde(alias = "NextMarker")]  // for ListObjects request
+    #[serde(rename = "NextContinuationToken", default)] // for ListObjectsV2 request
+    #[serde(alias = "NextMarker")] // for ListObjects request
     pub next_continuation_token: Option<String>,
     #[serde(rename = "Contents", default)]
     /// Metadata about each object returned.

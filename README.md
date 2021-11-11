@@ -10,8 +10,8 @@ Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully c
 
 ### Support further development
 
-+ BTC - `3QQdtQGSMStTWEBhe65hPiAWJekXH8n26o`
-+ ETH - `0x369Fd06ACc25CCfE0A28BE40018cF3aC38AcdcB6`
++ BTC - `3NtVvyhMQepmcaVmCJURUB54wLBaZzfjci`
++ ETH - `0xfd2643D1A15787D41e61de2620D351Fd232936Af`
 
 ### Intro
 
