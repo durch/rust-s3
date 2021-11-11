@@ -81,7 +81,7 @@ impl<'a> Request for AttoRequest<'a> {
 
         let response = request.bytes(&self.request_body()).send()?;
 
-        if cfg!(feature = "fail-on-err") && response.status().as_u16() >= 400 {
+        if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             return Err(anyhow!(
                 "Request failed with code {}\n{}",
                 response.status().as_u16(),
