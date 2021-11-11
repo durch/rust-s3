@@ -746,9 +746,18 @@ impl Bucket {
         reader: &mut R,
         s3_path: &str,
     ) -> Result<u16> {
+        // If the file is smaller CHUNK_SIZE, just do a regular upload.
+        // Otherwise perform a multi-part upload.
+        let first_chunk = crate::utils::read_chunk(reader).await?;
+        if first_chunk.len() < CHUNK_SIZE {
+            let (_, code) = self.put_object(s3_path, first_chunk.as_slice()).await?;
+            return Ok(code);
+        }
+
         let command = Command::InitiateMultipartUpload;
         let request = RequestImpl::new(self, s3_path, command);
         let (data, code) = request.response_data(false).await?;
+
         let msg: InitiateMultipartUploadResponse =
             serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
         let path = msg.key;
@@ -756,60 +765,48 @@ impl Bucket {
 
         let mut part_number: u32 = 0;
         let mut etags = Vec::new();
+
+        let mut chunk = first_chunk;
         loop {
-            let chunk = crate::utils::read_chunk(reader).await?;
+            // Upload this chunk
+            part_number += 1;
+            let command = Command::PutObject {
+                // part_number,
+                content: &chunk,
+                content_type: "application/octet-stream",
+                multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
+            };
+            let request = RequestImpl::new(self, &path, command);
+            let (data, _code) = request.response_data(true).await?;
+            let etag = std::str::from_utf8(data.as_slice())?;
+            etags.push(etag.to_string());
 
             if chunk.len() < CHUNK_SIZE {
-                if part_number == 0 {
-                    // Files is not big enough for multipart upload, going with regular put_object
-                    self.abort_upload(&path, upload_id).await?;
-
-                    self.put_object(s3_path, chunk.as_slice()).await?;
-                } else {
-                    part_number += 1;
-                    let command = Command::PutObject {
-                        // part_number,
-                        content: &chunk,
-                        content_type: "application/octet-stream",
-                        multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
-                    };
-                    let request = RequestImpl::new(self, &path, command);
-                    let (data, _code) = request.response_data(true).await?;
-                    let etag = std::str::from_utf8(data.as_slice())?;
-                    etags.push(etag.to_string());
-                    let inner_data = etags
-                        .clone()
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, x)| Part {
-                            etag: x,
-                            part_number: i as u32 + 1,
-                        })
-                        .collect::<Vec<Part>>();
-                    let data = CompleteMultipartUploadData { parts: inner_data };
-                    let complete = Command::CompleteMultipartUpload {
-                        upload_id: &msg.upload_id,
-                        data,
-                    };
-                    let complete_request = RequestImpl::new(self, &path, complete);
-                    let (_data, _code) = complete_request.response_data(false).await?;
-                    // let response = std::str::from_utf8(data.as_slice())?;
-                }
                 break;
-            } else {
-                part_number += 1;
-                let command = Command::PutObject {
-                    // part_number,
-                    content: &chunk,
-                    content_type: "application/octet-stream",
-                    multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
-                };
-                let request = RequestImpl::new(self, &path, command);
-                let (data, _code) = request.response_data(true).await?;
-                let etag = std::str::from_utf8(data.as_slice())?;
-                etags.push(etag.to_string());
             }
+
+            chunk = crate::utils::read_chunk(reader).await?
         }
+
+        // Finish the upload
+        let inner_data = etags
+            .clone()
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| Part {
+                etag: x,
+                part_number: i as u32 + 1,
+            })
+            .collect::<Vec<Part>>();
+        let data = CompleteMultipartUploadData { parts: inner_data };
+        let complete = Command::CompleteMultipartUpload {
+            upload_id: &msg.upload_id,
+            data,
+        };
+        let complete_request = RequestImpl::new(self, &path, complete);
+        let (_data, _code) = complete_request.response_data(false).await?;
+        // let response = std::str::from_utf8(data.as_slice())?;
+
         Ok(code)
     }
 
@@ -1892,6 +1889,7 @@ mod test {
         let (_data, _code) = bucket.delete_object("tagging_test").await.unwrap();
     }
 
+    /// Test multi-part upload
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
@@ -1906,11 +1904,11 @@ mod test {
         let remote_path = "+stream_test_big";
         let local_path = "+stream_test_big";
         std::fs::remove_file(remote_path).unwrap_or_else(|_| {});
-        let bucket = test_aws_bucket();
-        let test: Vec<u8> = object(10_000_000);
+        let bucket = test_gc_bucket();
+        let content: Vec<u8> = object(10_000_000);
 
         let mut file = File::create(local_path).unwrap();
-        file.write_all(&test).unwrap();
+        file.write_all(&content).unwrap();
         cfg_if! {
             if #[cfg(feature = "with-tokio")] {
                 let mut reader = tokio::fs::File::open(local_path).await.unwrap();
@@ -1928,11 +1926,12 @@ mod test {
         assert_eq!(code, 200);
         let mut writer = Vec::new();
         let code = bucket
-            .get_object_stream(local_path, &mut writer)
+            .get_object_stream(remote_path, &mut writer)
             .await
             .unwrap();
         assert_eq!(code, 200);
-        assert_eq!(test, writer);
+        assert_eq!(content, writer);
+
         let (_body, _code) = bucket.get_object_torrent(remote_path).await.unwrap();
         // let dummy: Vec<u8> = Vec::new();
         // Getting a 405 here for some reason
@@ -2003,6 +2002,41 @@ mod test {
         let (_, code) = bucket.delete_object(local_path).await.unwrap();
         assert_eq!(code, 204);
         std::fs::remove_file(local_path).unwrap_or_else(|_| {});
+    }
+
+    /// Test streaming upload, with an object that's smaller than CHUNK_SIZE.
+    /// This should be optimized into a plain PUT, not a multi-part upload.
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn streaming_test_put_get_delete_small_object() {
+        init();
+        let remote_path = "+stream_test_small";
+        let bucket = test_gc_bucket();
+        let content: Vec<u8> = object(1000);
+        let mut reader = std::io::Cursor::new(&content);
+
+        let code = bucket
+            .put_object_stream(&mut reader, remote_path)
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        let mut writer = Vec::new();
+        let code = bucket
+            .get_object_stream(remote_path, &mut writer)
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(content, writer);
+
+        let (_, code) = bucket.delete_object(remote_path).await.unwrap();
+        assert_eq!(code, 204);
     }
 
     #[cfg(feature = "blocking")]
