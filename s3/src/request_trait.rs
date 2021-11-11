@@ -196,8 +196,7 @@ pub trait Request {
         };
 
         url_str.push('/');
-
-        url_str.push_str(&signing::uri_encode(&path, true));
+        url_str.push_str(&signing::uri_encode(&path, false));
 
         // Append to url_path
         #[allow(clippy::collapsible_match)]
