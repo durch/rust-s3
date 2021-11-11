@@ -1894,7 +1894,14 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(all(not(feature = "sync"), not(feature = "tokio-rustls-tls"), feature = "with-tokio"), tokio::test),
+        async(
+            all(
+                not(feature = "sync"),
+                not(feature = "tokio-rustls-tls"),
+                feature = "with-tokio"
+            ),
+            tokio::test
+        ),
         async(
             all(not(feature = "sync"), feature = "with-async-std"),
             async_std::test
@@ -2010,7 +2017,14 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(all(not(feature = "sync"), not(feature = "tokio-rustls-tls"), feature = "with-tokio"), tokio::test),
+        async(
+            all(
+                not(feature = "sync"),
+                not(feature = "tokio-rustls-tls"),
+                feature = "with-tokio"
+            ),
+            tokio::test
+        ),
         async(
             all(not(feature = "sync"), feature = "with-async-std"),
             async_std::test
@@ -2022,6 +2036,9 @@ mod test {
         let bucket = test_gc_bucket();
         let content: Vec<u8> = object(1000);
         let mut reader = std::io::Cursor::new(&content);
+        
+        #[cfg(feature = "with-async-std")]
+        let mut reader = async_std::io::Cursor::new(&content);
 
         let code = bucket
             .put_object_stream(&mut reader, remote_path)

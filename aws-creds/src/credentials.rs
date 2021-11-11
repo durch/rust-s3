@@ -351,12 +351,12 @@ fn from_env_with_default(var: Option<&str>, default: &str) -> Result<String> {
 
 fn is_ec2() -> bool {
     if let Ok(uuid) = std::fs::read_to_string("/sys/hypervisor/uuid") {
-        if uuid.len() >= 3 && &uuid[..3] == "ec2" {
+        if uuid.starts_with("ec2") {
             return true;
         }
     }
-    if let Ok(uuid) = std::fs::read_to_string("/sys/class/dmi/id/board_vendor") {
-        if uuid.len() >= 10 && &uuid[..10] == "Amazon EC2" {
+    if let Ok(vendor) = std::fs::read_to_string("/sys/class/dmi/id/board_vendor") {
+        if vendor.starts_with("Amazon EC2") {
             return true;
         }
     }
