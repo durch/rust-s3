@@ -66,8 +66,8 @@ never-encode-slash = []
 tags = ["minidom"]
 
 [dev-dependencies]
-tokio = { version = "*", features = ["rt", "rt-multi-thread", "macros", "fs"] }
-async-std = { version = "*", features = ["attributes"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs"] }
+async-std = { version = "1", features = ["attributes"] }
 uuid = { version = "0.8", features = ["v4"] }
 env_logger = "0.9"
-aws-creds = { version = "*", features = ["http-credentials"] }
+aws-creds = { version = "0.27", features = ["http-credentials"] }
