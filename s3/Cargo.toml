@@ -64,7 +64,7 @@ blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]
 never-encode-slash = []
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs"] }
 async-std = { version = "1", features = ["attributes"] }
 uuid = { version = "0.8", features = ["v4"] }
 env_logger = "0.9"

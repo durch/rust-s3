@@ -633,9 +633,10 @@ impl Bucket {
     /// let credentials = Credentials::default()?;
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     /// let mut output_file = File::create("output_file").expect("Unable to create file");
+    /// let mut async_output_file = tokio::fs::File::create("async_output_file").await.expect("Unable to create file");
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let status_code = bucket.get_object_stream("/test.file", &mut output_file).await?;
+    /// let status_code = bucket.get_object_stream("/test.file", &mut async_output_file).await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]

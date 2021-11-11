@@ -88,7 +88,10 @@ impl<'a> Request for SurfRequest<'a> {
         Ok((body_vec, status_code.into()))
     }
 
-    async fn response_data_to_writer<T: AsyncWrite + Send + Unpin>(&self, writer: &mut T) -> Result<u16> {
+    async fn response_data_to_writer<T: AsyncWrite + Send + Unpin>(
+        &self,
+        writer: &mut T,
+    ) -> Result<u16> {
         let mut buffer = Vec::new();
 
         let response = self.response().await?;
