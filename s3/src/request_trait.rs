@@ -27,7 +27,7 @@ pub trait Request {
         writer: &mut T,
     ) -> Result<u16>;
     #[cfg(feature = "with-async-std")]
-    async fn response_data_to_writer<T: futures::io::AsyncWrite + Send + Unpin>(
+    async fn response_data_to_writer<T: futures_io::AsyncWrite + Send + Unpin>(
         &self,
         writer: &mut T,
     ) -> Result<u16>;
