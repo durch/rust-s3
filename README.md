@@ -71,7 +71,7 @@ while `tokio` methods are generic over `tokio::io::AsyncWriteExt`.
 
 #### PUT
 
-Each `GET` method has a `PUT` companion `sync` and `async` methods are generic over `std::io::Read`. `async` `stream` methods are generic over `futures_io::AsyncReadExt`, while `tokio` methods are generic over `tokio::io::AsyncReadExt`.
+Each `GET` method has a `PUT` companion `sync` and `async` methods are generic over `std::io::Read`. `async` `stream` methods are generic over `futures::io::AsyncReadExt`, while `tokio` methods are generic over `tokio::io::AsyncReadExt`.
 
 |         |                                                                                                                                 |
 |---------|---------------------------------------------------------------------------------------------------------------------------------|

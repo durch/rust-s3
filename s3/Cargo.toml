@@ -27,7 +27,7 @@ aws-region = "0.23"
 base64 = "0.13.0"
 cfg-if = "1"
 chrono = "0.4"
-futures-io = { version = "0.3", optional = true }
+futures = { version = "0.3", optional = true }
 hex = "0.4"
 hmac = "0.11"
 http = "0.2"
@@ -50,8 +50,8 @@ minidom = { version = "0.13", optional = true }
 block_on_proc = { version = "0.2", optional = true }
 
 [features]
-with-tokio = ["reqwest", "tokio", "tokio/fs"]
-with-async-std = ["async-std", "surf", "futures-io"]
+with-tokio = ["reqwest", "tokio", "futures", "tokio/fs"]
+with-async-std = ["async-std", "surf", "futures"]
 sync = ["attohttpc", "maybe-async/is_sync"]
 default = ["tags", "tokio-native-tls"]
 no-verify-ssl = []
