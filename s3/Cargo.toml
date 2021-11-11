@@ -45,7 +45,7 @@ surf = { version = "2", optional = true, default-features = false, features = ["
 tokio = { version = "1", features = ["io-util"], optional = true, default-features = false }
 tokio-stream = "0.1"
 url = "2"
-minidom = "0.13"
+minidom = { version = "0.13", optional = true }
 
 block_on_proc = { version = "0.2", optional = true }
 
@@ -53,7 +53,7 @@ block_on_proc = { version = "0.2", optional = true }
 with-tokio = ["reqwest", "tokio", "futures", "tokio/fs"]
 with-async-std = ["async-std", "surf", "futures"]
 sync = ["attohttpc", "maybe-async/is_sync"]
-default = ["tokio-native-tls"]
+default = ["tags", "tokio-native-tls"]
 no-verify-ssl = []
 fail-on-err = []
 tokio-native-tls = ["with-tokio", "reqwest/native-tls", "aws-creds/native-tls"]
@@ -62,6 +62,7 @@ sync-native-tls = ["sync", "aws-creds/native-tls", "attohttpc/tls"]
 sync-rustls-tls = ["sync", "aws-creds/rustls-tls", "attohttpc/tls-rustls"]
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]
 never-encode-slash = []
+tags = ["minidom"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs"] }
