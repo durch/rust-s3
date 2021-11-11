@@ -278,16 +278,9 @@ impl Credentials {
                     .json()?
             }
             Err(_) => {
-                if !(std::fs::read_to_string("/sys/hypervisor/uuid")
-                    .map_or(false, |uuid| uuid.len() >= 3 && &uuid[..3] == "ec2")
-                    || std::fs::read_to_string("/sys/class/dmi/id/board_vendor")
-                        .map_or(false, |uuid| {
-                            uuid.len() >= 10 && &uuid[..10] == "Amazon EC2"
-                        }))
-                {
+                if !is_ec2() {
                     bail!("Not an AWS instance")
                 }
-                // We are on EC2
 
                 let role = attohttpc::get(
                     "http://169.254.169.254/latest/meta-data/iam/security-credentials",
@@ -310,20 +303,6 @@ impl Credentials {
             security_token: Some(resp.token),
             session_token: None,
         })
-    }
-
-    fn is_ec2() -> bool {
-        if let Ok(uuid) = std::fs::read_to_string("/sys/hypervisor/uuid") {
-            if uuid.len() >= 3 && &uuid[..3] == "ec2" {
-                return true;
-            }
-        }
-        if let Ok(uuid) = std::fs::read_to_string("/sys/class/dmi/id/board_vendor") {
-            if uuid.len() >= 10 && &uuid[..10] == "Amazon EC2" {
-                return true;
-            }
-        }
-        false
     }
 
     pub fn from_profile(section: Option<&str>) -> Result<Credentials> {
@@ -361,4 +340,18 @@ fn from_env_with_default(var: Option<&str>, default: &str) -> Result<String> {
             default
         )
     })
+}
+
+fn is_ec2() -> bool {
+    if let Ok(uuid) = std::fs::read_to_string("/sys/hypervisor/uuid") {
+        if uuid.len() >= 3 && &uuid[..3] == "ec2" {
+            return true;
+        }
+    }
+    if let Ok(uuid) = std::fs::read_to_string("/sys/class/dmi/id/board_vendor") {
+        if uuid.len() >= 10 && &uuid[..10] == "Amazon EC2" {
+            return true;
+        }
+    }
+    false
 }
