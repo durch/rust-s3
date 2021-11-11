@@ -2264,7 +2264,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn test_presign_put() {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
@@ -2286,7 +2285,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn test_presign_get() {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
@@ -2296,12 +2294,12 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn test_presign_delete() {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
 
         let url = bucket.presign_delete(s3_path, 86400).unwrap();
+        println!("{}", url);
         assert!(url.contains("/test%2Ftest.file?"))
     }
 
