@@ -50,7 +50,7 @@ use http::HeaderMap;
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
-const DEFAULT_REQUEST_TIMEOUT: Option<Duration> = Some(Duration::from_secs(30));
+const DEFAULT_REQUEST_TIMEOUT: Option<Duration> = Some(Duration::from_secs(60));
 
 #[derive(Debug, PartialEq)]
 pub struct Tag {
@@ -642,6 +642,8 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     /// let mut output_file = File::create("output_file").expect("Unable to create file");
     /// let mut async_output_file = tokio::fs::File::create("async_output_file").await.expect("Unable to create file");
+    /// #[cfg(feature = "with-async-std")]
+    /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// let status_code = bucket.get_object_stream("/test.file", &mut async_output_file).await?;
@@ -670,7 +672,7 @@ impl Bucket {
     }
 
     #[maybe_async::sync_impl]
-    pub async fn get_object_stream<T: std::io::Write + Send, S: AsRef<str>>(
+    pub fn get_object_stream<T: std::io::Write + Send, S: AsRef<str>>(
         &self,
         path: S,
         writer: &mut T,
@@ -1915,7 +1917,7 @@ mod test {
         let remote_path = "+stream_test_big";
         let local_path = "+stream_test_big";
         std::fs::remove_file(remote_path).unwrap_or_else(|_| {});
-        let bucket = test_gc_bucket();
+        let bucket = test_aws_bucket();
         let content: Vec<u8> = object(10_000_000);
 
         let mut file = File::create(local_path).unwrap();
@@ -1943,9 +1945,7 @@ mod test {
         assert_eq!(code, 200);
         assert_eq!(content, writer);
 
-        let (_body, _code) = bucket.get_object_torrent(remote_path).await.unwrap();
-        // let dummy: Vec<u8> = Vec::new();
-        // Getting a 405 here for some reason
+        // let (body, code) = bucket.get_object_torrent(remote_path).await.unwrap();
         // assert_eq!(code, 200);
         // assert_eq!(
         //     body,
@@ -2039,7 +2039,7 @@ mod test {
         let bucket = test_gc_bucket();
         let content: Vec<u8> = object(1000);
         let mut reader = std::io::Cursor::new(&content);
-        
+
         #[cfg(feature = "with-async-std")]
         let mut reader = async_std::io::Cursor::new(&content);
 

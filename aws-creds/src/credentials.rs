@@ -22,12 +22,15 @@ use url::Url;
 /// use awscreds::Credentials;
 ///
 /// // Load credentials from `[default]` profile
+/// #[cfg(feature="http-credentials")]
 /// let credentials = Credentials::default();
 ///
 /// // Also loads credentials from `[default]` profile
+/// #[cfg(feature="http-credentials")]
 /// let credentials = Credentials::new(None, None, None, None, None);
 ///
 /// // Load credentials from `[my-profile]` profile
+/// #[cfg(feature="http-credentials")]
 /// let credentials = Credentials::new(None, None, None, None, Some("my-profile".into()));
 /// ```
 /// // Use anonymous credentials for public objects
@@ -48,12 +51,14 @@ use url::Url;
 /// // Load credentials directly
 /// let access_key = "AKIAIOSFODNN7EXAMPLE";
 /// let secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+/// #[cfg(feature="http-credentials")]
 /// let credentials = Credentials::new(Some(access_key), Some(secret_key), None, None, None);
 ///
 /// // Load credentials from the environment
 /// use std::env;
 /// env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
 /// env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+/// #[cfg(feature="http-credentials")]
 /// let credentials = Credentials::new(None, None, None, None, None);
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
