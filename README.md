@@ -114,6 +114,6 @@ Each `GET` method has a `PUT` companion `sync` and `async` methods are generic o
 
 ```toml
 [dependencies]
-rust-s3 = "0.27"
+rust-s3 = "0.28"
 ```
 
