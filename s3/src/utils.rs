@@ -120,8 +120,14 @@ impl GetAndConvertHeaders for http::header::HeaderMap {
     }
 }
 
-impl From<http::HeaderMap> for HeadObjectResult {
-    fn from(headers: http::HeaderMap) -> Self {
+use http::header::{HeaderName, HeaderValue};
+
+impl<T> From<T> for HeadObjectResult
+where
+    T: GetAndConvertHeaders,
+    for<'a> &'a T: IntoIterator<Item = (&'a HeaderName, &'a HeaderValue)>,
+{
+    fn from(headers: T) -> Self {
         let mut result = HeadObjectResult {
             accept_ranges: headers.get_string("accept-ranges"),
             cache_control: headers.get_string("Cache-Control"),
@@ -138,7 +144,7 @@ impl From<http::HeaderMap> for HeadObjectResult {
             ..Default::default()
         };
         let mut values = ::std::collections::HashMap::new();
-        for (key, value) in headers.iter() {
+        for (key, value) in headers.into_iter() {
             if key.as_str().starts_with("x-amz-meta-") {
                 if let Ok(value) = value.to_str() {
                     values.insert(
