@@ -2504,9 +2504,9 @@ mod test {
         // cleanup (and test Delete)
         let (_, code) = bucket.delete_object_blocking(&client, s3_path).unwrap();
         assert_eq!(code, 204);
-        let (_, code) = bucket.delete_object_blocking(s3_path_2).unwrap();
+        let (_, code) = bucket.delete_object_blocking(&client, s3_path_2).unwrap();
         assert_eq!(code, 204);
-        let (_, code) = bucket.delete_object_blocking(s3_path_3).unwrap();
+        let (_, code) = bucket.delete_object_blocking(&client, s3_path_3).unwrap();
         assert_eq!(code, 204);
     }
 
