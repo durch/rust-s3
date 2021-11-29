@@ -60,8 +60,8 @@ impl<'a> Request for SurfRequest<'a> {
 
         for (name, value) in headers.iter() {
             request = request.header(
-                HeaderName::from_bytes(AsRef::<[u8]>::as_ref(&name).to_vec())?,
-                HeaderValue::from_bytes(AsRef::<[u8]>::as_ref(&value).to_vec())?,
+                HeaderName::from_bytes(AsRef::<[u8]>::as_ref(&name).to_vec()).unwrap(),
+                HeaderValue::from_bytes(AsRef::<[u8]>::as_ref(&value).to_vec()).unwrap(),
             );
         }
 
