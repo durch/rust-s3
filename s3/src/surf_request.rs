@@ -77,7 +77,7 @@ impl<'a> Request for SurfRequest<'a> {
     async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
         let mut response = self.response().await?;
         let status_code = response.status();
-        let body = response.body_bytes().await?;
+        let body = response.body_bytes().await.or_else(|e| Err(anyhow!("Request failed with {}", e.to_string())))?;
         let mut body_vec = Vec::new();
         body_vec.extend_from_slice(&body[..]);
         if etag {
