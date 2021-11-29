@@ -65,7 +65,7 @@ impl<'a> Request for SurfRequest<'a> {
             );
         }
 
-        let response = request.send().await?;
+        let response = request.send().await.or_else(|e| Err(anyhow!("Request failed with {}", e.to_string())))?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             return Err(anyhow!("Request failed with code {}", response.status()));
