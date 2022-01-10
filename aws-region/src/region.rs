@@ -197,7 +197,7 @@ impl Region {
             CnNorth1 => String::from("s3.cn-north-1.amazonaws.com.cn"),
             CnNorthwest1 => String::from("s3.cn-northwest-1.amazonaws.com.cn"),
             EuNorth1 => String::from("s3-eu-north-1.amazonaws.com"),
-            EuCentral1 => String::from("s3-eu-central-1.amazonaws.com"),
+            EuCentral1 => String::from("s3.eu-central-1.amazonaws.com"),
             EuWest1 => String::from("s3-eu-west-1.amazonaws.com"),
             EuWest2 => String::from("s3-eu-west-2.amazonaws.com"),
             EuWest3 => String::from("s3-eu-west-3.amazonaws.com"),
