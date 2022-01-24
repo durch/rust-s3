@@ -92,11 +92,9 @@ impl<'a> Request for Reqwest<'a> {
         let response = request.send().await?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-            return Err(anyhow!(
-                "Request failed with code {}\n{}",
-                response.status().as_u16(),
-                response.text().await?
-            ));
+            let status = response.status().as_u16();
+            let text = response.text().await?;
+            return Err(anyhow!("Request failed with code {}\n{}", status, text));
         }
 
         Ok(response)
