@@ -112,7 +112,7 @@ impl BucketConfiguration {
             }
             Some(format!(
                 "<CreateBucketConfiguration><LocationConstraint>{}</LocationConstraint></CreateBucketConfiguration>",
-                location_constraint.to_string()
+                location_constraint
             ))
         } else {
             None

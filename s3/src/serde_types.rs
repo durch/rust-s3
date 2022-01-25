@@ -1,7 +1,7 @@
 #[derive(Deserialize, Debug)]
 pub struct InitiateMultipartUploadResponse {
     #[serde(rename = "Bucket")]
-    bucket: String,
+    _bucket: String,
     #[serde(rename = "Key")]
     pub key: String,
     #[serde(rename = "UploadId")]

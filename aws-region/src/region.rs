@@ -126,7 +126,7 @@ impl fmt::Display for Region {
             WaUsEast2 => write!(f, "us-east-2"),
             WaUsWest1 => write!(f, "us-west-1"),
             WaEuCentral1 => write!(f, "eu-central-1"),
-            Custom { ref region, .. } => write!(f, "{}", region.to_string()),
+            Custom { ref region, .. } => write!(f, "{}", region),
         }
     }
 }
