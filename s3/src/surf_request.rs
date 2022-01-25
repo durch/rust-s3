@@ -65,7 +65,7 @@ impl<'a> Request for SurfRequest<'a> {
             );
         }
 
-        let response = request.send().await.unwrap();
+        let response = request.send().await.or_else(|e| Err(anyhow!("Request failed with {}", e.to_string())))?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             return Err(anyhow!("Request failed with code {}", response.status()));
@@ -77,7 +77,7 @@ impl<'a> Request for SurfRequest<'a> {
     async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
         let mut response = self.response().await?;
         let status_code = response.status();
-        let body = response.body_bytes().await.unwrap();
+        let body = response.body_bytes().await.or_else(|e| Err(anyhow!("Request failed with {}", e.to_string())))?;
         let mut body_vec = Vec::new();
         body_vec.extend_from_slice(&body[..]);
         if etag {
@@ -116,9 +116,8 @@ impl<'a> Request for SurfRequest<'a> {
             header_map.insert(
                 http::header::HeaderName::from_lowercase(
                     name.to_string().to_ascii_lowercase().as_ref(),
-                )
-                .unwrap(),
-                value.as_str().parse().unwrap(),
+                )?,
+                value.as_str().parse()?,
             );
         }
         Ok((header_map, status_code.into()))
