@@ -224,7 +224,7 @@ pub fn authorization_query_params_no_sig(
             &X-Amz-Expires={expires}\
             &X-Amz-SignedHeaders={signed_headers}",
         credentials = credentials,
-        long_date = datetime.format(LONG_DATETIME).to_string(),
+        long_date = datetime.format(LONG_DATETIME),
         expires = expires,
         signed_headers = signed_headers_string
     );
