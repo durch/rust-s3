@@ -3,7 +3,7 @@ use futures_io::AsyncWrite;
 
 use super::bucket::Bucket;
 use super::command::Command;
-use chrono::{DateTime, Utc};
+use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
@@ -19,7 +19,7 @@ pub struct SurfRequest<'a> {
     pub bucket: &'a Bucket,
     pub path: &'a str,
     pub command: Command<'a>,
-    pub datetime: DateTime<Utc>,
+    pub datetime: OffsetDateTime,
     pub sync: bool,
 }
 
@@ -28,7 +28,7 @@ impl<'a> Request for SurfRequest<'a> {
     type Response = surf::Response;
     type HeaderMap = HeaderMap;
 
-    fn datetime(&self) -> DateTime<Utc> {
+    fn datetime(&self) -> OffsetDateTime {
         self.datetime
     }
 
@@ -65,7 +65,10 @@ impl<'a> Request for SurfRequest<'a> {
             );
         }
 
-        let response = request.send().await.or_else(|e| Err(anyhow!("Request failed with {}", e.to_string())))?;
+        let response = request
+            .send()
+            .await
+            .or_else(|e| Err(anyhow!("Request failed with {}", e.to_string())))?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             return Err(anyhow!("Request failed with code {}", response.status()));
@@ -77,7 +80,10 @@ impl<'a> Request for SurfRequest<'a> {
     async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
         let mut response = self.response().await?;
         let status_code = response.status();
-        let body = response.body_bytes().await.or_else(|e| Err(anyhow!("Request failed with {}", e.to_string())))?;
+        let body = response
+            .body_bytes()
+            .await
+            .or_else(|e| Err(anyhow!("Request failed with {}", e.to_string())))?;
         let mut body_vec = Vec::new();
         body_vec.extend_from_slice(&body[..]);
         if etag {
@@ -130,7 +136,7 @@ impl<'a> SurfRequest<'a> {
             bucket,
             path,
             command,
-            datetime: Utc::now(),
+            datetime: OffsetDateTime::now_utc(),
             sync: false,
         }
     }

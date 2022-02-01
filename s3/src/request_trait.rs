@@ -1,12 +1,13 @@
-use chrono::{DateTime, Utc};
 use hmac::Mac;
 use hmac::NewMac;
+use time::format_description::well_known::Rfc2822;
+use time::OffsetDateTime;
 use url::Url;
 
 use crate::bucket::Bucket;
 use crate::command::Command;
 use crate::signing;
-use crate::LONG_DATE;
+use crate::LONG_DATETIME;
 use anyhow::anyhow;
 use anyhow::Result;
 use http::header::{
@@ -34,7 +35,7 @@ pub trait Request {
     #[cfg(feature = "sync")]
     fn response_data_to_writer<T: std::io::Write + Send>(&self, writer: &mut T) -> Result<u16>;
     async fn response_header(&self) -> Result<(Self::HeaderMap, u16)>;
-    fn datetime(&self) -> DateTime<Utc>;
+    fn datetime(&self) -> OffsetDateTime;
     fn bucket(&self) -> Bucket;
     fn command(&self) -> Command;
     fn path(&self) -> String;
@@ -74,7 +75,7 @@ pub trait Request {
     }
 
     fn long_date(&self) -> String {
-        self.datetime().format(LONG_DATE).to_string()
+        self.datetime().format(LONG_DATETIME).unwrap()
     }
 
     fn string_to_sign(&self, request: &str) -> String {
@@ -443,7 +444,10 @@ pub trait Request {
         // range and can't be used again e.g. reply attacks. Adding this header
         // after the generation of the Authorization header leaves it out of
         // the signed headers.
-        headers.insert(DATE, self.datetime().to_rfc2822().parse().unwrap());
+        headers.insert(
+            DATE,
+            self.datetime().format(&Rfc2822).unwrap().parse().unwrap(),
+        );
 
         Ok(headers)
     }
