@@ -3,7 +3,7 @@ use futures_io::AsyncWrite;
 
 use super::bucket::Bucket;
 use super::command::Command;
-use chrono::{DateTime, Utc};
+use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
@@ -19,7 +19,7 @@ pub struct SurfRequest<'a> {
     pub bucket: &'a Bucket,
     pub path: &'a str,
     pub command: Command<'a>,
-    pub datetime: DateTime<Utc>,
+    pub datetime: OffsetDateTime,
     pub sync: bool,
 }
 
@@ -28,7 +28,7 @@ impl<'a> Request for SurfRequest<'a> {
     type Response = surf::Response;
     type HeaderMap = HeaderMap;
 
-    fn datetime(&self) -> DateTime<Utc> {
+    fn datetime(&self) -> OffsetDateTime {
         self.datetime
     }
 
@@ -136,7 +136,7 @@ impl<'a> SurfRequest<'a> {
             bucket,
             path,
             command,
-            datetime: Utc::now(),
+            datetime: OffsetDateTime::now_utc(),
             sync: false,
         }
     }

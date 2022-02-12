@@ -1799,7 +1799,7 @@ mod test {
         )
         .unwrap();
         bucket.set_listobjects_v1();
-        return bucket;
+        bucket
     }
 
     fn test_minio_bucket() -> Bucket {

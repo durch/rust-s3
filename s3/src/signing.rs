@@ -4,19 +4,20 @@
 
 use std::str;
 
-use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac, NewMac};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use sha2::{Digest, Sha256};
+use time::{macros::format_description, OffsetDateTime};
 use url::Url;
 
 use crate::region::Region;
+use crate::LONG_DATETIME;
 use anyhow::anyhow;
 use anyhow::Result;
 use http::HeaderMap;
 
-const SHORT_DATE: &str = "%Y%m%d";
-const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
+const SHORT_DATE: &[time::format_description::FormatItem<'static>] =
+    format_description!("[year][month][day]");
 
 pub type HmacSha256 = Hmac<Sha256>;
 
@@ -130,22 +131,22 @@ pub fn canonical_request(method: &str, url: &Url, headers: &HeaderMap, sha256: &
 }
 
 /// Generate an AWS scope string.
-pub fn scope_string(datetime: &DateTime<Utc>, region: &Region) -> String {
+pub fn scope_string(datetime: &OffsetDateTime, region: &Region) -> String {
     format!(
         "{date}/{region}/s3/aws4_request",
-        date = datetime.format(SHORT_DATE),
+        date = datetime.format(SHORT_DATE).unwrap(),
         region = region
     )
 }
 
 /// Generate the "string to sign" - the value to which the HMAC signing is
 /// applied to sign requests.
-pub fn string_to_sign(datetime: &DateTime<Utc>, region: &Region, canonical_req: &str) -> String {
+pub fn string_to_sign(datetime: &OffsetDateTime, region: &Region, canonical_req: &str) -> String {
     let mut hasher = Sha256::default();
     hasher.update(canonical_req.as_bytes());
     let string_to = format!(
         "AWS4-HMAC-SHA256\n{timestamp}\n{scope}\n{hash}",
-        timestamp = datetime.format(LONG_DATETIME),
+        timestamp = datetime.format(LONG_DATETIME).unwrap(),
         scope = scope_string(datetime, region),
         hash = hex::encode(hasher.finalize().as_slice())
     );
@@ -155,7 +156,7 @@ pub fn string_to_sign(datetime: &DateTime<Utc>, region: &Region, canonical_req: 
 /// Generate the AWS signing key, derived from the secret key, date, region,
 /// and service name.
 pub fn signing_key(
-    datetime: &DateTime<Utc>,
+    datetime: &OffsetDateTime,
     secret_key: &str,
     region: &Region,
     service: &str,
@@ -163,7 +164,7 @@ pub fn signing_key(
     let secret = format!("AWS4{}", secret_key);
     let mut date_hmac =
         HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| anyhow! {"{}",e})?;
-    date_hmac.update(datetime.format(SHORT_DATE).to_string().as_bytes());
+    date_hmac.update(datetime.format(SHORT_DATE).unwrap().as_bytes());
     let mut region_hmac = HmacSha256::new_from_slice(&date_hmac.finalize().into_bytes())
         .map_err(|e| anyhow! {"{}",e})?;
     region_hmac.update(region.to_string().as_bytes());
@@ -179,7 +180,7 @@ pub fn signing_key(
 /// Generate the AWS authorization header.
 pub fn authorization_header(
     access_key: &str,
-    datetime: &DateTime<Utc>,
+    datetime: &OffsetDateTime,
     region: &Region,
     signed_headers: &str,
     signature: &str,
@@ -196,7 +197,7 @@ pub fn authorization_header(
 
 pub fn authorization_query_params_no_sig(
     access_key: &str,
-    datetime: &DateTime<Utc>,
+    datetime: &OffsetDateTime,
     region: &Region,
     expires: u32,
     custom_headers: Option<&HeaderMap>,
@@ -224,7 +225,7 @@ pub fn authorization_query_params_no_sig(
             &X-Amz-Expires={expires}\
             &X-Amz-SignedHeaders={signed_headers}",
         credentials = credentials,
-        long_date = datetime.format(LONG_DATETIME),
+        long_date = datetime.format(LONG_DATETIME).unwrap(),
         expires = expires,
         signed_headers = signed_headers_string
     );
@@ -241,8 +242,9 @@ pub fn authorization_query_params_no_sig(
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use std::convert::TryInto;
     use std::str;
+    use time::Date;
     use url::Url;
 
     use super::*;
@@ -333,7 +335,11 @@ mod tests {
     fn test_aws_signing_key() {
         let key = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
         let expected = "c4afb1cc5771d871763a393e44b703571b55cc28424d1a5e86da6ed3c154a4b9";
-        let datetime = Utc.ymd(2015, 8, 30).and_hms(0, 0, 0);
+        let datetime = Date::from_calendar_date(2015, 8.try_into().unwrap(), 30)
+            .unwrap()
+            .with_hms(0, 0, 0)
+            .unwrap()
+            .assume_utc();
         let signature = signing_key(&datetime, key, &"us-east-1".parse().unwrap(), "iam").unwrap();
         assert_eq!(expected, hex::encode(signature));
     }
@@ -378,7 +384,11 @@ mod tests {
         let canonical = canonical_request("GET", &url, &headers, EXPECTED_SHA);
         assert_eq!(EXPECTED_CANONICAL_REQUEST, canonical);
 
-        let datetime = Utc.ymd(2013, 5, 24).and_hms(0, 0, 0);
+        let datetime = Date::from_calendar_date(2013, 5.try_into().unwrap(), 24)
+            .unwrap()
+            .with_hms(0, 0, 0)
+            .unwrap()
+            .assume_utc();
         let string_to_sign = string_to_sign(&datetime, &"us-east-1".parse().unwrap(), &canonical);
         assert_eq!(EXPECTED_STRING_TO_SIGN, string_to_sign);
 
