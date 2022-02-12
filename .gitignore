@@ -8,3 +8,5 @@ Cargo.lock
 .idea/
 test.file
 .history
+.envrc
+minio

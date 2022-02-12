@@ -289,7 +289,7 @@ impl Credentials {
             access_key_id: String,
             secret_access_key: String,
             token: String,
-            //expiration: chrono::DateTime<chrono::Utc>, // TODO fix #163
+            //expiration: time::OffsetDateTime, // TODO fix #163
         }
 
         let resp: Response = match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {

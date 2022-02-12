@@ -1,3 +1,5 @@
+all: ci-all
+
 ci: s3-ci region-ci creds-ci
 
 ci-all: s3-all region-ci creds-ci

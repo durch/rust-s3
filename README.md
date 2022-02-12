@@ -25,7 +25,7 @@ a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the d
 
 #### Features
 
-There are a lot of various featuers that enable a wide variaty of use cases, refer to `s3/Cargo.toml` for an exhaustive list. Below is a table of various useful features as well as a short description for each.
+There are a lot of various features that enable a wide variety of use cases, refer to `s3/Cargo.toml` for an exhaustive list. Below is a table of various useful features as well as a short description for each.
 
 + `default` - `tokio` runtime and a `native-tls` implementation
 + `blocking` - generates `*_blocking` variant of all `Bucket` methods, otherwise only `async` versions are available

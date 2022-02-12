@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.28.1"
+version = "0.29.0"
 authors = ["Drazen Urch"]
 description = "Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -26,7 +26,7 @@ aws-creds = { version = "0.27", default-features = false }
 aws-region = "0.23"
 base64 = "0.13"
 cfg-if = "1"
-chrono = "0.4"
+time = { version = "0.3", features = ["formatting", "macros"] }
 futures-io = { version = "0.3", optional = true }
 futures-util = { version = "0.3", optional = true, features = ["io"] }
 hex = "0.4"
@@ -44,14 +44,14 @@ sha2 = "0.9"
 anyhow = "1"
 surf = { version = "2", optional = true, default-features = false, features = ["h1-client-rustls"] }
 tokio = { version = "1", features = ["io-util"], optional = true, default-features = false }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", optional = true }
 url = "2"
 minidom = { version = "0.13", optional = true }
 
 block_on_proc = { version = "0.2", optional = true }
 
 [features]
-with-tokio = ["reqwest", "tokio", "tokio/fs"]
+with-tokio = ["reqwest", "tokio", "tokio/fs", "tokio-stream"]
 with-async-std = ["async-std", "surf", "futures-io", "futures-util"]
 sync = ["attohttpc", "maybe-async/is_sync"]
 default = ["tags", "tokio-native-tls"]
