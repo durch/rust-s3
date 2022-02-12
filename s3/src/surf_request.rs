@@ -68,7 +68,7 @@ impl<'a> Request for SurfRequest<'a> {
         let response = request
             .send()
             .await
-            .or_else(|e| Err(anyhow!("Request failed with {}", e.to_string())))?;
+            .map_err(|e| anyhow!("Request failed with {}", e))?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             return Err(anyhow!("Request failed with code {}", response.status()));
@@ -83,7 +83,7 @@ impl<'a> Request for SurfRequest<'a> {
         let body = response
             .body_bytes()
             .await
-            .or_else(|e| Err(anyhow!("Request failed with {}", e.to_string())))?;
+            .map_err(|e| anyhow!("Request failed with {}", e))?;
         let mut body_vec = Vec::new();
         body_vec.extend_from_slice(&body[..]);
         if etag {

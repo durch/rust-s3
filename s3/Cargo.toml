@@ -44,14 +44,14 @@ sha2 = "0.9"
 anyhow = "1"
 surf = { version = "2", optional = true, default-features = false, features = ["h1-client-rustls"] }
 tokio = { version = "1", features = ["io-util"], optional = true, default-features = false }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", optional = true }
 url = "2"
 minidom = { version = "0.13", optional = true }
 
 block_on_proc = { version = "0.2", optional = true }
 
 [features]
-with-tokio = ["reqwest", "tokio", "tokio/fs"]
+with-tokio = ["reqwest", "tokio", "tokio/fs", "tokio-stream"]
 with-async-std = ["async-std", "surf", "futures-io", "futures-util"]
 sync = ["attohttpc", "maybe-async/is_sync"]
 default = ["tags", "tokio-native-tls"]
