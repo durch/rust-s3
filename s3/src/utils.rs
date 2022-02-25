@@ -171,6 +171,25 @@ impl From<&http::HeaderMap> for HeadObjectResult {
     }
 }
 
+pub(crate) fn error_from_response_data(data: Vec<u8>, code: u16) -> anyhow::Error {
+    let utf8_content = String::from_utf8(data);
+    let err = if let Ok(utf8_content) = utf8_content {
+        format!(
+            "Invalid return code: got HTTP {} with content '{}'",
+            code, utf8_content
+        )
+    } else {
+        format!(
+            "Invalid return code: got HTTP {} with invalid UTF8 content",
+            code
+        )
+    };
+    anyhow::Error::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        err,
+    ))
+}
+
 #[cfg(test)]
 mod test {
     use crate::utils::etag_for_path;
