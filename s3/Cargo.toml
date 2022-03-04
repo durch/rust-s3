@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.30.0"
+version = "0.31.0" # Not published
 authors = ["Drazen Urch"]
 description = "Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -22,7 +22,7 @@ path = "src/lib.rs"
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
 attohttpc = { version = "0.18", optional = true, default-features = false }
-aws-creds = { version = "0.27", default-features = false }
+aws-creds = { version = "0.28", default-features = false }
 aws-region = "0.23"
 base64 = "0.13"
 cfg-if = "1"
@@ -69,4 +69,4 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs"] }
 async-std = { version = "1", features = ["attributes"] }
 uuid = { version = "0.8", features = ["v4"] }
 env_logger = "0.9"
-aws-creds = { version = "0.27", features = ["http-credentials"] }
+aws-creds = { version = "0.28", features = ["http-credentials"] }
