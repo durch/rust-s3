@@ -58,6 +58,7 @@ All runtimes support either `native-tls` or `rustls-tls`, there are features for
 |-------|-----------------------------------------------------------------------------------------------|
 | `PUT` | [presign_put](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_put) |
 | `GET` | [presign_get](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_get) |
+| `DELETE` | [presign_delete](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_delete)|
 
 #### GET
 
