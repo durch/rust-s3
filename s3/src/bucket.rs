@@ -2309,10 +2309,8 @@ mod test {
             .presign_put(s3_path, 86400, Some(custom_headers))
             .unwrap();
 
-        // assert_eq!(url, "");
-
         assert!(url.contains("host%3Bcustom_header"));
-        assert!(url.contains("/test%2Ftest.file"))
+        assert!(url.contains("/test/test.file"))
     }
 
     #[test]
@@ -2322,7 +2320,7 @@ mod test {
         let bucket = test_aws_bucket();
 
         let url = bucket.presign_get(s3_path, 86400).unwrap();
-        assert!(url.contains("/test%2Ftest.file?"))
+        assert!(url.contains("/test/test.file?"))
     }
 
     #[test]
@@ -2332,7 +2330,7 @@ mod test {
         let bucket = test_aws_bucket();
 
         let url = bucket.presign_delete(s3_path, 86400).unwrap();
-        assert!(url.contains("/test%2Ftest.file?"))
+        assert!(url.contains("/test/test.file?"))
     }
 
     #[maybe_async::test(
