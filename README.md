@@ -15,7 +15,7 @@ Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully c
 
 ### Intro
 
-Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Wasabi, Yandex, Minio or Google Cloud Storage.
+Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Backblaze B2, Wasabi, Yandex, Minio or Google Cloud Storage.
 Supports: `put`, `get`, `list`, `delete`, operations on `tags` and `location`, well as `head`. 
 
 Additionally a dedicated `presign_get` `Bucket` method is available. This means you can upload to S3, and give the link to select people without having to worry about publicly accessible files on S3. This also means that you can give people 
