@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::serde_types::CompleteMultipartUploadData;
 
 use crate::EMPTY_PAYLOAD_SHA;
@@ -94,6 +96,7 @@ pub enum Command<'a> {
     GetBucketLocation,
     PresignGet {
         expiry_secs: u32,
+        custom_queries: Option<HashMap<String, String>>,
     },
     PresignPut {
         expiry_secs: u32,

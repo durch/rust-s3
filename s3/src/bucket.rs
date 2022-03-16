@@ -116,6 +116,7 @@ impl Bucket {
     /// # Example:
     ///
     /// ```no_run
+    /// use std::collections::HashMap;
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
     ///
@@ -124,12 +125,19 @@ impl Bucket {
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    /// let url = bucket.presign_get("/test.file", 86400).unwrap();
+    /// // Add optional custom queries
+    /// let mut custom_queries = HashMap::new();
+    /// custom_queries.insert(
+    ///    "response-content-disposition".into(),
+    ///    "attachment; filename=\"test.png\"".into(),
+    /// );
+    ///
+    /// let url = bucket.presign_get("/test.file", 86400, Some(custom_queries)).unwrap();
     /// println!("Presigned url: {}", url);
     /// ```
-    pub fn presign_get<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
+    pub fn presign_get<S: AsRef<str>>(&self, path: S, expiry_secs: u32, custom_queries: Option<HashMap<String, String>>) -> Result<String> {
         validate_expiry(expiry_secs)?;
-        let request = RequestImpl::new(self, path.as_ref(), Command::PresignGet { expiry_secs });
+        let request = RequestImpl::new(self, path.as_ref(), Command::PresignGet { expiry_secs, custom_queries });
         request.presigned()
     }
 
@@ -1720,12 +1728,9 @@ mod test {
     use crate::Bucket;
     use crate::BucketConfiguration;
     use crate::Tag;
-    use cfg_if::cfg_if;
     use http::header::HeaderName;
     use http::HeaderMap;
     use std::env;
-    use std::fs::File;
-    use std::io::prelude::*;
     // use log::info;
 
     fn init() {
@@ -2319,7 +2324,7 @@ mod test {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
 
-        let url = bucket.presign_get(s3_path, 86400).unwrap();
+        let url = bucket.presign_get(s3_path, 86400, None).unwrap();
         assert!(url.contains("/test/test.file?"))
     }
 
