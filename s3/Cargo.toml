@@ -30,7 +30,7 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 futures-io = { version = "0.3", optional = true }
 futures-util = { version = "0.3", optional = true, features = ["io"] }
 hex = "0.4"
-hmac = "0.11"
+hmac = "0.12"
 http = "0.2"
 log = "0.4"
 maybe-async = { version = "0.2" }
