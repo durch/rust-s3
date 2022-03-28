@@ -1,5 +1,4 @@
 use hmac::Mac;
-use hmac::NewMac;
 use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
 use url::Url;
