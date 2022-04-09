@@ -13,7 +13,7 @@ pub struct InitiateMultipartUploadResponse {
 pub struct Owner {
     #[serde(rename = "DisplayName")]
     /// Object owner's name.
-    pub display_name: String,
+    pub display_name: Option<String>,
     #[serde(rename = "ID")]
     /// Object owner's ID.
     pub id: String,
@@ -28,7 +28,7 @@ pub struct Object {
     #[serde(rename = "ETag")]
     /// The entity tag is an MD5 hash of the object. The ETag only reflects changes to the
     /// contents of an object, not its metadata.
-    pub e_tag: String,
+    pub e_tag: Option<String>,
     #[serde(rename = "StorageClass")]
     /// STANDARD | STANDARD_IA | REDUCED_REDUNDANCY | GLACIER
     pub storage_class: Option<String>,
@@ -124,7 +124,7 @@ pub struct ListBucketResult {
     pub max_keys: Option<i32>,
     #[serde(rename = "Prefix")]
     /// Limits the response to keys that begin with the specified prefix.
-    pub prefix: String,
+    pub prefix: Option<String>,
     #[serde(rename = "ContinuationToken")] // for ListObjectsV2 request
     #[serde(alias = "Marker")] // for ListObjects request
     /// Indicates where in the bucket listing begins. It is included in the response if
@@ -134,6 +134,7 @@ pub struct ListBucketResult {
     /// Specifies the encoding method to used
     pub encoding_type: Option<String>,
     #[serde(
+        default,
         rename = "IsTruncated",
         deserialize_with = "super::deserializer::bool_deserializer"
     )]
