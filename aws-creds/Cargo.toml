@@ -1,6 +1,6 @@
 [package]
 name = "aws-creds"
-version = "0.28.0"
+version = "0.29.0"
 authors = ["Drazen Urch"]
 description = "Tiny Rust library for working with Amazon IAM credential,s, supports `s3` crate"
 repository = "https://github.com/durch/rust-s3"
@@ -15,10 +15,10 @@ name = "awscreds"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1.0"
+thiserror = "1"
 dirs = "4"
 rust-ini = "0.18"
-attohttpc = { version = "0.18", default-features = false, features = ["json"], optional = true }
+attohttpc = { version = "0.19", default-features = false, features = ["json"], optional = true }
 url = "2"
 serde-xml-rs = "0.5"
 serde = "1"

@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use anyhow::{anyhow, bail, Result};
+use crate::error::CredentialsError;
 use ini::Ini;
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
@@ -168,7 +168,7 @@ fn http_get(url: &str) -> attohttpc::Result<attohttpc::Response> {
 
 impl Credentials {
     #[cfg(feature = "http-credentials")]
-    pub fn from_sts_env(session_name: &str) -> Result<Credentials> {
+    pub fn from_sts_env(session_name: &str) -> Result<Credentials, CredentialsError> {
         let role_arn = env::var("AWS_ROLE_ARN")?;
         let web_identity_token_file = env::var("AWS_WEB_IDENTITY_TOKEN_FILE")?;
         let web_identity_token = std::fs::read_to_string(web_identity_token_file)?;
@@ -180,7 +180,7 @@ impl Credentials {
         role_arn: &str,
         session_name: &str,
         web_identity_token: &str,
-    ) -> Result<Credentials> {
+    ) -> Result<Credentials, CredentialsError> {
         let url = Url::parse_with_params(
             "https://sts.amazonaws.com/",
             &[
@@ -220,11 +220,11 @@ impl Credentials {
     }
 
     #[cfg(feature = "http-credentials")]
-    pub fn default() -> Result<Credentials> {
+    pub fn default() -> Result<Credentials, CredentialsError> {
         Credentials::new(None, None, None, None, None)
     }
 
-    pub fn anonymous() -> Result<Credentials> {
+    pub fn anonymous() -> Result<Credentials, CredentialsError> {
         Ok(Credentials {
             access_key: None,
             secret_key: None,
@@ -242,7 +242,7 @@ impl Credentials {
         security_token: Option<&str>,
         session_token: Option<&str>,
         profile: Option<&str>,
-    ) -> Result<Credentials> {
+    ) -> Result<Credentials, CredentialsError> {
         if access_key.is_some() {
             return Ok(Credentials {
                 access_key: access_key.map(|s| s.to_string()),
@@ -263,7 +263,7 @@ impl Credentials {
         secret_key_var: Option<&str>,
         security_token_var: Option<&str>,
         session_token_var: Option<&str>,
-    ) -> Result<Credentials> {
+    ) -> Result<Credentials, CredentialsError> {
         let access_key = from_env_with_default(access_key_var, "AWS_ACCESS_KEY_ID")?;
         let secret_key = from_env_with_default(secret_key_var, "AWS_SECRET_ACCESS_KEY")?;
 
@@ -277,12 +277,12 @@ impl Credentials {
         })
     }
 
-    pub fn from_env() -> Result<Credentials> {
+    pub fn from_env() -> Result<Credentials, CredentialsError> {
         Credentials::from_env_specific(None, None, None, None)
     }
 
     #[cfg(feature = "http-credentials")]
-    pub fn from_instance_metadata() -> Result<Credentials> {
+    pub fn from_instance_metadata() -> Result<Credentials, CredentialsError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "PascalCase")]
         struct Response {
@@ -301,7 +301,7 @@ impl Credentials {
             }
             Err(_) => {
                 if !is_ec2() {
-                    bail!("Not an AWS instance")
+                    return Err(CredentialsError::NotEc2);
                 }
 
                 let role = attohttpc::get(
@@ -327,22 +327,22 @@ impl Credentials {
         })
     }
 
-    pub fn from_profile(section: Option<&str>) -> Result<Credentials> {
-        let home_dir = dirs::home_dir().ok_or_else(|| anyhow!("Invalid home dir"))?;
+    pub fn from_profile(section: Option<&str>) -> Result<Credentials, CredentialsError> {
+        let home_dir = dirs::home_dir().ok_or(CredentialsError::HomeDir)?;
         let profile = format!("{}/.aws/credentials", home_dir.display());
         let conf = Ini::load_from_file(&profile)?;
         let section = section.unwrap_or("default");
         let data = conf
             .section(Some(section))
-            .ok_or_else(|| anyhow!("Config missing"))?;
+            .ok_or(CredentialsError::ConfigNotFound)?;
         let access_key = data
             .get("aws_access_key_id")
             .map(|s| s.to_string())
-            .ok_or_else(|| anyhow!("Missing aws_access_key_id section"))?;
+            .ok_or(CredentialsError::ConfigMissingAccessKeyId)?;
         let secret_key = data
             .get("aws_secret_access_key")
             .map(|s| s.to_string())
-            .ok_or_else(|| anyhow!("Missing aws_secret_access_key section"))?;
+            .ok_or(CredentialsError::ConfigMissingSecretKey)?;
         let credentials = Credentials {
             access_key: Some(access_key),
             secret_key: Some(secret_key),
@@ -353,15 +353,11 @@ impl Credentials {
     }
 }
 
-fn from_env_with_default(var: Option<&str>, default: &str) -> Result<String> {
+fn from_env_with_default(var: Option<&str>, default: &str) -> Result<String, CredentialsError> {
     let val = var.unwrap_or(default);
-    env::var(val).or_else(|_e| env::var(val)).map_err(|_| {
-        anyhow!(
-            "Neither {:?}, nor {} does not exist in the environment",
-            var,
-            default
-        )
-    })
+    env::var(val)
+        .or_else(|_e| env::var(val))
+        .map_err(|_| CredentialsError::MissingEnvVar(val.to_string(), default.to_string()))
 }
 
 fn is_ec2() -> bool {
