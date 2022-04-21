@@ -2,19 +2,20 @@
 //!
 //! [link]: https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html
 
+use std::collections::HashMap;
 use std::str;
 
+use anyhow::anyhow;
+use anyhow::Result;
 use hmac::{Hmac, Mac, NewMac};
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use http::HeaderMap;
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use sha2::{Digest, Sha256};
 use time::{macros::format_description, OffsetDateTime};
 use url::Url;
 
-use crate::region::Region;
 use crate::LONG_DATETIME;
-use anyhow::anyhow;
-use anyhow::Result;
-use http::HeaderMap;
+use crate::region::Region;
 
 const SHORT_DATE: &[time::format_description::FormatItem<'static>] =
     format_description!("[year][month][day]");
@@ -234,19 +235,36 @@ pub fn authorization_query_params_no_sig(
     Ok(query_params)
 }
 
+pub fn flatten_queries(queries: Option<&HashMap<String, String>>) -> String {
+    match queries {
+        None => String::new(),
+        Some(queries) => {
+            let mut query_str = String::new();
+            for (k, v) in queries {
+                query_str.push_str("&");
+                query_str.push_str(&uri_encode(k, true));
+                query_str.push_str("=");
+                query_str.push_str(&uri_encode(v, true));
+            }
+            query_str
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::convert::TryInto;
     use std::str;
-    use time::Date;
-    use url::Url;
 
-    use super::*;
-
-    use crate::serde_types::ListBucketResult;
     use http::header::{HeaderName, HOST, RANGE};
     use http::HeaderMap;
     use serde_xml_rs as serde_xml;
+    use time::Date;
+    use url::Url;
+
+    use crate::serde_types::ListBucketResult;
+
+    use super::*;
 
     #[test]
     fn test_base_url_encode() {
