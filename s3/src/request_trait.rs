@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use hmac::Mac;
 use hmac::NewMac;
+use std::collections::HashMap;
 use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
 use url::Url;
@@ -89,8 +89,14 @@ pub trait Request {
 
     fn presigned(&self) -> Result<String> {
         let (expiry, custom_headers, custom_queries) = match self.command() {
-            Command::PresignGet { expiry_secs, custom_queries } => (expiry_secs, None, custom_queries),
-            Command::PresignPut { expiry_secs, custom_headers } => (expiry_secs, custom_headers, None),
+            Command::PresignGet {
+                expiry_secs,
+                custom_queries,
+            } => (expiry_secs, None, custom_queries),
+            Command::PresignPut {
+                expiry_secs,
+                custom_headers,
+            } => (expiry_secs, custom_headers, None),
             Command::PresignDelete { expiry_secs } => (expiry_secs, None, None),
             _ => unreachable!(),
         };
@@ -123,8 +129,14 @@ pub trait Request {
 
     fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String> {
         let (expiry, custom_headers, custom_queries) = match self.command() {
-            Command::PresignGet { expiry_secs, custom_queries } => (expiry_secs, None, custom_queries),
-            Command::PresignPut { expiry_secs, custom_headers } => (expiry_secs, custom_headers, None),
+            Command::PresignGet {
+                expiry_secs,
+                custom_queries,
+            } => (expiry_secs, None, custom_queries),
+            Command::PresignPut {
+                expiry_secs,
+                custom_headers,
+            } => (expiry_secs, custom_headers, None),
             Command::PresignDelete { expiry_secs } => (expiry_secs, None, None),
             _ => unreachable!(),
         };
@@ -137,7 +149,12 @@ pub trait Request {
         ))
     }
 
-    fn presigned_url_no_sig(&self, expiry: u32, custom_headers: Option<&HeaderMap>, custom_queries: Option<&HashMap<String, String>>) -> Result<Url> {
+    fn presigned_url_no_sig(
+        &self,
+        expiry: u32,
+        custom_headers: Option<&HeaderMap>,
+        custom_queries: Option<&HashMap<String, String>>,
+    ) -> Result<Url> {
         let bucket = self.bucket();
         let token = if let Some(security_token) = bucket.security_token() {
             Some(security_token)

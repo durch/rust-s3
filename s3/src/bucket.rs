@@ -135,9 +135,21 @@ impl Bucket {
     /// let url = bucket.presign_get("/test.file", 86400, Some(custom_queries)).unwrap();
     /// println!("Presigned url: {}", url);
     /// ```
-    pub fn presign_get<S: AsRef<str>>(&self, path: S, expiry_secs: u32, custom_queries: Option<HashMap<String, String>>) -> Result<String> {
+    pub fn presign_get<S: AsRef<str>>(
+        &self,
+        path: S,
+        expiry_secs: u32,
+        custom_queries: Option<HashMap<String, String>>,
+    ) -> Result<String> {
         validate_expiry(expiry_secs)?;
-        let request = RequestImpl::new(self, path.as_ref(), Command::PresignGet { expiry_secs, custom_queries });
+        let request = RequestImpl::new(
+            self,
+            path.as_ref(),
+            Command::PresignGet {
+                expiry_secs,
+                custom_queries,
+            },
+        );
         request.presigned()
     }
 

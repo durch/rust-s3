@@ -9,13 +9,13 @@ use anyhow::anyhow;
 use anyhow::Result;
 use hmac::{Hmac, Mac, NewMac};
 use http::HeaderMap;
-use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use sha2::{Digest, Sha256};
 use time::{macros::format_description, OffsetDateTime};
 use url::Url;
 
-use crate::LONG_DATETIME;
 use crate::region::Region;
+use crate::LONG_DATETIME;
 
 const SHORT_DATE: &[time::format_description::FormatItem<'static>] =
     format_description!("[year][month][day]");
@@ -241,9 +241,9 @@ pub fn flatten_queries(queries: Option<&HashMap<String, String>>) -> String {
         Some(queries) => {
             let mut query_str = String::new();
             for (k, v) in queries {
-                query_str.push_str("&");
+                query_str.push('&');
                 query_str.push_str(&uri_encode(k, true));
-                query_str.push_str("=");
+                query_str.push('=');
                 query_str.push_str(&uri_encode(v, true));
             }
             query_str
