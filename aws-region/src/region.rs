@@ -2,8 +2,7 @@
 
 use std::fmt;
 use std::str::{self, FromStr};
-
-use anyhow::Result;
+use crate::error::RegionError;
 
 /// AWS S3 [region identifier](https://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region),
 /// passing in custom values is also possible, in that case it is up to you to pass a valid endpoint,
@@ -135,9 +134,9 @@ impl fmt::Display for Region {
 }
 
 impl FromStr for Region {
-    type Err = anyhow::Error;
+    type Err = RegionError;
 
-    fn from_str(s: &str) -> Result<Self> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         use self::Region::*;
         match s {
             "us-east-1" => Ok(UsEast1),
