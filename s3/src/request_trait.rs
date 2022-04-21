@@ -1,4 +1,6 @@
 use hmac::Mac;
+use hmac::NewMac;
+use std::collections::HashMap;
 use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
 use url::Url;
@@ -86,29 +88,23 @@ pub trait Request {
     }
 
     fn presigned(&self) -> Result<String> {
-        let expiry = match self.command() {
-            Command::PresignGet { expiry_secs } => expiry_secs,
-            Command::PresignPut { expiry_secs, .. } => expiry_secs,
-            Command::PresignDelete { expiry_secs } => expiry_secs,
+        let (expiry, custom_headers, custom_queries) = match self.command() {
+            Command::PresignGet {
+                expiry_secs,
+                custom_queries,
+            } => (expiry_secs, None, custom_queries),
+            Command::PresignPut {
+                expiry_secs,
+                custom_headers,
+            } => (expiry_secs, custom_headers, None),
+            Command::PresignDelete { expiry_secs } => (expiry_secs, None, None),
             _ => unreachable!(),
         };
 
-        #[allow(clippy::collapsible_match)]
-        if let Command::PresignPut { custom_headers, .. } = self.command() {
-            if let Some(custom_headers) = custom_headers {
-                let authorization = self.presigned_authorization(Some(&custom_headers))?;
-                return Ok(format!(
-                    "{}&X-Amz-Signature={}",
-                    self.presigned_url_no_sig(expiry, Some(&custom_headers))?,
-                    authorization
-                ));
-            }
-        }
-
         Ok(format!(
             "{}&X-Amz-Signature={}",
-            self.presigned_url_no_sig(expiry, None)?,
-            self.presigned_authorization(None)?
+            self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())?,
+            self.presigned_authorization(custom_headers.as_ref())?
         ))
     }
 
@@ -132,34 +128,33 @@ pub trait Request {
     }
 
     fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String> {
-        let expiry = match self.command() {
-            Command::PresignGet { expiry_secs } => expiry_secs,
-            Command::PresignPut { expiry_secs, .. } => expiry_secs,
-            Command::PresignDelete { expiry_secs } => expiry_secs,
+        let (expiry, custom_headers, custom_queries) = match self.command() {
+            Command::PresignGet {
+                expiry_secs,
+                custom_queries,
+            } => (expiry_secs, None, custom_queries),
+            Command::PresignPut {
+                expiry_secs,
+                custom_headers,
+            } => (expiry_secs, custom_headers, None),
+            Command::PresignDelete { expiry_secs } => (expiry_secs, None, None),
             _ => unreachable!(),
         };
 
-        #[allow(clippy::collapsible_match)]
-        if let Command::PresignPut { custom_headers, .. } = self.command() {
-            if let Some(custom_headers) = custom_headers {
-                return Ok(signing::canonical_request(
-                    &self.command().http_verb().to_string(),
-                    &self.presigned_url_no_sig(expiry, Some(&custom_headers))?,
-                    headers,
-                    "UNSIGNED-PAYLOAD",
-                ));
-            }
-        }
-
         Ok(signing::canonical_request(
             &self.command().http_verb().to_string(),
-            &self.presigned_url_no_sig(expiry, None)?,
+            &self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())?,
             headers,
             "UNSIGNED-PAYLOAD",
         ))
     }
 
-    fn presigned_url_no_sig(&self, expiry: u32, custom_headers: Option<&HeaderMap>) -> Result<Url> {
+    fn presigned_url_no_sig(
+        &self,
+        expiry: u32,
+        custom_headers: Option<&HeaderMap>,
+        custom_queries: Option<&HashMap<String, String>>,
+    ) -> Result<Url> {
         let bucket = self.bucket();
         let token = if let Some(security_token) = bucket.security_token() {
             Some(security_token)
@@ -167,7 +162,7 @@ pub trait Request {
             bucket.session_token()
         };
         let url = Url::parse(&format!(
-            "{}{}",
+            "{}{}{}",
             self.url(),
             &signing::authorization_query_params_no_sig(
                 &self.bucket().access_key().unwrap(),
@@ -176,7 +171,8 @@ pub trait Request {
                 expiry,
                 custom_headers,
                 token
-            )?
+            )?,
+            &signing::flatten_queries(custom_queries),
         ))?;
 
         Ok(url)
