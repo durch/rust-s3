@@ -7,7 +7,7 @@ use std::str;
 
 use anyhow::anyhow;
 use anyhow::Result;
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
 use http::HeaderMap;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use sha2::{Digest, Sha256};
