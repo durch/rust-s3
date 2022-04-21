@@ -2,19 +2,19 @@
 //!
 //! [link]: https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html
 
+use std::collections::HashMap;
 use std::str;
 
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
+use http::HeaderMap;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use sha2::{Digest, Sha256};
 use time::{macros::format_description, OffsetDateTime};
 use url::Url;
 
+use crate::error::S3Error;
 use crate::region::Region;
 use crate::LONG_DATETIME;
-use anyhow::anyhow;
-use anyhow::Result;
-use http::HeaderMap;
 
 const SHORT_DATE: &[time::format_description::FormatItem<'static>] =
     format_description!("[year][month][day]");
@@ -154,19 +154,15 @@ pub fn signing_key(
     secret_key: &str,
     region: &Region,
     service: &str,
-) -> Result<Vec<u8>> {
+) -> Result<Vec<u8>, S3Error> {
     let secret = format!("AWS4{}", secret_key);
-    let mut date_hmac =
-        HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| anyhow! {"{}",e})?;
+    let mut date_hmac = HmacSha256::new_from_slice(secret.as_bytes())?;
     date_hmac.update(datetime.format(SHORT_DATE).unwrap().as_bytes());
-    let mut region_hmac = HmacSha256::new_from_slice(&date_hmac.finalize().into_bytes())
-        .map_err(|e| anyhow! {"{}",e})?;
+    let mut region_hmac = HmacSha256::new_from_slice(&date_hmac.finalize().into_bytes())?;
     region_hmac.update(region.to_string().as_bytes());
-    let mut service_hmac = HmacSha256::new_from_slice(&region_hmac.finalize().into_bytes())
-        .map_err(|e| anyhow! {"{}",e})?;
+    let mut service_hmac = HmacSha256::new_from_slice(&region_hmac.finalize().into_bytes())?;
     service_hmac.update(service.as_bytes());
-    let mut signing_hmac = HmacSha256::new_from_slice(&service_hmac.finalize().into_bytes())
-        .map_err(|e| anyhow! {"{}",e})?;
+    let mut signing_hmac = HmacSha256::new_from_slice(&service_hmac.finalize().into_bytes())?;
     signing_hmac.update(b"aws4_request");
     Ok(signing_hmac.finalize().into_bytes().to_vec())
 }
@@ -196,7 +192,7 @@ pub fn authorization_query_params_no_sig(
     expires: u32,
     custom_headers: Option<&HeaderMap>,
     token: Option<&str>,
-) -> Result<String> {
+) -> Result<String, S3Error> {
     let credentials = uri_encode(
         &format!("{}/{}", access_key, scope_string(datetime, region)),
         true,
@@ -234,19 +230,36 @@ pub fn authorization_query_params_no_sig(
     Ok(query_params)
 }
 
+pub fn flatten_queries(queries: Option<&HashMap<String, String>>) -> String {
+    match queries {
+        None => String::new(),
+        Some(queries) => {
+            let mut query_str = String::new();
+            for (k, v) in queries {
+                query_str.push('&');
+                query_str.push_str(&uri_encode(k, true));
+                query_str.push('=');
+                query_str.push_str(&uri_encode(v, true));
+            }
+            query_str
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::convert::TryInto;
     use std::str;
-    use time::Date;
-    use url::Url;
 
-    use super::*;
-
-    use crate::serde_types::ListBucketResult;
     use http::header::{HeaderName, HOST, RANGE};
     use http::HeaderMap;
     use serde_xml_rs as serde_xml;
+    use time::Date;
+    use url::Url;
+
+    use crate::serde_types::ListBucketResult;
+
+    use super::*;
 
     #[test]
     fn test_base_url_encode() {

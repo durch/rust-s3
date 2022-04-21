@@ -25,6 +25,7 @@ pub mod signing;
 #[cfg(feature = "with-async-std")]
 pub mod surf_request;
 
+pub mod error;
 pub mod request_trait;
 pub mod utils;
 

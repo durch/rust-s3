@@ -7,12 +7,11 @@ use attohttpc::header::HeaderName;
 
 use super::bucket::Bucket;
 use super::command::Command;
+use crate::error::S3Error;
 use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
-use anyhow::anyhow;
-use anyhow::Result;
 // static CLIENT: Lazy<Client> = Lazy::new(|| {
 //     if cfg!(feature = "no-verify-ssl") {
 //         Client::builder()
@@ -54,7 +53,7 @@ impl<'a> Request for AttoRequest<'a> {
         self.path.to_string()
     }
 
-    fn response(&self) -> Result<Self::Response> {
+    fn response(&self) -> Result<Self::Response, S3Error> {
         // Build headers
         let headers = match self.headers() {
             Ok(headers) => headers,
@@ -82,17 +81,15 @@ impl<'a> Request for AttoRequest<'a> {
         let response = request.bytes(&self.request_body()).send()?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-            return Err(anyhow!(
-                "Request failed with code {}\n{}",
-                response.status().as_u16(),
-                response.text()?
-            ));
+            let status = response.status().as_u16();
+            let text = response.text()?;
+            return Err(S3Error::Http(status, text));
         }
 
         Ok(response)
     }
 
-    fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
+    fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16), S3Error> {
         let response = self.response()?;
         let status_code = response.status().as_u16();
         let headers = response.headers().clone();
@@ -108,7 +105,7 @@ impl<'a> Request for AttoRequest<'a> {
         Ok((body_vec, status_code))
     }
 
-    fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16> {
+    fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16, S3Error> {
         let response = self.response()?;
 
         let status_code = response.status();
@@ -119,7 +116,7 @@ impl<'a> Request for AttoRequest<'a> {
         Ok(status_code.as_u16())
     }
 
-    fn response_header(&self) -> Result<(Self::HeaderMap, u16)> {
+    fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error> {
         let response = self.response()?;
         let status_code = response.status().as_u16();
         let headers = response.headers().clone();
