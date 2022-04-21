@@ -38,14 +38,13 @@ use std::io::Read;
 // #[cfg(any(feature = "sync", feature = "with-tokio"))]
 // use std::path::Path;
 
+use crate::error::S3Error;
 use crate::request_trait::Request;
 use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
 use crate::utils::error_from_response_data;
-use anyhow::anyhow;
-use anyhow::Result;
 use http::header::HeaderName;
 use http::HeaderMap;
 
@@ -95,12 +94,9 @@ pub struct Bucket {
     listobjects_v2: bool,
 }
 
-fn validate_expiry(expiry_secs: u32) -> Result<()> {
+fn validate_expiry(expiry_secs: u32) -> Result<(), S3Error> {
     if 604800 < expiry_secs {
-        return Err(anyhow!(
-            "Max expiration for presigned URLs is one week, or 604.800 seconds, got {} instead",
-            expiry_secs
-        ));
+        return Err(S3Error::MaxExpiry(expiry_secs));
     }
     Ok(())
 }
@@ -140,7 +136,7 @@ impl Bucket {
         path: S,
         expiry_secs: u32,
         custom_queries: Option<HashMap<String, String>>,
-    ) -> Result<String> {
+    ) -> Result<String, S3Error> {
         validate_expiry(expiry_secs)?;
         let request = RequestImpl::new(
             self,
@@ -183,7 +179,7 @@ impl Bucket {
         path: S,
         expiry_secs: u32,
         custom_headers: Option<HeaderMap>,
-    ) -> Result<String> {
+    ) -> Result<String, S3Error> {
         validate_expiry(expiry_secs)?;
         let request = RequestImpl::new(
             self,
@@ -212,7 +208,11 @@ impl Bucket {
     /// let url = bucket.presign_delete("/test.file", 86400).unwrap();
     /// println!("Presigned url: {}", url);
     /// ```
-    pub fn presign_delete<S: AsRef<str>>(&self, path: S, expiry_secs: u32) -> Result<String> {
+    pub fn presign_delete<S: AsRef<str>>(
+        &self,
+        path: S,
+        expiry_secs: u32,
+    ) -> Result<String, S3Error> {
         validate_expiry(expiry_secs)?;
         let request = RequestImpl::new(self, path.as_ref(), Command::PresignDelete { expiry_secs });
         request.presigned()
@@ -256,7 +256,7 @@ impl Bucket {
         region: Region,
         credentials: Credentials,
         config: BucketConfiguration,
-    ) -> Result<CreateBucketResponse> {
+    ) -> Result<CreateBucketResponse, S3Error> {
         let mut config = config;
         config.set_region(region.clone());
         let command = Command::CreateBucket { config };
@@ -309,11 +309,11 @@ impl Bucket {
         region: Region,
         credentials: Credentials,
         config: BucketConfiguration,
-    ) -> Result<CreateBucketResponse> {
+    ) -> Result<CreateBucketResponse, S3Error> {
         let mut config = config;
         config.set_region(region.clone());
         let command = Command::CreateBucket { config };
-        let bucket = Bucket::new_with_path_style(name, region, credentials)?;
+        let bucket = Bucket::new(name, region, credentials)?.with_path_style();
         let request = RequestImpl::new(&bucket, "", command);
         let (data, response_code) = request.response_data(false).await?;
         let response_text = std::str::from_utf8(&data)?;
@@ -355,7 +355,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn delete(&self) -> Result<u16> {
+    pub async fn delete(&self) -> Result<u16, S3Error> {
         let command = Command::DeleteBucket;
         let request = RequestImpl::new(self, "", command);
         let (_, response_code) = request.response_data(false).await?;
@@ -376,7 +376,7 @@ impl Bucket {
     ///
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// ```
-    pub fn new(name: &str, region: Region, credentials: Credentials) -> Result<Bucket> {
+    pub fn new(name: &str, region: Region, credentials: Credentials) -> Result<Bucket, S3Error> {
         Ok(Bucket {
             name: name.into(),
             region,
@@ -401,7 +401,7 @@ impl Bucket {
     ///
     /// let bucket = Bucket::new_public(bucket_name, region).unwrap();
     /// ```
-    pub fn new_public(name: &str, region: Region) -> Result<Bucket> {
+    pub fn new_public(name: &str, region: Region) -> Result<Bucket, S3Error> {
         Ok(Bucket {
             name: name.into(),
             region,
@@ -412,6 +412,71 @@ impl Bucket {
             path_style: false,
             listobjects_v2: true,
         })
+    }
+
+    pub fn with_path_style(&self) -> Bucket {
+        Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query: self.extra_query.clone(),
+            request_timeout: self.request_timeout,
+            path_style: true,
+            listobjects_v2: self.listobjects_v2,
+        }
+    }
+
+    pub fn with_extra_headers(&self, extra_headers: HeaderMap) -> Bucket {
+        Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers,
+            extra_query: self.extra_query.clone(),
+            request_timeout: self.request_timeout,
+            path_style: self.path_style,
+            listobjects_v2: self.listobjects_v2,
+        }
+    }
+
+    pub fn with_extra_query(&self, extra_query: HashMap<String, String>) -> Bucket {
+        Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query,
+            request_timeout: self.request_timeout,
+            path_style: self.path_style,
+            listobjects_v2: self.listobjects_v2,
+        }
+    }
+
+    pub fn with_request_timeout(&self, request_timeout: Duration) -> Bucket {
+        Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query: self.extra_query.clone(),
+            request_timeout: Some(request_timeout),
+            path_style: self.path_style,
+            listobjects_v2: self.listobjects_v2,
+        }
+    }
+
+    pub fn with_listobjects_v1(&self) -> Bucket {
+        Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query: self.extra_query.clone(),
+            request_timeout: self.request_timeout,
+            path_style: self.path_style,
+            listobjects_v2: false,
+        }
     }
 
     /// Instantiate an existing `Bucket` with path style addressing. Useful for compatibility with some storage APIs, like MinIO.
@@ -427,11 +492,15 @@ impl Bucket {
     ///
     /// let bucket = Bucket::new_with_path_style(bucket_name, region, credentials).unwrap();
     /// ```
+    #[deprecated(
+        since = "0.31.0",
+        note = "please use `new` and modify with `with_path_style`"
+    )]
     pub fn new_with_path_style(
         name: &str,
         region: Region,
         credentials: Credentials,
-    ) -> Result<Bucket> {
+    ) -> Result<Bucket, S3Error> {
         Ok(Bucket {
             name: name.into(),
             region,
@@ -456,7 +525,11 @@ impl Bucket {
     ///
     /// let bucket = Bucket::new_public_with_path_style(bucket_name, region).unwrap();
     /// ```
-    pub fn new_public_with_path_style(name: &str, region: Region) -> Result<Bucket> {
+    #[deprecated(
+        since = "0.31.0",
+        note = "please use `new_public` and modify with `with_path_style`"
+    )]
+    pub fn new_public_with_path_style(name: &str, region: Region) -> Result<Bucket, S3Error> {
         Ok(Bucket {
             name: name.into(),
             region,
@@ -501,7 +574,7 @@ impl Bucket {
         &self,
         from: F,
         to: T,
-    ) -> Result<u16> {
+    ) -> Result<u16, S3Error> {
         let fq_from = {
             let from = from.as_ref();
             let from = from.strip_prefix('/').unwrap_or(from);
@@ -511,7 +584,11 @@ impl Bucket {
     }
 
     #[maybe_async::maybe_async]
-    async fn copy_object<F: AsRef<str>, T: AsRef<str>>(&self, from: F, to: T) -> Result<u16> {
+    async fn copy_object<F: AsRef<str>, T: AsRef<str>>(
+        &self,
+        from: F,
+        to: T,
+    ) -> Result<u16, S3Error> {
         let command = Command::CopyObject {
             from: from.as_ref(),
         };
@@ -552,7 +629,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
+    pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16), S3Error> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data(false).await
@@ -590,7 +667,10 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object_torrent<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
+    pub async fn get_object_torrent<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> Result<(Vec<u8>, u16), S3Error> {
         let command = Command::GetObjectTorrent;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data(false).await
@@ -634,7 +714,7 @@ impl Bucket {
         path: S,
         start: u64,
         end: Option<u64>,
-    ) -> Result<(Vec<u8>, u16)> {
+    ) -> Result<(Vec<u8>, u16), S3Error> {
         if let Some(end) = end {
             assert!(start < end);
         }
@@ -686,7 +766,7 @@ impl Bucket {
         &self,
         path: S,
         writer: &mut T,
-    ) -> Result<u16> {
+    ) -> Result<u16, S3Error> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data_to_writer(writer).await
@@ -697,7 +777,7 @@ impl Bucket {
         &self,
         path: S,
         writer: &mut T,
-    ) -> Result<u16> {
+    ) -> Result<u16, S3Error> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data_to_writer(writer)
@@ -753,7 +833,7 @@ impl Bucket {
         &self,
         reader: &mut R,
         s3_path: impl AsRef<str>,
-    ) -> Result<u16> {
+    ) -> Result<u16, S3Error> {
         self._put_object_stream(reader, s3_path.as_ref()).await
     }
 
@@ -762,7 +842,7 @@ impl Bucket {
         &self,
         reader: &mut R,
         s3_path: impl AsRef<str>,
-    ) -> Result<u16> {
+    ) -> Result<u16, S3Error> {
         self._put_object_stream(reader, s3_path.as_ref())
     }
 
@@ -771,14 +851,14 @@ impl Bucket {
         &self,
         reader: &mut R,
         s3_path: &str,
-    ) -> Result<u16> {
+    ) -> Result<u16, S3Error> {
         // If the file is smaller CHUNK_SIZE, just do a regular upload.
         // Otherwise perform a multi-part upload.
         let first_chunk = crate::utils::read_chunk(reader).await?;
         if first_chunk.len() < CHUNK_SIZE {
             let (data, code) = self.put_object(s3_path, first_chunk.as_slice()).await?;
             if code >= 300 {
-                return Err(error_from_response_data(data, code));
+                return Err(error_from_response_data(data, code)?);
             }
             return Ok(code);
         }
@@ -787,7 +867,7 @@ impl Bucket {
         let request = RequestImpl::new(self, s3_path, command);
         let (data, code) = request.response_data(false).await?;
         if code >= 300 {
-            return Err(error_from_response_data(data, code));
+            return Err(error_from_response_data(data, code)?);
         }
 
         let msg: InitiateMultipartUploadResponse =
@@ -843,12 +923,12 @@ impl Bucket {
     }
 
     #[maybe_async::sync_impl]
-    fn _put_object_stream<R: Read>(&self, reader: &mut R, s3_path: &str) -> Result<u16> {
+    fn _put_object_stream<R: Read>(&self, reader: &mut R, s3_path: &str) -> Result<u16, S3Error> {
         let command = Command::InitiateMultipartUpload;
         let request = RequestImpl::new(self, s3_path, command);
         let (data, code) = request.response_data(false)?;
         if code >= 300 {
-            return Err(error_from_response_data(data, code));
+            return Err(error_from_response_data(data, code)?);
         }
         let msg: InitiateMultipartUploadResponse =
             serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
@@ -946,7 +1026,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn location(&self) -> Result<(Region, u16)> {
+    pub async fn location(&self) -> Result<(Region, u16), S3Error> {
         let request = RequestImpl::new(self, "?location", Command::GetBucketLocation);
         let result = request.response_data(false).await?;
         let region_string = String::from_utf8_lossy(&result.0);
@@ -1005,7 +1085,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
+    pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16), S3Error> {
         let command = Command::DeleteObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data(false).await
@@ -1044,7 +1124,10 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn head_object<S: AsRef<str>>(&self, path: S) -> Result<(HeadObjectResult, u16)> {
+    pub async fn head_object<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> Result<(HeadObjectResult, u16), S3Error> {
         let command = Command::HeadObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         let (headers, status) = request.response_header().await?;
@@ -1091,7 +1174,7 @@ impl Bucket {
         path: S,
         content: &[u8],
         content_type: &str,
-    ) -> Result<(Vec<u8>, u16)> {
+    ) -> Result<(Vec<u8>, u16), S3Error> {
         let command = Command::PutObject {
             content,
             content_type,
@@ -1139,7 +1222,7 @@ impl Bucket {
         &self,
         path: S,
         content: &[u8],
-    ) -> Result<(Vec<u8>, u16)> {
+    ) -> Result<(Vec<u8>, u16), S3Error> {
         self.put_object_with_content_type(path, content, "application/octet-stream")
             .await
     }
@@ -1202,7 +1285,7 @@ impl Bucket {
         &self,
         path: &str,
         tags: &[(S, S)],
-    ) -> Result<(Vec<u8>, u16)> {
+    ) -> Result<(Vec<u8>, u16), S3Error> {
         let content = self._tags_xml(tags);
         let command = Command::PutObjectTagging { tags: &content };
         let request = RequestImpl::new(self, path, command);
@@ -1242,7 +1325,10 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn delete_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16)> {
+    pub async fn delete_object_tagging<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> Result<(Vec<u8>, u16), S3Error> {
         let command = Command::DeleteObjectTagging;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data(false).await
@@ -1282,7 +1368,10 @@ impl Bucket {
     /// ```
     #[cfg(feature = "tags")]
     #[maybe_async::maybe_async]
-    pub async fn get_object_tagging<S: AsRef<str>>(&self, path: S) -> Result<(Vec<Tag>, u16)> {
+    pub async fn get_object_tagging<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> Result<(Vec<Tag>, u16), S3Error> {
         let command = Command::GetObjectTagging {};
         let request = RequestImpl::new(self, path.as_ref(), command);
         let result = request.response_data(false).await?;
@@ -1326,7 +1415,7 @@ impl Bucket {
         continuation_token: Option<String>,
         start_after: Option<String>,
         max_keys: Option<usize>,
-    ) -> Result<(ListBucketResult, u16)> {
+    ) -> Result<(ListBucketResult, u16), S3Error> {
         let command = if self.listobjects_v2 {
             Command::ListObjectsV2 {
                 prefix,
@@ -1348,9 +1437,9 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command);
         let (response, status_code) = request.response_data(false).await?;
-        return serde_xml::from_reader(response.as_slice())
-            .map(|list_bucket_result| (list_bucket_result, status_code))
-            .map_err(|e| anyhow!("Could not deserialize result \n {}", e));
+        let list_bucket_result = serde_xml::from_reader(response.as_slice())?;
+
+        Ok((list_bucket_result, status_code))
     }
 
     /// List the contents of an S3 bucket.
@@ -1390,7 +1479,7 @@ impl Bucket {
         &self,
         prefix: String,
         delimiter: Option<String>,
-    ) -> Result<Vec<ListBucketResult>> {
+    ) -> Result<Vec<ListBucketResult>, S3Error> {
         let the_bucket = self.to_owned();
         let mut results = Vec::new();
         let mut continuation_token = None;
@@ -1422,7 +1511,7 @@ impl Bucket {
         delimiter: Option<&str>,
         key_marker: Option<String>,
         max_uploads: Option<usize>,
-    ) -> Result<(ListMultipartUploadsResult, u16)> {
+    ) -> Result<(ListMultipartUploadsResult, u16), S3Error> {
         let command = Command::ListMultipartUploads {
             prefix,
             delimiter,
@@ -1431,9 +1520,9 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command);
         let (response, status_code) = request.response_data(false).await?;
-        return serde_xml::from_reader(response.as_slice())
-            .map(|list_bucket_result| (list_bucket_result, status_code))
-            .map_err(|e| anyhow!("Could not deserialize result \n {}", e));
+        let list_bucket_result = serde_xml::from_reader(response.as_slice())?;
+
+        Ok((list_bucket_result, status_code))
     }
 
     /// List the ongoing multipart uploads of an S3 bucket. This may be useful to cleanup failed
@@ -1474,7 +1563,7 @@ impl Bucket {
         &self,
         prefix: Option<&str>,
         delimiter: Option<&str>,
-    ) -> Result<Vec<ListMultipartUploadsResult>> {
+    ) -> Result<Vec<ListMultipartUploadsResult>, S3Error> {
         let the_bucket = self.to_owned();
         let mut results = Vec::new();
         let mut next_marker: Option<String> = None;
@@ -1529,7 +1618,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn abort_upload(&self, key: &str, upload_id: &str) -> Result<()> {
+    pub async fn abort_upload(&self, key: &str, upload_id: &str) -> Result<(), S3Error> {
         let abort = Command::AbortMultipartUpload { upload_id };
         let abort_request = RequestImpl::new(self, key, abort);
         let (content, code) = abort_request.response_data(false).await?;
@@ -1537,22 +1626,8 @@ impl Bucket {
         if (200..300).contains(&code) {
             Ok(())
         } else {
-            let utf8_content = String::from_utf8(content);
-            let err = if let Ok(utf8_content) = utf8_content {
-                format!(
-                    "Invalid return code: got HTTP {} with content '{}'",
-                    code, utf8_content
-                )
-            } else {
-                format!(
-                    "Invalid return code: got HTTP {} with invalid UTF8 content",
-                    code
-                )
-            };
-            Err(anyhow::Error::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                err,
-            )))
+            let utf8_content = String::from_utf8(content)?;
+            Err(S3Error::Http(code, utf8_content))
         }
     }
 
@@ -1730,6 +1805,10 @@ impl Bucket {
     pub fn extra_query_mut(&mut self) -> &mut Query {
         &mut self.extra_query
     }
+
+    pub fn request_timeout(&self) -> Option<Duration> {
+        self.request_timeout
+    }
 }
 
 #[cfg(test)]
@@ -1830,7 +1909,7 @@ mod test {
     }
 
     fn test_minio_bucket() -> Bucket {
-        Bucket::new_with_path_style(
+        Bucket::new(
             "rust-s3",
             Region::Custom {
                 region: "eu-central-1".to_owned(),
@@ -1839,6 +1918,7 @@ mod test {
             test_minio_credentials(),
         )
         .unwrap()
+        .with_path_style()
     }
 
     fn test_digital_ocean_bucket() -> Bucket {
@@ -2441,5 +2521,20 @@ mod test {
         let tag = Tag { key, value };
         assert_eq!["key", tag.key()];
         assert_eq!["value", tag.value()];
+    }
+
+    #[test]
+    fn test_builder_composition() {
+        use std::time::Duration;
+
+        let bucket = Bucket::new(
+            "test-bucket",
+            "eu-central-1".parse().unwrap(),
+            test_aws_credentials(),
+        )
+        .unwrap()
+        .with_request_timeout(Duration::from_secs(10));
+
+        assert_eq!(bucket.request_timeout(), Some(Duration::from_secs(10)));
     }
 }

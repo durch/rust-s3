@@ -3,12 +3,12 @@ use futures_io::AsyncWrite;
 
 use super::bucket::Bucket;
 use super::command::Command;
+use crate::error::S3Error;
 use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
 use crate::request_trait::Request;
 
-use anyhow::{anyhow, Result};
 use http::HeaderMap;
 use maybe_async::maybe_async;
 use surf::http::headers::{HeaderName, HeaderValue};
@@ -44,7 +44,7 @@ impl<'a> Request for SurfRequest<'a> {
         self.path.to_string()
     }
 
-    async fn response(&self) -> Result<surf::Response> {
+    async fn response(&self) -> Result<surf::Response, S3Error> {
         // Build headers
         let headers = self.headers()?;
 
@@ -68,22 +68,22 @@ impl<'a> Request for SurfRequest<'a> {
         let response = request
             .send()
             .await
-            .map_err(|e| anyhow!("Request failed with {}", e))?;
+            .map_err(|e| S3Error::Surf(e.to_string()))?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-            return Err(anyhow!("Request failed with code {}", response.status()));
+            return Err(S3Error::HttpFail);
         }
 
         Ok(response)
     }
 
-    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
+    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16), S3Error> {
         let mut response = self.response().await?;
         let status_code = response.status();
         let body = response
             .body_bytes()
             .await
-            .map_err(|e| anyhow!("Request failed with {}", e))?;
+            .map_err(|e| S3Error::Surf(e.to_string()))?;
         let mut body_vec = Vec::new();
         body_vec.extend_from_slice(&body[..]);
         if etag {
@@ -97,7 +97,7 @@ impl<'a> Request for SurfRequest<'a> {
     async fn response_data_to_writer<T: AsyncWrite + Send + Unpin>(
         &self,
         writer: &mut T,
-    ) -> Result<u16> {
+    ) -> Result<u16, S3Error> {
         let mut buffer = Vec::new();
 
         let response = self.response().await?;
@@ -113,7 +113,7 @@ impl<'a> Request for SurfRequest<'a> {
         Ok(status_code.into())
     }
 
-    async fn response_header(&self) -> Result<(HeaderMap, u16)> {
+    async fn response_header(&self) -> Result<(HeaderMap, u16), S3Error> {
         let mut header_map = HeaderMap::new();
         let response = self.response().await?;
         let status_code = response.status();
