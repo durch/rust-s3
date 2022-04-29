@@ -20,7 +20,7 @@ pub enum S3Error {
     UrlParse(#[from] url::ParseError),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
-    #[cfg(feature = "with-tokio")]
+    #[cfg(feature = "with-reqwest")]
     #[error("reqwest: {0}")]
     Reqwest(#[from] reqwest::Error),
     #[error("header to string: {0}")]
@@ -33,10 +33,10 @@ pub enum S3Error {
     InvalidHeaderValue(#[from] http::header::InvalidHeaderValue),
     #[error("invalid header name: {0}")]
     InvalidHeaderName(#[from] http::header::InvalidHeaderName),
-    #[cfg(feature = "with-async-std")]
+    #[cfg(feature = "with-surf")]
     #[error("surf: {0}")]
     Surf(String),
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "with-attohttpc")]
     #[error("attohttpc: {0}")]
     Atto(#[from] attohttpc::Error),
 }
