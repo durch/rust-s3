@@ -2201,12 +2201,9 @@ mod test {
     #[ignore]
     #[cfg(feature = "tags")]
     #[maybe_async::test(
-        feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
     )]
     async fn test_tagging_aws() {
         let client = make_client();
@@ -2374,19 +2371,9 @@ mod test {
     /// This should be optimized into a plain PUT, not a multi-part upload.
     #[ignore]
     #[maybe_async::test(
-        feature = "sync",
-        async(
-            all(
-                not(feature = "sync"),
-                not(feature = "tokio-rustls-tls"),
-                feature = "with-tokio"
-            ),
-            tokio::test
-        ),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
     )]
     async fn streaming_test_put_get_delete_small_object() {
         init();
@@ -2421,7 +2408,14 @@ mod test {
         assert_eq!(code, 204);
     }
 
-    #[cfg(feature = "blocking")]
+    #[cfg(all(
+        feature = "blocking",
+        any(
+            feature = "with-attohttpc",
+            feature = "with-reqwest",
+            feature = "with-surf"
+        )
+    ))]
     fn put_head_get_list_delete_object_blocking(bucket: Bucket) {
         let client = make_client();
 
@@ -2542,7 +2536,7 @@ mod test {
 
     #[ignore]
     #[cfg(all(
-        any(feature = "with-tokio", feature = "with-async-std"),
+        any(feature = "with-reqwest", feature = "with-surf"),
         feature = "blocking"
     ))]
     #[test]
@@ -2574,19 +2568,9 @@ mod test {
 
     #[ignore]
     #[maybe_async::test(
-        feature = "sync",
-        async(
-            all(
-                not(feature = "sync"),
-                not(feature = "tokio-rustls-tls"),
-                feature = "with-tokio"
-            ),
-            tokio::test
-        ),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
     )]
     async fn aws_put_head_get_delete_object() {
         let client = make_client();
@@ -2595,12 +2579,9 @@ mod test {
 
     #[ignore]
     #[maybe_async::test(
-        feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
     )]
     async fn gc_test_put_head_get_delete_object() {
         let client = make_client();
@@ -2609,19 +2590,9 @@ mod test {
 
     #[ignore]
     #[maybe_async::test(
-        feature = "sync",
-        async(
-            all(
-                not(feature = "sync"),
-                not(feature = "tokio-rustls-tls"),
-                feature = "with-tokio"
-            ),
-            tokio::test
-        ),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
     )]
     async fn wasabi_test_put_head_get_delete_object() {
         let client = make_client();
@@ -2630,12 +2601,9 @@ mod test {
 
     #[ignore]
     #[maybe_async::test(
-        feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
     )]
     async fn minio_test_put_head_get_delete_object() {
         let client = make_client();
@@ -2657,21 +2625,22 @@ mod test {
 
     #[ignore]
     #[maybe_async::test(
-        feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
     )]
     async fn digital_ocean_test_put_head_get_delete_object() {
         let client = make_client();
         put_head_get_delete_object(&client, test_digital_ocean_bucket()).await;
     }
 
-    #[test]
+    #[maybe_async::test(
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
+    )]
     #[ignore]
-    fn test_presign_put() {
+    async fn test_presign_put() {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
         let client = make_client();
@@ -2690,9 +2659,13 @@ mod test {
         assert!(url.contains("/test/test.file"))
     }
 
-    #[test]
+    #[maybe_async::test(
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
+    )]
     #[ignore]
-    fn test_presign_get() {
+    async fn test_presign_get() {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
         let client = make_client();
@@ -2701,9 +2674,13 @@ mod test {
         assert!(url.contains("/test/test.file?"))
     }
 
-    #[test]
+    #[maybe_async::test(
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
+    )]
     #[ignore]
-    fn test_presign_delete() {
+    async fn test_presign_delete() {
         let s3_path = "/test/test.file";
         let bucket = test_aws_bucket();
         let client = make_client();
@@ -2713,12 +2690,9 @@ mod test {
     }
 
     #[maybe_async::test(
-        feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
     )]
     #[ignore]
     async fn test_bucket_create_delete_default_region() {
@@ -2744,12 +2718,9 @@ mod test {
 
     #[ignore]
     #[maybe_async::test(
-        feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
     )]
     async fn test_bucket_create_delete_non_default_region() {
         let client = make_client();
@@ -2775,12 +2746,9 @@ mod test {
 
     #[ignore]
     #[maybe_async::test(
-        feature = "sync",
-        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-        async(
-            all(not(feature = "sync"), feature = "with-async-std"),
-            async_std::test
-        )
+        feature = "with-attohttpc",
+        async(all(not(feature = "sync"), feature = "with-reqwest"), tokio::test),
+        async(all(not(feature = "sync"), feature = "with-surf"), async_std::test)
     )]
     async fn test_bucket_create_delete_non_default_region_public() {
         let client = make_client();
