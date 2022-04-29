@@ -117,7 +117,9 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// // Add optional custom queries
+    /// #[cfg(any(feature = "with-attohttpc", feature = "with-surf", feature = "with-reqwest"))]
     /// let mut custom_queries = HashMap::new();
+    /// #[cfg(any(feature = "with-attohttpc", feature = "with-surf", feature = "with-reqwest"))]
     /// custom_queries.insert(
     ///    "response-content-disposition".into(),
     ///    "attachment; filename=\"test.png\"".into(),
@@ -130,7 +132,12 @@ impl Bucket {
     /// #[cfg(feature = "with-attohttpc")]
     /// let client = attohttpc::Session::new();
     ///
+    /// #[cfg(any(feature = "with-surf", feature = "with-reqwest"))]
     /// let url = bucket.presign_get(&client, "/test.file", 86400, Some(custom_queries)).unwrap();
+    /// #[cfg(feature = "with-attohttpc")]
+    /// let url = bucket.presign_get(&client, "/test.file", 86400, Some(custom_queries)).unwrap();
+    ///
+    /// #[cfg(any(feature = "with-attohttpc", feature = "with-surf", feature = "with-reqwest"))]
     /// println!("Presigned url: {}", url);
     /// ```
     pub fn presign_get<C: for<'a> Client<'a>, S: AsRef<str>>(
@@ -180,7 +187,12 @@ impl Bucket {
     ///    "custom_value".parse().unwrap(),
     /// );
     ///
+    /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
     /// let url = bucket.presign_put(&client, "/test.file", 86400, Some(custom_headers)).unwrap();
+    /// #[cfg(feature = "with-attohttpc")]
+    /// let url = bucket.presign_put(&client, "/test.file", 86400, Some(custom_headers)).unwrap();
+    ///
+    /// #[cfg(any(feature = "with-attohttpc", feature = "with-surf", feature = "with-reqwest"))]
     /// println!("Presigned url: {}", url);
     /// ```
     pub fn presign_put<C: for<'a> Client<'a>, S: AsRef<str>>(
@@ -221,7 +233,13 @@ impl Bucket {
     /// #[cfg(feature = "with-attohttpc")]
     /// let client = attohttpc::Session::new();
     ///
+    /// #[cfg(any(feature = "with-reqwest", feature = "with-surf"))]
     /// let url = bucket.presign_delete(&client, "/test.file", 86400).unwrap();
+    ///
+    /// #[cfg(feature = "with-attohttpc")]
+    /// let url = bucket.presign_delete(&client, "/test.file", 86400).unwrap();
+    ///
+    /// #[cfg(any(feature = "with-attohttpc", feature = "with-surf", feature = "with-reqwest"))]
     /// println!("Presigned url: {}", url);
     /// ```
     pub fn presign_delete<C: for<'a> Client<'a>, S: AsRef<str>>(
@@ -246,6 +264,7 @@ impl Bucket {
     /// # #[tokio::main]
     /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
+    /// #[cfg(any(feature = "with-attohttpc", feature = "with-surf", feature = "with-reqwest"))]
     /// let region = "us-east-1".parse()?;
     /// let credentials = Credentials::default()?;
     /// let config = BucketConfiguration::default();
@@ -269,7 +288,7 @@ impl Bucket {
     /// # let config = BucketConfiguration::default();
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
-    /// #[cfg(feature = "blocking")]
+    /// #[cfg(all(feature = "blocking", any(feature = "with-reqwest", feature = "with-surf")))]
     /// let create_bucket_response = Bucket::create_blocking(&client, bucket_name, region, credentials, config)?;
     /// # Ok(())
     /// # }
@@ -308,6 +327,7 @@ impl Bucket {
     /// # #[tokio::main]
     /// # async fn main() -> Result<()> {
     /// let bucket_name = "rust-s3-test";
+    /// #[cfg(any(feature = "with-attohttpc", feature = "with-surf", feature = "with-reqwest"))]
     /// let region = "us-east-1".parse()?;
     /// let credentials = Credentials::default()?;
     /// let config = BucketConfiguration::default();
@@ -331,7 +351,7 @@ impl Bucket {
     /// # let config = BucketConfiguration::default();
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
-    /// #[cfg(feature = "blocking")]
+    /// #[cfg(all(feature = "blocking", any(feature = "with-reqwest", feature = "with-surf")))]
     /// let create_bucket_response = Bucket::create_with_path_style_blocking(&client, bucket_name, region, credentials, config)?;
     /// # Ok(())
     /// # }
@@ -2781,6 +2801,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_builder_composition() {
         use std::time::Duration;
 

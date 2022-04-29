@@ -45,7 +45,7 @@ serde-xml-rs = "0.5"
 sha2 = "0.10"
 thiserror = "1"
 surf = { version = "2", optional = true, default-features = false, features = ["h1-client-rustls"] }
-tokio = { version = "1", features = ["io-util"], optional = true, default-features = false }
+tokio = { version = "1", features = ["io-util" ], optional = true, default-features = false }
 tokio-stream = { version = "0.1", optional = true }
 url = "2"
 minidom = { version = "0.14", optional = true }
@@ -80,3 +80,4 @@ uuid = { version = "1", features = ["v4"] }
 env_logger = "0.9"
 # aws-creds = { version = "0.29", default-features = false }
 aws-creds = { path = "../aws-creds", features = ["http-credentials"] }
+anyhow = "1"
