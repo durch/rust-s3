@@ -1,7 +1,7 @@
 async-all: tokio async-std
 sync-all: sync
 test-all: fmt-check async-all sync-all
-ci: clippy fmt-check tokio-not-ignored async-std-test-not-ignored
+ci: clippy fmt-check tokio-not-ignored async-std-not-ignored sync-not-ignored
 
 clippy: tokio-clippy async-std-clippy sync-clippy
 tokio-clippy: tokio-noclient-clippy reqwest-clippy
@@ -27,6 +27,7 @@ request-test-blocking-ignored:
 
 # async-std
 async-std: async-std-clippy async-std-test async-std-clippy surf
+async-std-not-ignored: async-std-test-not-ignored surf-test-not-ignored
 async-std-clippy:
 	cargo clippy --no-default-features --features with-async-std -- -D warnings
 async-std-test: async-std-test-not-ignored async-std-test-ignored async-std-test-blocking-ignored
@@ -47,9 +48,12 @@ surf-test-blocking-ignored:
 
 # sync
 sync: sync-noclient attohttpc
-sync-noclient: sync-noclient-clippy
+sync-not-ignored: sync-test-not-ignored attohttpc-test-not-ignored
+sync-noclient: sync-noclient-clippy sync-test-not-ignored
 sync-noclient-clippy:
 	cargo clippy --no-default-features --features sync -- -D warnings
+sync-test-not-ignored:
+	cargo test --no-default-features --features sync
 
 attohttpc: attohttpc-clippy attohttpc-test-not-ignored
 attohttpc-clippy:
