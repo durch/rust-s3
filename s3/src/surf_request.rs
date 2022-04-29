@@ -136,9 +136,9 @@ impl<'a> Request for SurfRequest<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
+    use crate::error::S3Error;
     use crate::request_trait::Request;
     use crate::surf_request::SurfRequest;
-    use crate::error::S3Error;
     use awscreds::Credentials;
     use time::OffsetDateTime;
 
