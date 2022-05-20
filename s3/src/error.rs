@@ -23,6 +23,9 @@ pub enum S3Error {
     #[cfg(feature = "with-tokio")]
     #[error("reqwest: {0}")]
     Reqwest(#[from] reqwest::Error),
+    #[cfg(feature = "with-tokio")]
+    #[error("tokio sync: {0}")]
+    TokioSync(#[from] tokio::sync::mpsc::error::SendError<crate::serde_types::Part>),
     #[error("header to string: {0}")]
     HeaderToStr(#[from] http::header::ToStrError),
     #[error("from utf8: {0}")]

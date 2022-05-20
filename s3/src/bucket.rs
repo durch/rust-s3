@@ -48,6 +48,7 @@ use crate::utils::error_from_response_data;
 use http::header::HeaderName;
 use http::HeaderMap;
 
+pub const PUT_OBJECT_STREAM_BUFFER_SIZE: u32 = 20; // Empirical value for parallel multipart uploading
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
 const DEFAULT_REQUEST_TIMEOUT: Option<Duration> = Some(Duration::from_secs(60));
@@ -990,6 +991,162 @@ impl Bucket {
                 etags.push(etag.to_string());
             }
         }
+        Ok(code)
+    }
+
+    /// Stream file from local path to s3 with parallel, generic over T: Write.
+    ///
+    /// `Arc` wrapping is required as Bucket object goes out of thread boundary.
+    ///
+    /// Note that only the `async` operation is supported.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    /// use std::fs::File;
+    /// use std::io::Write;
+    /// use std::sync::Arc;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Arc::new(Bucket::new(bucket_name, region, credentials)?);
+    /// let path = "path";
+    /// let test: Vec<u8> = (0..1000).map(|_| 42).collect();
+    /// let mut file = File::create(path)?;
+    /// file.write_all(&test)?;
+    ///
+    /// #[cfg(feature = "with-tokio")]
+    /// let mut path = tokio::fs::File::open(path).await?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// // Generic over futures_io::AsyncRead|tokio::io::AsyncRead + Unpin
+    /// let status_code = bucket.put_object_stream_parallel(&mut path, "/path").await?;
+    ///
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "with-tokio")]
+    #[maybe_async::async_impl]
+    pub async fn put_object_stream_parallel<R: AsyncRead + Unpin>(
+        self: &std::sync::Arc<Self>,
+        reader: &mut R,
+        s3_path: impl AsRef<str>,
+    ) -> Result<u16, S3Error> {
+        self._put_object_stream_parallel(reader, s3_path.as_ref())
+            .await
+    }
+
+    #[maybe_async::async_impl]
+    async fn _put_object_stream_parallel<R: AsyncRead + Unpin>(
+        self: &std::sync::Arc<Self>,
+        reader: &mut R,
+        s3_path: &str,
+    ) -> Result<u16, S3Error> {
+        // If the file is smaller CHUNK_SIZE, just do a regular upload.
+        // Otherwise perform a multi-part upload.
+        let first_chunk = crate::utils::read_chunk(reader).await?;
+        if first_chunk.len() < CHUNK_SIZE {
+            let (data, code) = self.put_object(s3_path, first_chunk.as_slice()).await?;
+            if code >= 300 {
+                return Err(error_from_response_data(data, code)?);
+            }
+            return Ok(code);
+        }
+
+        let command = Command::InitiateMultipartUpload;
+        let request = RequestImpl::new(self, s3_path, command);
+        let (data, code) = request.response_data(false).await?;
+        if code >= 300 {
+            return Err(error_from_response_data(data, code)?);
+        }
+
+        let msg: InitiateMultipartUploadResponse =
+            serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+        let path = msg.key;
+        let upload_id = &msg.upload_id;
+
+        let mut part_number: u32 = 0;
+        let mut etags = Vec::new();
+
+        let buffer_size: u32 = 20;
+        let mut is_reader_finished = false;
+
+        let mut first_chunk = Some(first_chunk);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(buffer_size as usize);
+        loop {
+            // Wait for task
+            if is_reader_finished || part_number >= buffer_size {
+                if let Some(etag) = rx.recv().await {
+                    etags.push(etag);
+                }
+
+                if is_reader_finished {
+                    if etags.len() as u32 == part_number {
+                        break;
+                    } else {
+                        continue;
+                    }
+                }
+            }
+
+            // Wait for loading chunk
+            let chunk = if part_number > 0 {
+                crate::utils::read_chunk(reader).await?
+            } else {
+                first_chunk.take().unwrap()
+            };
+
+            part_number += 1;
+
+            // Be ready for sending the context out of the thread
+            let bucket = self.clone();
+            let path = path.clone();
+            let upload_id = upload_id.clone();
+
+            let chunk_len = chunk.len();
+            let tx = tx.clone();
+
+            // Upload this chunk
+            tokio::spawn(async move {
+                let command = Command::PutObject {
+                    // part_number,
+                    content: &chunk,
+                    content_type: "application/octet-stream",
+                    multipart: Some(Multipart::new(part_number, &upload_id)), // upload_id: &msg.upload_id,
+                };
+                let request = RequestImpl::new(&bucket, &path, command);
+                let (data, _code) = request.response_data(true).await?;
+
+                tx.send(Part {
+                    etag: String::from_utf8(data)?,
+                    part_number,
+                })
+                .await?;
+                Result::<_, S3Error>::Ok(())
+            });
+
+            // Update the reader status
+            is_reader_finished = chunk_len < CHUNK_SIZE;
+        }
+
+        // Finish the upload
+        let data = CompleteMultipartUploadData { parts: etags };
+        let complete = Command::CompleteMultipartUpload {
+            upload_id: &msg.upload_id,
+            data,
+        };
+        let complete_request = RequestImpl::new(self, &path, complete);
+        let (_data, _code) = complete_request.response_data(false).await?;
+        // let response = std::str::from_utf8(data.as_slice())?;
+
         Ok(code)
     }
 
@@ -2152,6 +2309,45 @@ mod test {
 
         let code = bucket
             .put_object_stream(&mut reader, remote_path)
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        let mut writer = Vec::new();
+        let code = bucket
+            .get_object_stream(remote_path, &mut writer)
+            .await
+            .unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(content, writer);
+
+        let (_, code) = bucket.delete_object(remote_path).await.unwrap();
+        assert_eq!(code, 204);
+    }
+
+    /// Test streaming upload, with an object that's smaller than CHUNK_SIZE.
+    /// This should be optimized into a plain PUT, not a multi-part upload.
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(
+            all(
+                not(feature = "sync"),
+                not(feature = "tokio-rustls-tls"),
+                not(feature = "with-async-std"),
+                feature = "with-tokio"
+            ),
+            tokio::test
+        )
+    )]
+    async fn streaming_parallel_test_put_get_delete_small_object() {
+        init();
+        let remote_path = "+stream_test_small";
+        let bucket = std::sync::Arc::new(test_gc_bucket());
+        let content: Vec<u8> = object(1000);
+        let mut reader = std::io::Cursor::new(&content);
+
+        let code = bucket
+            .put_object_stream_parallel(&mut reader, remote_path)
             .await
             .unwrap();
         assert_eq!(code, 200);
