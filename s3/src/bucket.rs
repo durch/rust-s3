@@ -784,6 +784,78 @@ impl Bucket {
         request.response_data_to_writer(writer)
     }
 
+    /// Stream specified inclusive byte range of file from S3 path to a local file,
+    /// generic over T: Write.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    /// use std::fs::File;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let mut output_file = File::create("output_file").expect("Unable to create file");
+    /// let mut async_output_file = tokio::fs::File::create("async_output_file").await.expect("Unable to create file");
+    /// #[cfg(feature = "with-async-std")]
+    /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let status_code = bucket.get_object_stream_range("/test.file", 0, Some(31), &mut async_output_file).await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let status_code = bucket.get_object_stream_range("/test.file", 0, Some(31), &mut output_file)?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features. Based of the async branch
+    /// #[cfg(feature = "blocking")]
+    /// let status_code = bucket.get_object_stream_range_blocking("/test.file", 0, Some(31), &mut async_output_file)?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::async_impl]
+    pub async fn get_object_stream_range<T: AsyncWrite + Send + Unpin, S: AsRef<str>>(
+        &self,
+        path: S,
+        start: u64,
+        end: Option<u64>,
+        writer: &mut T,
+    ) -> Result<u16, S3Error> {
+        if let Some(end) = end {
+            assert!(start < end);
+        }
+
+        let command = Command::GetObjectRange { start, end };
+        let request = RequestImpl::new(self, path.as_ref(), command);
+        request.response_data_to_writer(writer).await
+    }
+
+    #[maybe_async::sync_impl]
+    pub fn get_object_stream_range<T: std::io::Write + Send, S: AsRef<str>>(
+        &self,
+        path: S,
+        start: u64,
+        end: Option<u64>,
+        writer: &mut T,
+    ) -> Result<u16, S3Error> {
+        if let Some(end) = end {
+            assert!(start < end);
+        }
+
+        let command = Command::GetObjectRange { start, end };
+        let request = RequestImpl::new(self, path.as_ref(), command);
+        request.response_data_to_writer(writer)
+    }
+
     /// Stream file from local path to s3, generic over T: Write.
     ///
     /// # Example:
