@@ -49,7 +49,9 @@ use http::header::HeaderName;
 use http::HeaderMap;
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
-pub const PARALLEL_BUFFER_SIZE: u32 = 20; // Empirical value for parallel I/O
+pub const PARALLEL_CHUNK_SIZE_READ: usize = 33_554_432; // 32 Mebibytes, min is 5 (5_242_880);
+pub const PARALLEL_BUFFER_SIZE_READ: u32 = 4; // Empirical value for parallel Read
+pub const PARALLEL_BUFFER_SIZE_WRITE: u32 = 20; // Empirical value for parallel Write
 
 const DEFAULT_REQUEST_TIMEOUT: Option<Duration> = Some(Duration::from_secs(60));
 
@@ -856,6 +858,137 @@ impl Bucket {
         request.response_data_to_writer(writer)
     }
 
+    /// Stream file from S3 path to a local file with parallel, generic over T: Write.
+    ///
+    /// `Arc` wrapping is required as Bucket object goes out of thread boundary.
+    ///
+    /// Note that only the `async` operation is supported.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    /// use std::fs::File;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let mut output_file = File::create("output_file").expect("Unable to create file");
+    /// let mut async_output_file = tokio::fs::File::create("async_output_file").await.expect("Unable to create file");
+    /// #[cfg(feature = "with-async-std")]
+    /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let status_code = bucket.get_object_stream("/test.file", &mut async_output_file).await?;
+    ///
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "with-tokio")]
+    #[maybe_async::async_impl]
+    pub async fn get_object_stream_parallel<T: AsyncWrite + Send + Unpin, S: AsRef<str>>(
+        self: &std::sync::Arc<Self>,
+        path: S,
+        writer: &mut T,
+    ) -> Result<(), S3Error> {
+        let path = path.as_ref().to_string();
+
+        let (data, _code) = self.head_object(&path).await?;
+        let content_length = match data.content_length {
+            // Skip downloading
+            Some(0) => return Ok(()),
+            // Use the parallel method
+            Some(len) if len as usize > PARALLEL_CHUNK_SIZE_READ => len as u64,
+            // Use the sequential method
+            _ => return self.get_object_stream(&path, writer).await.map(|_| ()),
+        };
+
+        let mut part_number = 0;
+        let mut part_number_writer = 1;
+
+        let mut buffers = std::collections::BTreeMap::<u32, Vec<u8>>::new();
+        let mut chunks = Vec::new();
+        let mut is_writer_finished = false;
+        let (mut start, mut end) = (0, (PARALLEL_CHUNK_SIZE_READ - 1) as u64); // both inclusive
+        let (tx, mut rx) = tokio::sync::mpsc::channel((PARALLEL_BUFFER_SIZE_READ) as usize);
+        loop {
+            // Wait for task
+            if is_writer_finished || part_number >= PARALLEL_BUFFER_SIZE_READ {
+                if let Some(result) = rx.recv().await {
+                    let (part_number, chunk, result) = result;
+                    result?;
+                    let chunk: Vec<u8> = chunk;
+                    buffers.insert(part_number, chunk);
+                }
+
+                while let Some(&part_number_buffer) = buffers.keys().next() {
+                    use tokio::io::AsyncWriteExt;
+
+                    if part_number_buffer != part_number_writer {
+                        break;
+                    }
+
+                    let chunk = buffers.remove(&part_number_writer).unwrap();
+                    writer.write_all(&chunk).await?;
+                    chunks.push(chunk);
+
+                    part_number_writer += 1;
+                }
+
+                if is_writer_finished {
+                    if part_number < part_number_writer {
+                        break;
+                    } else {
+                        continue;
+                    }
+                }
+            }
+
+            part_number += 1;
+
+            // Take a chunk
+            let mut chunk = match chunks.pop() {
+                Some(chunk) => chunk,
+                None => Vec::with_capacity(PARALLEL_CHUNK_SIZE_READ),
+            };
+
+            // Be ready for sending the context out of the thread
+            let bucket = self.clone();
+            let path = path.clone();
+
+            let tx = tx.clone();
+
+            // Download this chunk
+            tokio::spawn(async move {
+                chunk.clear();
+
+                let result = bucket
+                    .get_object_stream_range(path, start, Some(end), &mut chunk)
+                    .await;
+
+                tx.send((part_number, chunk, result)).await?;
+                Result::<_, tokio::sync::mpsc::error::SendError<_>>::Ok(())
+            });
+
+            // Update the cursor status
+            (start, end) = (
+                end + 1,
+                (end + PARALLEL_CHUNK_SIZE_READ as u64).min(content_length - 1),
+            ); // both inclusive
+            is_writer_finished = start >= content_length;
+        }
+
+        // Finish the download
+        Ok(())
+    }
+
     /// Stream file from local path to s3, generic over T: Write.
     ///
     /// # Example:
@@ -1160,10 +1293,10 @@ impl Bucket {
 
         let mut chunks = vec![first_chunk];
         let mut is_reader_finished = false;
-        let (tx, mut rx) = tokio::sync::mpsc::channel(PARALLEL_BUFFER_SIZE as usize);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(PARALLEL_BUFFER_SIZE_WRITE as usize);
         loop {
             // Wait for task
-            if is_reader_finished || part_number >= PARALLEL_BUFFER_SIZE {
+            if is_reader_finished || part_number >= PARALLEL_BUFFER_SIZE_WRITE {
                 if let Some(result) = rx.recv().await {
                     let (chunk, etag) = result?;
                     chunks.push(chunk);
@@ -1214,8 +1347,8 @@ impl Bucket {
                     Result::<_, S3Error>::Ok((
                         chunk,
                         Part {
-                        etag: String::from_utf8(data)?,
-                        part_number,
+                            etag: String::from_utf8(data)?,
+                            part_number,
                         },
                     ))
                 };

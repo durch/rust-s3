@@ -226,7 +226,7 @@ pub struct HeadObjectResult {
     pub content_language: Option<String>,
     #[serde(rename = "ContentLength")]
     /// Size of the body in bytes.
-    pub content_length: Option<i64>,
+    pub content_length: Option<i128>,
     #[serde(rename = "ContentType")]
     /// A standard MIME type describing the format of the object data.
     pub content_type: Option<String>,
