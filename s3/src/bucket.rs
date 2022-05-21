@@ -48,8 +48,8 @@ use crate::utils::error_from_response_data;
 use http::header::HeaderName;
 use http::HeaderMap;
 
-pub const PUT_OBJECT_STREAM_BUFFER_SIZE: u32 = 20; // Empirical value for parallel multipart uploading
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
+pub const PARALLEL_BUFFER_SIZE: u32 = 20; // Empirical value for parallel I/O
 
 const DEFAULT_REQUEST_TIMEOUT: Option<Duration> = Some(Duration::from_secs(60));
 
@@ -855,7 +855,11 @@ impl Bucket {
     ) -> Result<u16, S3Error> {
         // If the file is smaller CHUNK_SIZE, just do a regular upload.
         // Otherwise perform a multi-part upload.
-        let first_chunk = crate::utils::read_chunk(reader).await?;
+        let first_chunk = {
+            let mut chunk = Vec::with_capacity(CHUNK_SIZE);
+            crate::utils::read_chunk(reader, &mut chunk).await?;
+            chunk
+        };
         if first_chunk.len() < CHUNK_SIZE {
             let (data, code) = self.put_object(s3_path, first_chunk.as_slice()).await?;
             if code >= 300 {
@@ -898,7 +902,7 @@ impl Bucket {
                 break;
             }
 
-            chunk = crate::utils::read_chunk(reader).await?
+            crate::utils::read_chunk(reader, &mut chunk).await?
         }
 
         // Finish the upload
@@ -938,9 +942,10 @@ impl Bucket {
         let upload_id = &msg.upload_id;
 
         let mut part_number: u32 = 0;
+        let mut chunk = Vec::with_capacity(CHUNK_SIZE);
         let mut etags = Vec::new();
         loop {
-            let chunk = crate::utils::read_chunk(reader)?;
+            crate::utils::read_chunk(reader, &mut chunk)?;
 
             if chunk.len() < CHUNK_SIZE {
                 if part_number == 0 {
@@ -1044,6 +1049,7 @@ impl Bucket {
             .await
     }
 
+    #[cfg(feature = "with-tokio")]
     #[maybe_async::async_impl]
     async fn _put_object_stream_parallel<R: AsyncRead + Unpin>(
         self: &std::sync::Arc<Self>,
@@ -1052,7 +1058,11 @@ impl Bucket {
     ) -> Result<u16, S3Error> {
         // If the file is smaller CHUNK_SIZE, just do a regular upload.
         // Otherwise perform a multi-part upload.
-        let first_chunk = crate::utils::read_chunk(reader).await?;
+        let first_chunk = {
+            let mut chunk = Vec::with_capacity(CHUNK_SIZE);
+            crate::utils::read_chunk(reader, &mut chunk).await?;
+            chunk
+        };
         if first_chunk.len() < CHUNK_SIZE {
             let (data, code) = self.put_object(s3_path, first_chunk.as_slice()).await?;
             if code >= 300 {
@@ -1076,16 +1086,16 @@ impl Bucket {
         let mut part_number: u32 = 0;
         let mut etags = Vec::new();
 
-        let buffer_size: u32 = 20;
+        let mut chunks = vec![first_chunk];
         let mut is_reader_finished = false;
-
-        let mut first_chunk = Some(first_chunk);
-        let (tx, mut rx) = tokio::sync::mpsc::channel(buffer_size as usize);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(PARALLEL_BUFFER_SIZE as usize);
         loop {
             // Wait for task
-            if is_reader_finished || part_number >= buffer_size {
-                if let Some(etag) = rx.recv().await {
-                    etags.push(etag?);
+            if is_reader_finished || part_number >= PARALLEL_BUFFER_SIZE {
+                if let Some(result) = rx.recv().await {
+                    let (chunk, etag) = result?;
+                    chunks.push(chunk);
+                    etags.push(etag);
                 }
 
                 if is_reader_finished {
@@ -1098,10 +1108,13 @@ impl Bucket {
             }
 
             // Wait for loading chunk
-            let chunk = if part_number > 0 {
-                crate::utils::read_chunk(reader).await?
-            } else {
-                first_chunk.take().unwrap()
+            let chunk = match chunks.pop() {
+                Some(chunk) => chunk,
+                None => {
+                    let mut chunk = Vec::with_capacity(CHUNK_SIZE);
+                    crate::utils::read_chunk(reader, &mut chunk).await?;
+                    chunk
+                }
             };
 
             part_number += 1;
@@ -1126,10 +1139,13 @@ impl Bucket {
                     let request = RequestImpl::new(&bucket, &path, command);
                     let (data, _code) = request.response_data(true).await?;
 
-                    Result::<_, S3Error>::Ok(Part {
+                    Result::<_, S3Error>::Ok((
+                        chunk,
+                        Part {
                         etag: String::from_utf8(data)?,
                         part_number,
-                    })
+                        },
+                    ))
                 };
 
                 tx.send(maybe_etag.await).await?;

@@ -39,9 +39,10 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 pub async fn etag_for_path(path: impl AsRef<Path>) -> Result<String, S3Error> {
     let mut file = File::open(path).await?;
     let mut digests = Vec::new();
+    let mut chunk = Vec::with_capacity(CHUNK_SIZE);
     let mut chunks = 0;
     loop {
-        let chunk = read_chunk(&mut file).await?;
+        read_chunk(&mut file, &mut chunk).await?;
         let digest: [u8; 16] = md5::compute(&chunk).into();
         digests.extend_from_slice(&digest);
         chunks += 1;
@@ -90,12 +91,16 @@ pub fn etag_for_path(path: impl AsRef<Path>) -> Result<String, S3Error> {
 }
 
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-pub async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>, S3Error> {
-    let mut chunk = Vec::with_capacity(CHUNK_SIZE);
-    let mut take = reader.take(CHUNK_SIZE as u64);
-    take.read_to_end(&mut chunk).await?;
+pub async fn read_chunk<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    chunk: &mut Vec<u8>,
+) -> Result<(), S3Error> {
+    chunk.clear();
 
-    Ok(chunk)
+    let mut take = reader.take(CHUNK_SIZE as u64);
+    take.read_to_end(chunk).await?;
+
+    Ok(())
 }
 
 #[cfg(feature = "sync")]
@@ -225,7 +230,11 @@ mod test {
         let blob = vec![0u8; 10_000_000];
         let mut blob = Cursor::new(blob);
 
-        let result = super::read_chunk(&mut blob).await.unwrap();
+        let result = {
+            let mut chunk = Vec::new();
+            super::read_chunk(&mut blob, &mut chunk).await.unwrap();
+            chunk
+        };
 
         assert_eq!(result.len(), crate::bucket::CHUNK_SIZE);
     }
@@ -242,10 +251,18 @@ mod test {
         let blob = vec![1u8; 10_000_000];
         let mut blob = Cursor::new(blob);
 
-        let result = super::read_chunk(&mut blob).await.unwrap();
+        let result = {
+            let mut chunk = Vec::new();
+            super::read_chunk(&mut blob, &mut chunk).await.unwrap();
+            chunk
+        };
         assert_eq!(result.len(), crate::bucket::CHUNK_SIZE);
 
-        let result = super::read_chunk(&mut blob).await.unwrap();
+        let result = {
+            let mut chunk = Vec::new();
+            super::read_chunk(&mut blob, &mut chunk).await.unwrap();
+            chunk
+        };
         assert_eq!(result.len(), 1_611_392);
     }
 }
