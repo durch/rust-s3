@@ -1317,7 +1317,9 @@ impl Bucket {
                 Some(chunk) => chunk,
                 None => Vec::with_capacity(CHUNK_SIZE),
             };
-            crate::utils::read_chunk(reader, &mut chunk).await?;
+            if part_number > 0 {
+                crate::utils::read_chunk(reader, &mut chunk).await?;
+            }
 
             part_number += 1;
 
