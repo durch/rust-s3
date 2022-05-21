@@ -1085,7 +1085,7 @@ impl Bucket {
             // Wait for task
             if is_reader_finished || part_number >= buffer_size {
                 if let Some(etag) = rx.recv().await {
-                    etags.push(etag);
+                    etags.push(etag?);
                 }
 
                 if is_reader_finished {
@@ -1116,21 +1116,24 @@ impl Bucket {
 
             // Upload this chunk
             tokio::spawn(async move {
-                let command = Command::PutObject {
-                    // part_number,
-                    content: &chunk,
-                    content_type: "application/octet-stream",
-                    multipart: Some(Multipart::new(part_number, &upload_id)), // upload_id: &msg.upload_id,
-                };
-                let request = RequestImpl::new(&bucket, &path, command);
-                let (data, _code) = request.response_data(true).await?;
+                let maybe_etag = async move {
+                    let command = Command::PutObject {
+                        // part_number,
+                        content: &chunk,
+                        content_type: "application/octet-stream",
+                        multipart: Some(Multipart::new(part_number, &upload_id)), // upload_id: &msg.upload_id,
+                    };
+                    let request = RequestImpl::new(&bucket, &path, command);
+                    let (data, _code) = request.response_data(true).await?;
 
-                tx.send(Part {
-                    etag: String::from_utf8(data)?,
-                    part_number,
-                })
-                .await?;
-                Result::<_, S3Error>::Ok(())
+                    Result::<_, S3Error>::Ok(Part {
+                        etag: String::from_utf8(data)?,
+                        part_number,
+                    })
+                };
+
+                tx.send(maybe_etag.await).await?;
+                Result::<_, tokio::sync::mpsc::error::SendError<_>>::Ok(())
             });
 
             // Update the reader status
