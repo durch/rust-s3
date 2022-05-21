@@ -1313,14 +1313,11 @@ impl Bucket {
             }
 
             // Wait for loading chunk
-            let chunk = match chunks.pop() {
+            let mut chunk = match chunks.pop() {
                 Some(chunk) => chunk,
-                None => {
-                    let mut chunk = Vec::with_capacity(CHUNK_SIZE);
-                    crate::utils::read_chunk(reader, &mut chunk).await?;
-                    chunk
-                }
+                None => Vec::with_capacity(CHUNK_SIZE),
             };
+            crate::utils::read_chunk(reader, &mut chunk).await?;
 
             part_number += 1;
 
