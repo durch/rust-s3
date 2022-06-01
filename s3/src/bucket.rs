@@ -889,8 +889,21 @@ impl Bucket {
                 multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
             };
             let request = RequestImpl::new(self, &path, command);
-            let (data, _code) = request.response_data(true).await?;
-            let etag = std::str::from_utf8(data.as_slice())?;
+            let (chunk_data, chunk_code) = request.response_data(true).await?;
+
+            if !(200..300).contains(&chunk_code) {
+                // if chunk upload failed - abort the upload
+                match self.abort_upload(&path, upload_id).await {
+                    Ok(_) => {
+                        return Err(error_from_response_data(chunk_data, chunk_code)?);
+                    }
+                    Err(error) => {
+                        return Err(error);
+                    }
+                }
+            }
+
+            let etag = std::str::from_utf8(chunk_data.as_slice())?;
             etags.push(etag.to_string());
 
             if chunk.len() < CHUNK_SIZE {
@@ -956,8 +969,20 @@ impl Bucket {
                         multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
                     };
                     let request = RequestImpl::new(self, &path, command);
-                    let (data, _code) = request.response_data(true)?;
-                    let etag = std::str::from_utf8(data.as_slice())?;
+                    let (chunk_data, chunk_code) = request.response_data(true)?;
+                    if !(200..300).contains(&chunk_code) {
+                        // if chunk upload failed - abort the upload
+                        match self.abort_upload(&path, upload_id) {
+                            Ok(_) => {
+                                return Err(error_from_response_data(chunk_data, chunk_code)?);
+                            }
+                            Err(error) => {
+                                return Err(error);
+                            }
+                        }
+                    }
+
+                    let etag = std::str::from_utf8(chunk_data.as_slice())?;
                     etags.push(etag.to_string());
                     let inner_data = etags
                         .into_iter()
@@ -985,8 +1010,20 @@ impl Bucket {
                     multipart: Some(Multipart::new(part_number, upload_id)),
                 };
                 let request = RequestImpl::new(self, &path, command);
-                let (data, _code) = request.response_data(true)?;
-                let etag = std::str::from_utf8(data.as_slice())?;
+                let (chunk_data, chunk_code) = request.response_data(true)?;
+                if !(200..300).contains(&chunk_code) {
+                    // if chunk upload failed - abort the upload
+                    match self.abort_upload(&path, upload_id) {
+                        Ok(_) => {
+                            return Err(error_from_response_data(chunk_data, chunk_code)?);
+                        }
+                        Err(error) => {
+                            return Err(error);
+                        }
+                    }
+                }
+
+                let etag = std::str::from_utf8(chunk_data.as_slice())?;
                 etags.push(etag.to_string());
             }
         }
