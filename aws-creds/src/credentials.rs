@@ -285,41 +285,33 @@ impl Credentials {
 
     #[cfg(feature = "http-credentials")]
     pub fn from_instance_metadata() -> Result<Credentials, CredentialsError> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "PascalCase")]
-        struct Response {
-            access_key_id: String,
-            secret_access_key: String,
-            token: String,
-            expiration: time::OffsetDateTime, // TODO fix #163
-        }
+        let resp: CredentialsFromInstanceMetadata =
+            match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
+                Ok(credentials_path) => {
+                    // We are on ECS
+                    attohttpc::get(&format!("http://169.254.170.2{}", credentials_path))
+                        .send()?
+                        .json()?
+                }
+                Err(_) => {
+                    if !is_ec2() {
+                        return Err(CredentialsError::NotEc2);
+                    }
 
-        let resp: Response = match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
-            Ok(credentials_path) => {
-                // We are on ECS
-                attohttpc::get(&format!("http://169.254.170.2{}", credentials_path))
+                    let role = attohttpc::get(
+                        "http://169.254.169.254/latest/meta-data/iam/security-credentials",
+                    )
+                    .send()?
+                    .text()?;
+
+                    attohttpc::get(&format!(
+                        "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
+                        role
+                    ))
                     .send()?
                     .json()?
-            }
-            Err(_) => {
-                if !is_ec2() {
-                    return Err(CredentialsError::NotEc2);
                 }
-
-                let role = attohttpc::get(
-                    "http://169.254.169.254/latest/meta-data/iam/security-credentials",
-                )
-                .send()?
-                .text()?;
-
-                attohttpc::get(&format!(
-                    "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
-                    role
-                ))
-                .send()?
-                .json()?
-            }
-        };
+            };
 
         Ok(Credentials {
             access_key: Some(resp.access_key_id),
@@ -376,4 +368,34 @@ fn is_ec2() -> bool {
         }
     }
     false
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct CredentialsFromInstanceMetadata {
+    access_key_id: String,
+    secret_access_key: String,
+    token: String,
+    #[serde(with = "time::serde::rfc3339")]
+    expiration: time::OffsetDateTime, // TODO fix #163
+}
+#[cfg(test)]
+#[test]
+fn test_instance_metadata_creds_deserialization() {
+    // As documented here:
+    // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html#instance-metadata-security-credentials
+    serde_json::from_str::<CredentialsFromInstanceMetadata>(
+        r#"
+        {
+            "Code" : "Success",
+            "LastUpdated" : "2012-04-26T16:39:16Z",
+            "Type" : "AWS-HMAC",
+            "AccessKeyId" : "ASIAIOSFODNN7EXAMPLE",
+            "SecretAccessKey" : "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            "Token" : "token",
+            "Expiration" : "2017-05-17T15:09:54Z"
+        }
+    "#,
+    )
+    .unwrap();
 }
