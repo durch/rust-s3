@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::{self, FromStr};
 
@@ -24,7 +25,7 @@ use std::str::{self, FromStr};
 /// let region = Region::Custom { region: region_name, endpoint };
 ///
 /// ```
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Region {
     /// us-east-1
     UsEast1,

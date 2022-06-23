@@ -21,9 +21,7 @@ rust-ini = "0.18"
 attohttpc = { version = "0.19", default-features = false, features = ["json"], optional = true }
 url = "2"
 serde-xml-rs = "0.5"
-serde = "1"
-serde_derive = "1"
-
+serde = { version = "1.0.137", features = ["derive"] }
 
 [features]
 default = ["native-tls"]

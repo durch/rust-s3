@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use crate::error::CredentialsError;
 use ini::Ini;
+use serde::{Deserialize, Serialize};
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::env;
@@ -61,7 +62,7 @@ use url::Url;
 /// #[cfg(feature="http-credentials")]
 /// let credentials = Credentials::new(None, None, None, None, None);
 /// ```
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Credentials {
     /// AWS public access key.
     pub access_key: Option<String>,
