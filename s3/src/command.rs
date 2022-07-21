@@ -105,7 +105,9 @@ pub enum Command<'a> {
     PresignDelete {
         expiry_secs: u32,
     },
-    InitiateMultipartUpload,
+    InitiateMultipartUpload {
+        content_type: &'a str,
+    },
     UploadPart {
         part_number: u32,
         content: &'a [u8],
@@ -147,7 +149,7 @@ impl<'a> Command<'a> {
             | Command::AbortMultipartUpload { .. }
             | Command::PresignDelete { .. }
             | Command::DeleteBucket => HttpMethod::Delete,
-            Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
+            Command::InitiateMultipartUpload { .. } | Command::CompleteMultipartUpload { .. } => {
                 HttpMethod::Post
             }
             Command::HeadObject => HttpMethod::Head,
@@ -174,6 +176,7 @@ impl<'a> Command<'a> {
 
     pub fn content_type(&self) -> String {
         match self {
+            Command::InitiateMultipartUpload { content_type } => content_type.to_string(),
             Command::PutObject { content_type, .. } => content_type.to_string(),
             Command::CompleteMultipartUpload { .. } => "application/xml".into(),
             _ => "text/plain".into(),

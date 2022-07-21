@@ -200,7 +200,7 @@ pub trait Request {
         // Append to url_path
         #[allow(clippy::collapsible_match)]
         match self.command() {
-            Command::InitiateMultipartUpload | Command::ListMultipartUploads { .. } => {
+            Command::InitiateMultipartUpload { .. } | Command::ListMultipartUploads { .. } => {
                 url_str.push_str("?uploads")
             }
             Command::AbortMultipartUpload { upload_id } => {
