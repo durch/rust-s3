@@ -1,6 +1,6 @@
 [package]
 name = "aws-region"
-version = "0.24.1"
+version = "0.25.0"
 authors = ["Drazen Urch"]
 description = "Tiny Rust library for working with Amazon AWS regions, supports `s3` crate"
 repository = "https://github.com/durch/rust-s3"
@@ -16,3 +16,4 @@ path = "src/lib.rs"
 
 [dependencies]
 thiserror = "1"
+serde = { version = "1.0.137", features = ["derive"] }
