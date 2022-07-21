@@ -7,7 +7,7 @@ use crate::error::S3Error;
 use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
-use crate::request_trait::Request;
+use crate::request_trait::{Request, ResponseData};
 
 use http::HeaderMap;
 use maybe_async::maybe_async;
@@ -77,21 +77,28 @@ impl<'a> Request for SurfRequest<'a> {
         Ok(response)
     }
 
-    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16), S3Error> {
+    async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
         let mut response = self.response().await?;
         let status_code = response.status();
-        let body = response
-            .body_bytes()
-            .await
-            .map_err(|e| S3Error::Surf(e.to_string()))?;
-        let mut body_vec = Vec::new();
-        body_vec.extend_from_slice(&body[..]);
-        if etag {
+        // let body = response
+        //     .body_bytes()
+        //     .await
+        //     .map_err(|e| S3Error::Surf(e.to_string()))?;
+        // let mut body_vec = Vec::new();
+        // body_vec.extend_from_slice(&body[..]);
+        let body_vec = if etag {
             if let Some(etag) = response.header("ETag") {
-                body_vec = etag.as_str().to_string().as_bytes().to_vec();
+                etag.as_str().to_string().as_bytes().to_vec()
+            } else {
+                vec![]
             }
-        }
-        Ok((body_vec, status_code.into()))
+        } else {
+            response
+                .body_bytes()
+                .await
+                .map_err(|e| S3Error::Surf(e.to_string()))?
+        };
+        Ok(ResponseData::new(body_vec, status_code.into()))
     }
 
     async fn response_data_to_writer<T: AsyncWrite + Send + Unpin>(

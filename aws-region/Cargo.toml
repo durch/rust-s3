@@ -16,4 +16,4 @@ path = "src/lib.rs"
 
 [dependencies]
 thiserror = "1"
-serde = { version = "1.0.137", features = ["derive"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }

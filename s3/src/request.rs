@@ -9,7 +9,7 @@ use crate::bucket::Bucket;
 use crate::command::Command;
 use crate::command::HttpMethod;
 use crate::error::S3Error;
-use crate::request_trait::Request;
+use crate::request_trait::{Request, ResponseData};
 
 use tokio_stream::StreamExt;
 
@@ -73,7 +73,7 @@ impl<'a> Request for Reqwest<'a> {
             }
         }
 
-        let client = client_builder.build().expect("Could not build client!");
+        let client = client_builder.build()?;
 
         let method = match self.command.http_verb() {
             HttpMethod::Delete => reqwest::Method::DELETE,
@@ -99,20 +99,19 @@ impl<'a> Request for Reqwest<'a> {
         Ok(response)
     }
 
-    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16), S3Error> {
+    async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
         let response = self.response().await?;
         let status_code = response.status().as_u16();
-        let headers = response.headers().clone();
-        let etag_header = headers.get("ETag");
-        let body = response.bytes().await?;
-        let mut body_vec = Vec::new();
-        body_vec.extend_from_slice(&body[..]);
-        if etag {
-            if let Some(etag) = etag_header {
-                body_vec = etag.to_str()?.as_bytes().to_vec();
+        let body_vec = if etag {
+            if let Some(etag) = response.headers().get("ETag") {
+                etag.to_str()?.as_bytes().to_vec()
+            } else {
+                vec![]
             }
-        }
-        Ok((body_vec, status_code))
+        } else {
+            response.bytes().await?.to_vec()
+        };
+        Ok(ResponseData::new(body_vec, status_code))
     }
 
     async fn response_data_to_writer<T: tokio::io::AsyncWrite + Send + Unpin>(

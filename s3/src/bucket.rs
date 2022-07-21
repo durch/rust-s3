@@ -11,6 +11,7 @@ use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
 use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
+use crate::request_trait::ResponseData;
 use std::str::FromStr;
 
 pub type Query = HashMap<String, String>;
@@ -262,12 +263,12 @@ impl Bucket {
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new(name, region, credentials)?;
         let request = RequestImpl::new(&bucket, "", command);
-        let (data, response_code) = request.response_data(false).await?;
-        let response_text = std::str::from_utf8(&data)?;
+        let response_data = request.response_data(false).await?;
+        let response_text = std::str::from_utf8(response_data.bytes())?;
         Ok(CreateBucketResponse {
             bucket,
             response_text: response_text.to_string(),
-            response_code,
+            response_code: response_data.status_code(),
         })
     }
 
@@ -315,12 +316,12 @@ impl Bucket {
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new(name, region, credentials)?.with_path_style();
         let request = RequestImpl::new(&bucket, "", command);
-        let (data, response_code) = request.response_data(false).await?;
-        let response_text = std::str::from_utf8(&data)?;
+        let response_data = request.response_data(false).await?;
+        let response_text = std::str::from_utf8(response_data.bytes())?;
         Ok(CreateBucketResponse {
             bucket,
             response_text: response_text.to_string(),
-            response_code,
+            response_code: response_data.status_code(),
         })
     }
 
@@ -358,8 +359,8 @@ impl Bucket {
     pub async fn delete(&self) -> Result<u16, S3Error> {
         let command = Command::DeleteBucket;
         let request = RequestImpl::new(self, "", command);
-        let (_, response_code) = request.response_data(false).await?;
-        Ok(response_code)
+        let response_data = request.response_data(false).await?;
+        Ok(response_data.status_code())
     }
 
     /// Instantiate an existing `Bucket`.
@@ -593,8 +594,8 @@ impl Bucket {
             from: from.as_ref(),
         };
         let request = RequestImpl::new(self, to.as_ref(), command);
-        let (_, code) = request.response_data(false).await?;
-        Ok(code)
+        let response_data = request.response_data(false).await?;
+        Ok(response_data.status_code())
     }
 
     /// Gets file from an S3 path.
@@ -615,21 +616,21 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let (data, code) = bucket.get_object("/test.file").await?;
+    /// let response_data = bucket.get_object("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// let (data, code) = bucket.get_object("/test.file")?;
+    /// let response_data = bucket.get_object("/test.file")?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let (data, code) = bucket.get_object_blocking("/test.file")?;
+    /// let response_data = bucket.get_object_blocking("/test.file")?;
     /// # Ok(())
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16), S3Error> {
+    pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<ResponseData, S3Error> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data(false).await
@@ -653,16 +654,16 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let (data, code) = bucket.get_object_torrent("/test.file").await?;
+    /// let response_data = bucket.get_object_torrent("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// let (data, code) = bucket.get_object_torrent("/test.file")?;
+    /// let response_data = bucket.get_object_torrent("/test.file")?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let (data, code) = bucket.get_object_torrent_blocking("/test.file")?;
+    /// let response_data = bucket.get_object_torrent_blocking("/test.file")?;
     /// # Ok(())
     /// # }
     /// ```
@@ -670,7 +671,7 @@ impl Bucket {
     pub async fn get_object_torrent<S: AsRef<str>>(
         &self,
         path: S,
-    ) -> Result<(Vec<u8>, u16), S3Error> {
+    ) -> Result<ResponseData, S3Error> {
         let command = Command::GetObjectTorrent;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data(false).await
@@ -694,16 +695,16 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let (data, code) = bucket.get_object_range("/test.file", 0, Some(31)).await?;
+    /// let response_data = bucket.get_object_range("/test.file", 0, Some(31)).await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// let (data, code) = bucket.get_object_range("/test.file", 0, Some(31))?;
+    /// let response_data = bucket.get_object_range("/test.file", 0, Some(31))?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let (data, code) = bucket.get_object_range_blocking("/test.file", 0, Some(31))?;
+    /// let response_data = bucket.get_object_range_blocking("/test.file", 0, Some(31))?;
     /// #
     /// # Ok(())
     /// # }
@@ -714,7 +715,7 @@ impl Bucket {
         path: S,
         start: u64,
         end: Option<u64>,
-    ) -> Result<(Vec<u8>, u16), S3Error> {
+    ) -> Result<ResponseData, S3Error> {
         if let Some(end) = end {
             assert!(start < end);
         }
@@ -936,22 +937,22 @@ impl Bucket {
         // Otherwise perform a multi-part upload.
         let first_chunk = crate::utils::read_chunk(reader).await?;
         if first_chunk.len() < CHUNK_SIZE {
-            let (data, code) = self.put_object(s3_path, first_chunk.as_slice()).await?;
-            if code >= 300 {
-                return Err(error_from_response_data(data, code)?);
+            let response_data = self.put_object(s3_path, first_chunk.as_slice()).await?;
+            if response_data.status_code() >= 300 {
+                return Err(error_from_response_data(response_data)?);
             }
-            return Ok(code);
+            return Ok(response_data.status_code());
         }
 
         let command = Command::InitiateMultipartUpload { content_type };
         let request = RequestImpl::new(self, s3_path, command);
-        let (data, code) = request.response_data(false).await?;
-        if code >= 300 {
-            return Err(error_from_response_data(data, code)?);
+        let response_data = request.response_data(false).await?;
+        if response_data.status_code() >= 300 {
+            return Err(error_from_response_data(response_data)?);
         }
 
         let msg: InitiateMultipartUploadResponse =
-            serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+            serde_xml::from_str(std::str::from_utf8(response_data.bytes())?)?;
         let path = msg.key;
         let upload_id = &msg.upload_id;
 
@@ -969,13 +970,13 @@ impl Bucket {
                 content_type,
             };
             let request = RequestImpl::new(self, &path, command);
-            let (chunk_data, chunk_code) = request.response_data(true).await?;
+            let response_data = request.response_data(true).await?;
 
-            if !(200..300).contains(&chunk_code) {
+            if !(200..300).contains(&response_data.status_code()) {
                 // if chunk upload failed - abort the upload
                 match self.abort_upload(&path, upload_id).await {
                     Ok(_) => {
-                        return Err(error_from_response_data(chunk_data, chunk_code)?);
+                        return Err(error_from_response_data(response_data)?);
                     }
                     Err(error) => {
                         return Err(error);
@@ -983,7 +984,7 @@ impl Bucket {
                 }
             }
 
-            let etag = std::str::from_utf8(chunk_data.as_slice())?;
+            let etag = std::str::from_utf8(response_data.bytes())?;
             etags.push(etag.to_string());
 
             if chunk.len() < CHUNK_SIZE {
@@ -1009,10 +1010,10 @@ impl Bucket {
             data,
         };
         let complete_request = RequestImpl::new(self, &path, complete);
-        let (_data, _code) = complete_request.response_data(false).await?;
+        let _respose_data = complete_request.response_data(false).await?;
         // let response = std::str::from_utf8(data.as_slice())?;
 
-        Ok(code)
+        Ok(response_data.status_code())
     }
 
     #[maybe_async::sync_impl]
@@ -1024,12 +1025,12 @@ impl Bucket {
     ) -> Result<u16, S3Error> {
         let command = Command::InitiateMultipartUpload { content_type };
         let request = RequestImpl::new(self, s3_path, command);
-        let (data, code) = request.response_data(false)?;
-        if code >= 300 {
-            return Err(error_from_response_data(data, code)?);
+        let response_data = request.response_data(false)?;
+        if response_data.status_code() >= 300 {
+            return Err(error_from_response_data(response_data)?);
         }
         let msg: InitiateMultipartUploadResponse =
-            serde_xml::from_str(std::str::from_utf8(data.as_slice())?)?;
+            serde_xml::from_str(std::str::from_utf8(response_data.bytes())?)?;
 
         let path = msg.key;
         let upload_id = &msg.upload_id;
@@ -1054,12 +1055,12 @@ impl Bucket {
                         content_type,
                     };
                     let request = RequestImpl::new(self, &path, command);
-                    let (chunk_data, chunk_code) = request.response_data(true)?;
-                    if !(200..300).contains(&chunk_code) {
+                    let response_data = request.response_data(true)?;
+                    if !(200..300).contains(&response_data.status_code()) {
                         // if chunk upload failed - abort the upload
                         match self.abort_upload(&path, upload_id) {
                             Ok(_) => {
-                                return Err(error_from_response_data(chunk_data, chunk_code)?);
+                                return Err(error_from_response_data(response_data)?);
                             }
                             Err(error) => {
                                 return Err(error);
@@ -1067,7 +1068,7 @@ impl Bucket {
                         }
                     }
 
-                    let etag = std::str::from_utf8(chunk_data.as_slice())?;
+                    let etag = std::str::from_utf8(response_data.bytes())?;
                     etags.push(etag.to_string());
                     let inner_data = etags
                         .into_iter()
@@ -1083,7 +1084,7 @@ impl Bucket {
                         data,
                     };
                     let complete_request = RequestImpl::new(self, &path, complete);
-                    let (_data, _code) = complete_request.response_data(false)?;
+                    let _response_data = complete_request.response_data(false)?;
                     // let response = std::str::from_utf8(data.as_slice())?;
                 }
                 break;
@@ -1095,12 +1096,12 @@ impl Bucket {
                     content_type,
                 };
                 let request = RequestImpl::new(self, &path, command);
-                let (chunk_data, chunk_code) = request.response_data(true)?;
-                if !(200..300).contains(&chunk_code) {
+                let response_data = request.response_data(true)?;
+                if !(200..300).contains(&response_data.status_code()) {
                     // if chunk upload failed - abort the upload
                     match self.abort_upload(&path, upload_id) {
                         Ok(_) => {
-                            return Err(error_from_response_data(chunk_data, chunk_code)?);
+                            return Err(error_from_response_data(response_data)?);
                         }
                         Err(error) => {
                             return Err(error);
@@ -1108,11 +1109,11 @@ impl Bucket {
                     }
                 }
 
-                let etag = std::str::from_utf8(chunk_data.as_slice())?;
+                let etag = std::str::from_utf8(response_data.bytes())?;
                 etags.push(etag.to_string());
             }
         }
-        Ok(code)
+        Ok(response_data.status_code())
     }
 
     /// Get Bucket location.
@@ -1150,15 +1151,15 @@ impl Bucket {
     #[maybe_async::maybe_async]
     pub async fn location(&self) -> Result<(Region, u16), S3Error> {
         let request = RequestImpl::new(self, "?location", Command::GetBucketLocation);
-        let result = request.response_data(false).await?;
-        let region_string = String::from_utf8_lossy(&result.0);
+        let response_data = request.response_data(false).await?;
+        let region_string = String::from_utf8_lossy(response_data.bytes());
         let region = match serde_xml::from_reader(region_string.as_bytes()) {
             Ok(r) => {
                 let location_result: BucketLocationResult = r;
                 location_result.region.parse()?
             }
             Err(e) => {
-                if result.1 == 200 {
+                if response_data.status_code() == 200 {
                     Region::Custom {
                         region: "Custom".to_string(),
                         endpoint: "".to_string(),
@@ -1171,7 +1172,7 @@ impl Bucket {
                 }
             }
         };
-        Ok((region, result.1))
+        Ok((region, response_data.status_code()))
     }
 
     /// Delete file from an S3 path.
@@ -1192,22 +1193,22 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let (_, code) = bucket.delete_object("/test.file").await?;
+    /// let response_data = bucket.delete_object("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// let (_, code) = bucket.delete_object("/test.file")?;
+    /// let response_data = bucket.delete_object("/test.file")?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let (_, code) = bucket.delete_object_blocking("/test.file")?;
+    /// let response_data = bucket.delete_object_blocking("/test.file")?;
     /// #
     /// # Ok(())
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<(Vec<u8>, u16), S3Error> {
+    pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<ResponseData, S3Error> {
         let command = Command::DeleteObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data(false).await
@@ -1276,16 +1277,16 @@ impl Bucket {
     /// let content = "I want to go to S3".as_bytes();
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let (_, code) = bucket.put_object_with_content_type("/test.file", content, "text/plain").await?;
+    /// let response_data = bucket.put_object_with_content_type("/test.file", content, "text/plain").await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// let (_, code) = bucket.put_object_with_content_type("/test.file", content, "text/plain")?;
+    /// let response_data = bucket.put_object_with_content_type("/test.file", content, "text/plain")?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let (_, code) = bucket.put_object_with_content_type_blocking("/test.file", content, "text/plain")?;
+    /// let response_data = bucket.put_object_with_content_type_blocking("/test.file", content, "text/plain")?;
     /// #
     /// # Ok(())
     /// # }
@@ -1296,7 +1297,7 @@ impl Bucket {
         path: S,
         content: &[u8],
         content_type: &str,
-    ) -> Result<(Vec<u8>, u16), S3Error> {
+    ) -> Result<ResponseData, S3Error> {
         let command = Command::PutObject {
             content,
             content_type,
@@ -1325,16 +1326,16 @@ impl Bucket {
     /// let content = "I want to go to S3".as_bytes();
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let (_, code) = bucket.put_object("/test.file", content).await?;
+    /// let response_data = bucket.put_object("/test.file", content).await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// let (_, code) = bucket.put_object("/test.file", content)?;
+    /// let response_data = bucket.put_object("/test.file", content)?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let (_, code) = bucket.put_object_blocking("/test.file", content)?;
+    /// let response_data = bucket.put_object_blocking("/test.file", content)?;
     /// #
     /// # Ok(())
     /// # }
@@ -1344,7 +1345,7 @@ impl Bucket {
         &self,
         path: S,
         content: &[u8],
-    ) -> Result<(Vec<u8>, u16), S3Error> {
+    ) -> Result<ResponseData, S3Error> {
         self.put_object_with_content_type(path, content, "application/octet-stream")
             .await
     }
@@ -1388,16 +1389,16 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let (_, code) = bucket.put_object_tagging("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).await?;
+    /// let response_data = bucket.put_object_tagging("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// let (_, code) = bucket.put_object_tagging("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")])?;
+    /// let response_data = bucket.put_object_tagging("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")])?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let (_, code) = bucket.put_object_tagging_blocking("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")])?;
+    /// let response_data = bucket.put_object_tagging_blocking("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")])?;
     /// #
     /// # Ok(())
     /// # }
@@ -1407,7 +1408,7 @@ impl Bucket {
         &self,
         path: &str,
         tags: &[(S, S)],
-    ) -> Result<(Vec<u8>, u16), S3Error> {
+    ) -> Result<ResponseData, S3Error> {
         let content = self._tags_xml(tags);
         let command = Command::PutObjectTagging { tags: &content };
         let request = RequestImpl::new(self, path, command);
@@ -1432,16 +1433,16 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let (_, code) = bucket.delete_object_tagging("/test.file").await?;
+    /// let response_data = bucket.delete_object_tagging("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// let (_, code) = bucket.delete_object_tagging("/test.file")?;
+    /// let response_data = bucket.delete_object_tagging("/test.file")?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let (_, code) = bucket.delete_object_tagging_blocking("/test.file")?;
+    /// let response_data = bucket.delete_object_tagging_blocking("/test.file")?;
     /// #
     /// # Ok(())
     /// # }
@@ -1450,7 +1451,7 @@ impl Bucket {
     pub async fn delete_object_tagging<S: AsRef<str>>(
         &self,
         path: S,
-    ) -> Result<(Vec<u8>, u16), S3Error> {
+    ) -> Result<ResponseData, S3Error> {
         let command = Command::DeleteObjectTagging;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data(false).await
@@ -1474,16 +1475,16 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let (_, code) = bucket.get_object_tagging("/test.file").await?;
+    /// let response_data = bucket.get_object_tagging("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// let (_, code) = bucket.get_object_tagging("/test.file")?;
+    /// let response_data = bucket.get_object_tagging("/test.file")?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let (_, code) = bucket.get_object_tagging_blocking("/test.file")?;
+    /// let response_data = bucket.get_object_tagging_blocking("/test.file")?;
     /// #
     /// # Ok(())
     /// # }
@@ -1500,8 +1501,8 @@ impl Bucket {
 
         let mut tags = Vec::new();
 
-        if result.1 == 200 {
-            let result_string = String::from_utf8_lossy(&result.0);
+        if result.status_code() == 200 {
+            let result_string = String::from_utf8_lossy(result.bytes());
             let ns = "http://s3.amazonaws.com/doc/2006-03-01/";
             if let Ok(tagging) = result_string.parse::<Element>() {
                 for tag_set in tagging.children() {
@@ -1526,7 +1527,7 @@ impl Bucket {
             }
         }
 
-        Ok((tags, result.1))
+        Ok((tags, result.status_code()))
     }
 
     #[maybe_async::maybe_async]
@@ -1558,10 +1559,10 @@ impl Bucket {
             }
         };
         let request = RequestImpl::new(self, "/", command);
-        let (response, status_code) = request.response_data(false).await?;
-        let list_bucket_result = serde_xml::from_reader(response.as_slice())?;
+        let response_data = request.response_data(false).await?;
+        let list_bucket_result = serde_xml::from_reader(response_data.bytes())?;
 
-        Ok((list_bucket_result, status_code))
+        Ok((list_bucket_result, response_data.status_code()))
     }
 
     /// List the contents of an S3 bucket.
@@ -1641,10 +1642,10 @@ impl Bucket {
             max_uploads,
         };
         let request = RequestImpl::new(self, "/", command);
-        let (response, status_code) = request.response_data(false).await?;
-        let list_bucket_result = serde_xml::from_reader(response.as_slice())?;
+        let response_data = request.response_data(false).await?;
+        let list_bucket_result = serde_xml::from_reader(response_data.bytes())?;
 
-        Ok((list_bucket_result, status_code))
+        Ok((list_bucket_result, response_data.status_code()))
     }
 
     /// List the ongoing multipart uploads of an S3 bucket. This may be useful to cleanup failed
@@ -1743,13 +1744,13 @@ impl Bucket {
     pub async fn abort_upload(&self, key: &str, upload_id: &str) -> Result<(), S3Error> {
         let abort = Command::AbortMultipartUpload { upload_id };
         let abort_request = RequestImpl::new(self, key, abort);
-        let (content, code) = abort_request.response_data(false).await?;
+        let response_data = abort_request.response_data(false).await?;
 
-        if (200..300).contains(&code) {
+        if (200..300).contains(&response_data.status_code()) {
             Ok(())
         } else {
-            let utf8_content = String::from_utf8(content)?;
-            Err(S3Error::Http(code, utf8_content))
+            let utf8_content = String::from_utf8(response_data.bytes().to_vec())?;
+            Err(S3Error::Http(response_data.status_code(), utf8_content))
         }
     }
 
@@ -2056,21 +2057,20 @@ mod test {
         let s3_path = "/+test.file";
         let test: Vec<u8> = object(3072);
 
-        let (_data, code) = bucket.put_object(s3_path, &test).await.unwrap();
+        let response_data = bucket.put_object(s3_path, &test).await.unwrap();
         // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(code, 200);
-        let (data, code) = bucket.get_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
+        assert_eq!(response_data.status_code(), 200);
+        let response_data = bucket.get_object(s3_path).await.unwrap();
+        assert_eq!(response_data.status_code(), 200);
         // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test, data);
+        assert_eq!(test, response_data.bytes());
 
-        let (data, code) = bucket
+        let response_data = bucket
             .get_object_range(s3_path, 100, Some(1000))
             .await
             .unwrap();
-        assert_eq!(code, 206);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test[100..1001].to_vec(), data);
+        assert_eq!(response_data.status_code(), 206);
+        assert_eq!(test[100..1001].to_vec(), response_data.bytes());
 
         let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
         assert_eq!(code, 200);
@@ -2079,8 +2079,8 @@ mod test {
             "application/octet-stream".to_owned()
         );
         // println!("{:?}", head_object_result);
-        let (_, code) = bucket.delete_object(s3_path).await.unwrap();
-        assert_eq!(code, 204);
+        let response_data = bucket.delete_object(s3_path).await.unwrap();
+        assert_eq!(response_data.status_code(), 204);
     }
 
     #[ignore]
@@ -2106,22 +2106,22 @@ mod test {
             },
         ];
         let empty_tags: Vec<Tag> = Vec::new();
-        let (_data, code) = bucket
+        let response_data = bucket
             .put_object("tagging_test", b"Gimme tags")
             .await
             .unwrap();
-        assert_eq!(code, 200);
+        assert_eq!(response_data.status_code(), 200);
         let (tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
         assert_eq!(tags, empty_tags);
-        let (_body, code) = bucket
+        let response_data = bucket
             .put_object_tagging("tagging_test", &[("Tag1", "Value1"), ("Tag2", "Value2")])
             .await
             .unwrap();
-        assert_eq!(code, 200);
+        assert_eq!(response_data.status_code(), 200);
         // This could be eventually consistent now
         let (_tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
         // assert_eq!(tags, target_tags)
-        let (_data, _code) = bucket.delete_object("tagging_test").await.unwrap();
+        let _response_data = bucket.delete_object("tagging_test").await.unwrap();
     }
 
     /// Test multi-part upload
@@ -2239,7 +2239,7 @@ mod test {
     //         116, 114, 101, 97, 109, 95, 116, 101, 115, 116, 95, 98, 105, 103, 101, 101
     //     ]
     // );
-    //     let (_, code) = bucket.delete_object(remote_path).await.unwrap();
+    //     let response_data = bucket.delete_object(remote_path).await.unwrap();
     //     assert_eq!(code, 204);
     //     std::fs::remove_file(local_path).unwrap_or_else(|_| {});
     // }
@@ -2285,8 +2285,8 @@ mod test {
         assert_eq!(code, 200);
         assert_eq!(content, writer);
 
-        let (_, code) = bucket.delete_object(remote_path).await.unwrap();
-        assert_eq!(code, 204);
+        let response_data = bucket.delete_object(remote_path).await.unwrap();
+        assert_eq!(response_data.status_code(), 204);
     }
 
     #[cfg(feature = "blocking")]
@@ -2297,23 +2297,23 @@ mod test {
         let test: Vec<u8> = object(3072);
 
         // Test PutObject
-        let (_data, code) = bucket.put_object_blocking(s3_path, &test).unwrap();
+        let response_data = bucket.put_object_blocking(s3_path, &test).unwrap();
         // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(code, 200);
+        assert_eq!(response_data.status_code(), 200);
 
         // Test GetObject
-        let (data, code) = bucket.get_object_blocking(s3_path).unwrap();
-        assert_eq!(code, 200);
+        let response_data = bucket.get_object_blocking(s3_path).unwrap();
+        assert_eq!(response_data.status_code(), 200);
         // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test, data);
+        assert_eq!(test, response_data.bytes());
 
         // Test GetObject with a range
-        let (data, code) = bucket
+        let response_data = bucket
             .get_object_range_blocking(s3_path, 100, Some(1000))
             .unwrap();
-        assert_eq!(code, 206);
+        assert_eq!(response_data.status_code(), 206);
         // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test[100..1001].to_vec(), data);
+        assert_eq!(test[100..1001].to_vec(), response_data.bytes());
 
         // Test HeadObject
         let (head_object_result, code) = bucket.head_object_blocking(s3_path).unwrap();
@@ -2325,10 +2325,10 @@ mod test {
         // println!("{:?}", head_object_result);
 
         // Put some additional objects, so that we can test ListObjects
-        let (_data, code) = bucket.put_object_blocking(s3_path_2, &test).unwrap();
-        assert_eq!(code, 200);
-        let (_data, code) = bucket.put_object_blocking(s3_path_3, &test).unwrap();
-        assert_eq!(code, 200);
+        let response_data = bucket.put_object_blocking(s3_path_2, &test).unwrap();
+        assert_eq!(response_data.status_code(), 200);
+        let response_data = bucket.put_object_blocking(s3_path_3, &test).unwrap();
+        assert_eq!(response_data.status_code(), 200);
 
         // Test ListObjects, with continuation
         let (result, code) = bucket
@@ -2362,12 +2362,12 @@ mod test {
         assert!(result.next_continuation_token.is_none());
 
         // cleanup (and test Delete)
-        let (_, code) = bucket.delete_object_blocking(s3_path).unwrap();
-        assert_eq!(code, 204);
-        let (_, code) = bucket.delete_object_blocking(s3_path_2).unwrap();
-        assert_eq!(code, 204);
-        let (_, code) = bucket.delete_object_blocking(s3_path_3).unwrap();
-        assert_eq!(code, 204);
+        let response_data = bucket.delete_object_blocking(s3_path).unwrap();
+        assert_eq!(code, 200);
+        let response_data = bucket.delete_object_blocking(s3_path_2).unwrap();
+        assert_eq!(code, 200);
+        let response_data = bucket.delete_object_blocking(s3_path_3).unwrap();
+        assert_eq!(code, 200);
     }
 
     #[ignore]
@@ -2415,8 +2415,7 @@ mod test {
             },
             test_minio_credentials(),
             BucketConfiguration::default(),
-        )
-        .unwrap();
+        );
         put_head_get_list_delete_object_blocking(test_minio_bucket())
     }
 
@@ -2495,7 +2494,7 @@ mod test {
             BucketConfiguration::default(),
         )
         .await
-        .unwrap();
+        .ok();
         put_head_get_delete_object(test_minio_bucket()).await;
     }
 

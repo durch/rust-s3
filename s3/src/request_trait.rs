@@ -15,13 +15,32 @@ use http::header::{
 use http::HeaderMap;
 use std::fmt::Write as _;
 
+pub struct ResponseData {
+    bytes: Vec<u8>,
+    status_code: u16,
+}
+
+impl ResponseData {
+    pub fn new(bytes: Vec<u8>, status_code: u16) -> ResponseData {
+        ResponseData { bytes, status_code }
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn status_code(&self) -> u16 {
+        self.status_code
+    }
+}
+
 #[maybe_async::maybe_async]
 pub trait Request {
     type Response;
     type HeaderMap;
 
     async fn response(&self) -> Result<Self::Response, S3Error>;
-    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16), S3Error>;
+    async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error>;
     #[cfg(feature = "with-tokio")]
     async fn response_data_to_writer<T: tokio::io::AsyncWrite + Send + Unpin>(
         &self,

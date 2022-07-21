@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use crate::error::S3Error;
+use crate::request_trait::ResponseData;
 use crate::{bucket::CHUNK_SIZE, serde_types::HeadObjectResult};
 
 #[cfg(feature = "with-async-std")]
@@ -171,9 +172,9 @@ impl From<&http::HeaderMap> for HeadObjectResult {
     }
 }
 
-pub(crate) fn error_from_response_data(data: Vec<u8>, code: u16) -> Result<S3Error, S3Error> {
-    let utf8_content = String::from_utf8(data)?;
-    Err(S3Error::Http(code, utf8_content))
+pub(crate) fn error_from_response_data(response_data: ResponseData) -> Result<S3Error, S3Error> {
+    let utf8_content = String::from_utf8(response_data.bytes().to_vec())?;
+    Err(S3Error::Http(response_data.status_code(), utf8_content))
 }
 
 #[cfg(test)]
