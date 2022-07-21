@@ -1,5 +1,4 @@
-#![allow(dead_code)]
-
+#[cfg(feature="serde")]
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::{self, FromStr};
@@ -7,6 +6,8 @@ use std::str::{self, FromStr};
 /// AWS S3 [region identifier](https://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region),
 /// passing in custom values is also possible, in that case it is up to you to pass a valid endpoint,
 /// otherwise boom will happen :)
+/// 
+/// Serde support available with the `serde` feature
 ///
 /// # Example
 /// ```
@@ -25,7 +26,8 @@ use std::str::{self, FromStr};
 /// let region = Region::Custom { region: region_name, endpoint };
 ///
 /// ```
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Region {
     /// us-east-1
     UsEast1,

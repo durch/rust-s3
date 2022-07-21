@@ -22,13 +22,13 @@ path = "src/lib.rs"
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
 attohttpc = { version = "0.19", optional = true, default-features = false }
-aws-creds = { version = "0.30.0", default-features = false }
+aws-creds = { version = "0.29.1", default-features = false }
 # aws-creds = { path = "../aws-creds", default-features = false }
-aws-region = "0.25.0"
+aws-region = "0.24.1"
 # aws-region = {path = "../aws-region"}
 base64 = "0.13"
 cfg-if = "1"
-time = { version = "0.3.6", features = ["formatting", "macros"] }
+time = { version = "^0.3.6", features = ["formatting", "macros"] }
 futures-io = { version = "0.3", optional = true }
 futures-util = { version = "0.3", optional = true, features = ["io"] }
 hex = "0.4"

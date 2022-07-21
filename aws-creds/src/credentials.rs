@@ -74,50 +74,41 @@ pub struct Credentials {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
 pub struct AssumeRoleWithWebIdentityResponse {
-    #[serde(rename = "AssumeRoleWithWebIdentityResult")]
     pub assume_role_with_web_identity_result: AssumeRoleWithWebIdentityResult,
-    #[serde(rename = "ResponseMetadata")]
     pub response_metadata: ResponseMetadata,
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
 pub struct AssumeRoleWithWebIdentityResult {
-    #[serde(rename = "SubjectFromWebIdentityToken")]
     pub subject_from_web_identity_token: String,
-    #[serde(rename = "Audience")]
     pub audience: String,
-    #[serde(rename = "AssumedRoleUser")]
     pub assumed_role_user: AssumedRoleUser,
-    #[serde(rename = "Credentials")]
     pub credentials: StsResponseCredentials,
-    #[serde(rename = "Provider")]
     pub provider: String,
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
 pub struct StsResponseCredentials {
-    #[serde(rename = "SessionToken")]
     pub session_token: String,
-    #[serde(rename = "SecretAccessKey")]
     pub secret_access_key: String,
-    #[serde(rename = "Expiration")]
     pub expiration: String,
-    #[serde(rename = "AccessKeyId")]
     pub access_key_id: String,
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
 pub struct AssumedRoleUser {
-    #[serde(rename = "Arn")]
     pub arn: String,
-    #[serde(rename = "AssumedRoleId")]
     pub assumed_role_id: String,
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
 pub struct ResponseMetadata {
-    #[serde(rename = "RequestId")]
     pub request_id: String,
 }
 
