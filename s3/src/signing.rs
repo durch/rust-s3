@@ -16,6 +16,8 @@ use crate::error::S3Error;
 use crate::region::Region;
 use crate::LONG_DATETIME;
 
+use std::fmt::Write as _;
+
 const SHORT_DATE: &[time::format_description::FormatItem<'static>] =
     format_description!("[year][month][day]");
 
@@ -82,7 +84,7 @@ pub fn canonical_query_string(uri: &Url) -> String {
     keyvalues.sort();
     let keyvalues: Vec<String> = keyvalues
         .iter()
-        .map(|(k, v)| uri_encode(k, true) + "=" + &uri_encode(v, true))
+        .map(|(k, v)| format!("{}={}", uri_encode(k, true), uri_encode(v, true)))
         .collect();
     keyvalues.join("&")
 }
@@ -221,10 +223,7 @@ pub fn authorization_query_params_no_sig(
     );
 
     if let Some(token) = token {
-        query_params.push_str(&format!(
-            "&X-Amz-Security-Token={}",
-            uri_encode(token, true)
-        ))
+        write!(query_params, "&X-Amz-Security-Token={}", token).expect("Could not write token");
     }
 
     Ok(query_params)

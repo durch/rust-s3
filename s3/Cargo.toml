@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.31.0"
+version = "0.32.0"
 authors = ["Drazen Urch"]
 description = "Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -48,7 +48,7 @@ surf = { version = "2", optional = true, default-features = false, features = ["
 tokio = { version = "1", features = ["io-util"], optional = true, default-features = false }
 tokio-stream = { version = "0.1", optional = true }
 url = "2"
-minidom = { version = "0.14", optional = true }
+minidom = { version = "0.15", optional = true }
 
 block_on_proc = { version = "0.2", optional = true }
 

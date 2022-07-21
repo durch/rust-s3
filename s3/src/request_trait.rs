@@ -13,6 +13,7 @@ use http::header::{
     HeaderName, ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DATE, HOST, RANGE,
 };
 use http::HeaderMap;
+use std::fmt::Write as _;
 
 #[maybe_async::maybe_async]
 pub trait Request {
@@ -204,10 +205,10 @@ pub trait Request {
                 url_str.push_str("?uploads")
             }
             Command::AbortMultipartUpload { upload_id } => {
-                url_str.push_str(&format!("?uploadId={}", upload_id))
+                write!(url_str, "?uploadId={}", upload_id).expect("Could not write to url_str");
             }
             Command::CompleteMultipartUpload { upload_id, .. } => {
-                url_str.push_str(&format!("?uploadId={}", upload_id))
+                write!(url_str, "?uploadId={}", upload_id).expect("Could not write to url_str");
             }
             Command::GetObjectTorrent => url_str.push_str("?torrent"),
             Command::PutObject { multipart, .. } => {
@@ -225,8 +226,6 @@ pub trait Request {
         for (key, value) in &self.bucket().extra_query {
             url.query_pairs_mut().append_pair(key, value);
         }
-
-        // println!("{}", url_str);
 
         if let Command::ListObjectsV2 {
             prefix,

@@ -24,7 +24,7 @@ attohttpc = { version = "0.19", default-features = false, features = [
 url = "2"
 serde-xml-rs = "0.5"
 serde = { version = "1", features = ["derive"] }
-time = { version = "0.3", features = ["serde"] }
+time = { version = "^0.3.6", features = ["serde", "serde-well-known"] }
 
 [features]
 default = ["native-tls"]
