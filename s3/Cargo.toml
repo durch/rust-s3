@@ -28,7 +28,7 @@ aws-region = "0.25.0"
 # aws-region = {path = "../aws-region"}
 base64 = "0.13"
 cfg-if = "1"
-time = { version = "0.3", features = ["formatting", "macros"] }
+time = { version = "0.3.6", features = ["formatting", "macros"] }
 futures-io = { version = "0.3", optional = true }
 futures-util = { version = "0.3", optional = true, features = ["io"] }
 hex = "0.4"
