@@ -2060,20 +2060,14 @@ mod test {
     }
 
     fn test_r2_bucket() -> Bucket {
-        let mut bucket = Bucket::new(
+        Bucket::new(
             "rust-s3",
-            Region::Custom {
-                region: "auto".to_string(),
-                endpoint:
-                    "https://f048f3132be36fa1aaa8611992002b3f.r2.cloudflarestorage.com"
-                        .to_string(),
+            Region::R2 {
+                account_id: "f048f3132be36fa1aaa8611992002b3f".to_string(),
             },
             test_r2_credentials(),
         )
-        .unwrap();
-        bucket.set_listobjects_v1();
-        bucket.with_path_style();
-        bucket
+        .unwrap()
     }
 
     fn object(size: u32) -> Vec<u8> {

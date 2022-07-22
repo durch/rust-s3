@@ -92,7 +92,13 @@ pub enum Region {
     /// Wasabi eu-central-1
     WaEuCentral1,
     /// Custom region
-    Custom { region: String, endpoint: String },
+    R2 {
+        account_id: String,
+    },
+    Custom {
+        region: String,
+        endpoint: String,
+    },
 }
 
 impl fmt::Display for Region {
@@ -130,6 +136,7 @@ impl fmt::Display for Region {
             WaUsEast2 => write!(f, "us-east-2"),
             WaUsWest1 => write!(f, "us-west-1"),
             WaEuCentral1 => write!(f, "eu-central-1"),
+            R2 { .. } => write!(f, "auto"),
             Custom { ref region, .. } => write!(f, "{}", region),
         }
     }
@@ -218,6 +225,7 @@ impl Region {
             WaUsEast2 => String::from("s3.us-east-2.wasabisys.com"),
             WaUsWest1 => String::from("s3.us-west-1.wasabisys.com"),
             WaEuCentral1 => String::from("s3.eu-central-1.wasabisys.com"),
+            R2 { ref account_id } => format!("{}.r2.cloudflarestorage.com", account_id),
             Custom { ref endpoint, .. } => endpoint.to_string(),
         }
     }
