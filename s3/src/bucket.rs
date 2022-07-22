@@ -1999,6 +1999,17 @@ mod test {
         .unwrap()
     }
 
+    fn test_r2_credentials() -> Credentials {
+        Credentials::new(
+            Some(&env::var("R2_ACCESS_KEY_ID").unwrap()),
+            Some(&env::var("R2_SECRET_ACCESS_KEY").unwrap()),
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+    }
+
     fn test_aws_bucket() -> Bucket {
         Bucket::new(
             "rust-s3-test",
@@ -2048,12 +2059,29 @@ mod test {
         Bucket::new("rust-s3", Region::DoFra1, test_digital_ocean_credentials()).unwrap()
     }
 
+    fn test_r2_bucket() -> Bucket {
+        let mut bucket = Bucket::new(
+            "rust-s3",
+            Region::Custom {
+                region: "auto".to_string(),
+                endpoint:
+                    "https://f048f3132be36fa1aaa8611992002b3f.r2.cloudflarestorage.com"
+                        .to_string(),
+            },
+            test_r2_credentials(),
+        )
+        .unwrap();
+        bucket.set_listobjects_v1();
+        bucket.with_path_style();
+        bucket
+    }
+
     fn object(size: u32) -> Vec<u8> {
         (0..size).map(|_| 33).collect()
     }
 
     #[maybe_async::maybe_async]
-    async fn put_head_get_delete_object(bucket: Bucket) {
+    async fn put_head_get_delete_object(bucket: Bucket, head: bool) {
         let s3_path = "/+test.file";
         let test: Vec<u8> = object(3072);
 
@@ -2071,13 +2099,15 @@ mod test {
             .unwrap();
         assert_eq!(response_data.status_code(), 206);
         assert_eq!(test[100..1001].to_vec(), response_data.bytes());
+        if head {
+            let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+            assert_eq!(code, 200);
+            assert_eq!(
+                head_object_result.content_type.unwrap(),
+                "application/octet-stream".to_owned()
+            );
+        }
 
-        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-        assert_eq!(code, 200);
-        assert_eq!(
-            head_object_result.content_type.unwrap(),
-            "application/octet-stream".to_owned()
-        );
         // println!("{:?}", head_object_result);
         let response_data = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 204);
@@ -2439,7 +2469,7 @@ mod test {
         )
     )]
     async fn aws_put_head_get_delete_object() {
-        put_head_get_delete_object(test_aws_bucket()).await;
+        put_head_get_delete_object(test_aws_bucket(), true).await;
     }
 
     #[ignore]
@@ -2458,7 +2488,7 @@ mod test {
         )
     )]
     async fn gc_test_put_head_get_delete_object() {
-        put_head_get_delete_object(test_gc_bucket()).await;
+        put_head_get_delete_object(test_gc_bucket(), true).await;
     }
 
     #[ignore]
@@ -2471,7 +2501,7 @@ mod test {
         )
     )]
     async fn wasabi_test_put_head_get_delete_object() {
-        put_head_get_delete_object(test_wasabi_bucket()).await;
+        put_head_get_delete_object(test_wasabi_bucket(), true).await;
     }
 
     #[ignore]
@@ -2495,7 +2525,7 @@ mod test {
         )
         .await
         .ok();
-        put_head_get_delete_object(test_minio_bucket()).await;
+        put_head_get_delete_object(test_minio_bucket(), true).await;
     }
 
     #[ignore]
@@ -2508,7 +2538,20 @@ mod test {
         )
     )]
     async fn digital_ocean_test_put_head_get_delete_object() {
-        put_head_get_delete_object(test_digital_ocean_bucket()).await;
+        put_head_get_delete_object(test_digital_ocean_bucket(), true).await;
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn r2_test_put_head_get_delete_object() {
+        put_head_get_delete_object(test_r2_bucket(), false).await;
     }
 
     #[test]
