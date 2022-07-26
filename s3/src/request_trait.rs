@@ -32,6 +32,10 @@ impl ResponseData {
     pub fn status_code(&self) -> u16 {
         self.status_code
     }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
 }
 
 #[maybe_async::maybe_async]
