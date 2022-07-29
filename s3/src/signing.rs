@@ -84,7 +84,13 @@ pub fn canonical_query_string(uri: &Url) -> String {
     keyvalues.sort();
     let keyvalues: Vec<String> = keyvalues
         .iter()
-        .map(|(k, v)| format!("{}={}", uri_encode(k, true), uri_encode(v, true)))
+        .map(|(k, v)| {
+            format!(
+                "{}={}",
+                utf8_percent_encode(k, FRAGMENT_SLASH),
+                utf8_percent_encode(v, FRAGMENT_SLASH)
+            )
+        })
         .collect();
     keyvalues.join("&")
 }
@@ -195,10 +201,8 @@ pub fn authorization_query_params_no_sig(
     custom_headers: Option<&HeaderMap>,
     token: Option<&str>,
 ) -> Result<String, S3Error> {
-    let credentials = uri_encode(
-        &format!("{}/{}", access_key, scope_string(datetime, region)),
-        true,
-    );
+    let credentials = format!("{}/{}", access_key, scope_string(datetime, region));
+    let credentials = utf8_percent_encode(&credentials, FRAGMENT_SLASH);
 
     let mut signed_headers = vec!["host".to_string()];
 
@@ -208,7 +212,8 @@ pub fn authorization_query_params_no_sig(
         }
     }
 
-    let signed_headers_string = uri_encode(&signed_headers.join(";"), true);
+    let signed_headers = signed_headers.join(";");
+    let signed_headers = utf8_percent_encode(&signed_headers, FRAGMENT_SLASH);
 
     let mut query_params = format!(
         "?X-Amz-Algorithm=AWS4-HMAC-SHA256\
@@ -219,11 +224,16 @@ pub fn authorization_query_params_no_sig(
         credentials = credentials,
         long_date = datetime.format(LONG_DATETIME).unwrap(),
         expires = expires,
-        signed_headers = signed_headers_string
+        signed_headers = signed_headers,
     );
 
     if let Some(token) = token {
-        write!(query_params, "&X-Amz-Security-Token={}", token).expect("Could not write token");
+        write!(
+            query_params,
+            "&X-Amz-Security-Token={}",
+            utf8_percent_encode(token, FRAGMENT_SLASH)
+        )
+        .expect("Could not write token");
     }
 
     Ok(query_params)
@@ -235,10 +245,13 @@ pub fn flatten_queries(queries: Option<&HashMap<String, String>>) -> String {
         Some(queries) => {
             let mut query_str = String::new();
             for (k, v) in queries {
-                query_str.push('&');
-                query_str.push_str(&uri_encode(k, true));
-                query_str.push('=');
-                query_str.push_str(&uri_encode(v, true));
+                write!(
+                    query_str,
+                    "&{}={}",
+                    utf8_percent_encode(k, FRAGMENT_SLASH),
+                    utf8_percent_encode(v, FRAGMENT_SLASH),
+                )
+                .unwrap();
             }
             query_str
         }
