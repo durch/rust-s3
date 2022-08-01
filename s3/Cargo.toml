@@ -59,11 +59,11 @@ minidom = { version = "0.15", optional = true }
 
 block_on_proc = { version = "0.2", optional = true }
 
-bytes = "1.2.1"
+bytes = { version = "1.2.1", optional = true }
 
 [features]
-with-tokio = ["reqwest", "tokio", "tokio/fs", "tokio-stream"]
-with-async-std = ["async-std", "surf", "futures-io", "futures-util"]
+with-tokio = ["reqwest", "tokio", "tokio/fs", "tokio-stream", "bytes"]
+with-async-std = ["async-std", "surf", "futures-io", "futures-util", "bytes"]
 sync = ["attohttpc", "maybe-async/is_sync"]
 default = ["tags", "tokio-native-tls", "fail-on-err"]
 no-verify-ssl = []

@@ -14,6 +14,14 @@ use http::header::{
 };
 use http::HeaderMap;
 use std::fmt::Write as _;
+#[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
+use bytes::Bytes;
+
+#[cfg(feature = "with-async-std")]
+use futures_util::Stream;
+
+#[cfg(feature = "with-tokio")]
+use tokio_stream::Stream;
 
 pub struct ResponseData {
     bytes: Vec<u8>,
@@ -47,7 +55,7 @@ pub trait Request {
     type HeaderMap;
 
     #[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
-    type ResponseStream;
+    type ResponseStream: Stream<Item = Result<Bytes, S3Error>>;
 
     async fn response(&self) -> Result<Self::Response, S3Error>;
     async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error>;

@@ -784,6 +784,57 @@ impl Bucket {
         request.response_data_to_writer(writer)
     }
 
+    /// Stream file from S3 path to a local file using an async stream.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    /// #[cfg(feature = "with-tokio")]
+    /// use tokio_stream::StreamExt;
+    /// #[cfg(feature = "with-tokio")]
+    /// use tokio::io::AsyncWriteExt;
+    /// #[cfg(feature = "with-async-std")]
+    /// use futures_util::TryStreamExt;
+    /// #[cfg(feature = "with-async-std")]
+    /// use futures_util::AsyncWriteExt;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let path = "path";
+    ///
+    /// let (mut stream, status_code) = bucket.get_object_async_stream(path).await?;
+    ///
+    /// #[cfg(feature = "with-tokio")]
+    /// let mut async_output_file = tokio::fs::File::create("async_output_file").await.expect("Unable to create file");
+    /// #[cfg(feature = "with-async-std")]
+    /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
+    ///
+    /// while let Some(chunk) = stream.try_next().await? {
+    ///     async_output_file.write_all(&chunk).await?;
+    /// }
+    ///
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+    pub async fn get_object_async_stream<S: AsRef<str>>(
+        &self,
+        path: S
+    ) -> Result<(<RequestImpl as Request>::ResponseStream, u16), S3Error> {
+        let command = Command::GetObject;
+        let request = RequestImpl::new(self, path.as_ref(), command);
+        request.response_data_to_stream().await
+    }
+
     /// Stream file from local path to s3, generic over T: Write.
     ///
     /// # Example:
