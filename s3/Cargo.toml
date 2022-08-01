@@ -59,6 +59,8 @@ minidom = { version = "0.15", optional = true }
 
 block_on_proc = { version = "0.2", optional = true }
 
+bytes = "1.2.1"
+
 [features]
 with-tokio = ["reqwest", "tokio", "tokio/fs", "tokio-stream"]
 with-async-std = ["async-std", "surf", "futures-io", "futures-util"]

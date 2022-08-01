@@ -46,6 +46,9 @@ pub trait Request {
     type Response;
     type HeaderMap;
 
+    #[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
+    type ResponseStream;
+
     async fn response(&self) -> Result<Self::Response, S3Error>;
     async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error>;
     #[cfg(feature = "with-tokio")]
@@ -63,6 +66,8 @@ pub trait Request {
         &self,
         writer: &mut T,
     ) -> Result<u16, S3Error>;
+    #[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
+    async fn response_data_to_stream(&self) -> Result<(Self::ResponseStream, u16), S3Error>;
     async fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error>;
     fn datetime(&self) -> OffsetDateTime;
     fn bucket(&self) -> Bucket;
