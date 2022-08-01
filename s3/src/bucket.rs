@@ -39,6 +39,15 @@ use std::io::Read;
 // #[cfg(any(feature = "sync", feature = "with-tokio"))]
 // use std::path::Path;
 
+#[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
+use bytes::Bytes;
+
+#[cfg(feature = "with-tokio")]
+use tokio_stream::Stream;
+
+#[cfg(feature = "with-async-std")]
+use futures_util::Stream;
+
 use crate::error::S3Error;
 use crate::request_trait::Request;
 use crate::serde_types::{
@@ -829,7 +838,7 @@ impl Bucket {
     pub async fn get_object_async_stream<S: AsRef<str>>(
         &self,
         path: S
-    ) -> Result<(<RequestImpl as Request>::ResponseStream, u16), S3Error> {
+    ) -> Result<(impl Stream<Item = Result<Bytes, S3Error>>, u16), S3Error> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data_to_stream().await
