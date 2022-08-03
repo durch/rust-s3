@@ -1,10 +1,12 @@
 #![allow(dead_code)]
+
 use crate::error::CredentialsError;
 use ini::Ini;
 use serde::{Deserialize, Serialize};
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::env;
+use std::ops::Deref;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -71,7 +73,31 @@ pub struct Credentials {
     /// Temporary token issued by AWS service.
     pub security_token: Option<String>,
     pub session_token: Option<String>,
-    pub expiration: Option<time::OffsetDateTime>,
+    pub expiration: Option<Rfc3339OffsetDateTime>,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct Rfc3339OffsetDateTime(#[serde(with = "time::serde::rfc3339")] pub time::OffsetDateTime);
+
+impl From<time::OffsetDateTime> for Rfc3339OffsetDateTime {
+    fn from(v: time::OffsetDateTime) -> Self {
+        Self(v)
+    }
+}
+
+impl From<Rfc3339OffsetDateTime> for time::OffsetDateTime {
+    fn from(v: Rfc3339OffsetDateTime) -> Self {
+        v.0
+    }
+}
+
+impl Deref for Rfc3339OffsetDateTime {
+    type Target = time::OffsetDateTime;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -96,7 +122,7 @@ pub struct AssumeRoleWithWebIdentityResult {
 pub struct StsResponseCredentials {
     pub session_token: String,
     pub secret_access_key: String,
-    pub expiration: time::OffsetDateTime,
+    pub expiration: Rfc3339OffsetDateTime,
     pub access_key_id: String,
 }
 
@@ -376,9 +402,9 @@ struct CredentialsFromInstanceMetadata {
     access_key_id: String,
     secret_access_key: String,
     token: String,
-    #[serde(with = "time::serde::rfc3339")]
-    expiration: time::OffsetDateTime, // TODO fix #163
+    expiration: Rfc3339OffsetDateTime, // TODO fix #163
 }
+
 #[cfg(test)]
 #[test]
 fn test_instance_metadata_creds_deserialization() {
@@ -397,5 +423,5 @@ fn test_instance_metadata_creds_deserialization() {
         }
     "#,
     )
-    .unwrap();
+        .unwrap();
 }
