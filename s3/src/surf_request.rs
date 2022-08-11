@@ -1,5 +1,9 @@
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use async_std::io::{ReadExt, WriteExt};
-use futures_io::AsyncWrite;
+use bytes::Bytes;
+use futures_io::{AsyncRead, AsyncWrite};
+use futures_util::Stream;
 
 use super::bucket::Bucket;
 use super::command::Command;
@@ -27,6 +31,7 @@ pub struct SurfRequest<'a> {
 impl<'a> Request for SurfRequest<'a> {
     type Response = surf::Response;
     type HeaderMap = HeaderMap;
+    type ResponseStream = GetObjectStream;
 
     fn datetime(&self) -> OffsetDateTime {
         self.datetime
@@ -135,6 +140,16 @@ impl<'a> Request for SurfRequest<'a> {
         }
         Ok((header_map, status_code.into()))
     }
+
+    async fn response_data_to_stream(&self) -> Result<(Self::ResponseStream, u16), S3Error> {
+        let response = self.response().await?;
+        let length = response.len();
+        let status_code = response.status();
+
+        let stream = surf::http::Body::from_reader(response, None);
+
+        Ok((GetObjectStream::new(length, stream), status_code.into()))
+    }
 }
 
 impl<'a> SurfRequest<'a> {
@@ -146,6 +161,50 @@ impl<'a> SurfRequest<'a> {
             datetime: OffsetDateTime::now_utc(),
             sync: false,
         }
+    }
+}
+
+pub struct GetObjectStream {
+    length: Option<usize>,
+    inner: Pin<Box<dyn AsyncRead + Send>>,
+}
+
+impl GetObjectStream {
+    pub(crate) fn new<R: 'static>(
+        length: Option<usize>,
+        reader: R,
+    ) -> Self
+        where R: AsyncRead + Send
+    {
+        Self {
+            length,
+            inner: Box::pin(reader),
+        }
+    }
+}
+
+impl Stream for GetObjectStream {
+    type Item = Result<Bytes, S3Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut buffer = [0; 4096];
+
+        let read = match self.inner.as_mut().poll_read(cx, &mut buffer) {
+            Poll::Ready(Ok(s)) => s,
+            Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err.into()))),
+            Poll::Pending => return Poll::Pending,
+        };
+
+        if read == 0 {
+            return Poll::Ready(None);
+        }
+
+        let bytes = Bytes::copy_from_slice(&buffer[..read]);
+        Poll::Ready(Some(Ok(bytes)))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, self.length)
     }
 }
 

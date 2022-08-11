@@ -1,9 +1,13 @@
 extern crate base64;
 extern crate md5;
 
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use bytes::Bytes;
 use maybe_async::maybe_async;
 use reqwest::{Client, Response};
 use time::OffsetDateTime;
+use tokio_stream::Stream;
 
 use crate::bucket::Bucket;
 use crate::command::Command;
@@ -26,6 +30,7 @@ pub struct Reqwest<'a> {
 impl<'a> Request for Reqwest<'a> {
     type Response = reqwest::Response;
     type HeaderMap = reqwest::header::HeaderMap;
+    type ResponseStream = GetObjectStream;
 
     fn command(&self) -> Command {
         self.command.clone()
@@ -137,6 +142,14 @@ impl<'a> Request for Reqwest<'a> {
         let headers = response.headers().clone();
         Ok((headers, status_code))
     }
+
+    async fn response_data_to_stream(&self) -> Result<(Self::ResponseStream, u16), S3Error> {
+        let response = self.response().await?;
+        let status_code = response.status();
+        let stream = response.bytes_stream();
+
+        Ok((GetObjectStream::new(stream), status_code.as_u16()))
+    }
 }
 
 impl<'a> Reqwest<'a> {
@@ -150,6 +163,36 @@ impl<'a> Reqwest<'a> {
         }
     }
 }
+
+pub struct GetObjectStream {
+    inner: Pin<Box<dyn Stream<Item=Result<Bytes, reqwest::Error>>>>,
+}
+
+impl GetObjectStream {
+    pub(crate) fn new<S: 'static>(stream: S) -> Self where S: Stream<Item=Result<Bytes, reqwest::Error>> {
+        Self {
+            inner: Box::pin(stream)
+        }
+    }
+}
+
+impl Stream for GetObjectStream {
+    type Item = Result<Bytes, S3Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.inner.as_mut().poll_next(cx) {
+            Poll::Ready(v) => {
+                Poll::Ready(v.map(|v| v.map_err(S3Error::from)))
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
