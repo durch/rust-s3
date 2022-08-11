@@ -273,7 +273,7 @@ impl Bucket {
         let bucket = Bucket::new(name, region, credentials)?;
         let request = RequestImpl::new(&bucket, "", command);
         let response_data = request.response_data(false).await?;
-        let response_text = std::str::from_utf8(response_data.bytes())?;
+        let response_text = response_data.as_str()?;
         Ok(CreateBucketResponse {
             bucket,
             response_text: response_text.to_string(),
@@ -326,10 +326,10 @@ impl Bucket {
         let bucket = Bucket::new(name, region, credentials)?.with_path_style();
         let request = RequestImpl::new(&bucket, "", command);
         let response_data = request.response_data(false).await?;
-        let response_text = std::str::from_utf8(response_data.bytes())?;
+        let response_text = response_data.to_string()?;
         Ok(CreateBucketResponse {
             bucket,
-            response_text: response_text.to_string(),
+            response_text,
             response_code: response_data.status_code(),
         })
     }
@@ -837,7 +837,7 @@ impl Bucket {
     #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
     pub async fn get_object_async_stream<S: AsRef<str>>(
         &self,
-        path: S
+        path: S,
     ) -> Result<(impl Stream<Item = Result<Bytes, S3Error>>, u16), S3Error> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
@@ -1011,8 +1011,7 @@ impl Bucket {
             return Err(error_from_response_data(response_data)?);
         }
 
-        let msg: InitiateMultipartUploadResponse =
-            serde_xml::from_str(std::str::from_utf8(response_data.bytes())?)?;
+        let msg: InitiateMultipartUploadResponse = serde_xml::from_str(response_data.as_str()?)?;
         let path = msg.key;
         let upload_id = &msg.upload_id;
 
@@ -1044,7 +1043,7 @@ impl Bucket {
                 }
             }
 
-            let etag = std::str::from_utf8(response_data.bytes())?;
+            let etag = response_data.as_str()?;
             etags.push(etag.to_string());
 
             if chunk.len() < CHUNK_SIZE {
@@ -1071,7 +1070,6 @@ impl Bucket {
         };
         let complete_request = RequestImpl::new(self, &path, complete);
         let _respose_data = complete_request.response_data(false).await?;
-        // let response = std::str::from_utf8(data.as_slice())?;
 
         Ok(response_data.status_code())
     }
@@ -1089,8 +1087,7 @@ impl Bucket {
         if response_data.status_code() >= 300 {
             return Err(error_from_response_data(response_data)?);
         }
-        let msg: InitiateMultipartUploadResponse =
-            serde_xml::from_str(std::str::from_utf8(response_data.bytes())?)?;
+        let msg: InitiateMultipartUploadResponse = serde_xml::from_str(response_data.as_str()?)?;
 
         let path = msg.key;
         let upload_id = &msg.upload_id;
@@ -1128,7 +1125,7 @@ impl Bucket {
                         }
                     }
 
-                    let etag = std::str::from_utf8(response_data.bytes())?;
+                    let etag = response_data.as_str()?;
                     etags.push(etag.to_string());
                     let inner_data = etags
                         .into_iter()
@@ -1145,7 +1142,6 @@ impl Bucket {
                     };
                     let complete_request = RequestImpl::new(self, &path, complete);
                     let _response_data = complete_request.response_data(false)?;
-                    // let response = std::str::from_utf8(data.as_slice())?;
                 }
                 break;
             } else {
@@ -1169,7 +1165,7 @@ impl Bucket {
                     }
                 }
 
-                let etag = std::str::from_utf8(response_data.bytes())?;
+                let etag = response_data.as_str()?;
                 etags.push(etag.to_string());
             }
         }
@@ -1212,7 +1208,7 @@ impl Bucket {
     pub async fn location(&self) -> Result<(Region, u16), S3Error> {
         let request = RequestImpl::new(self, "?location", Command::GetBucketLocation);
         let response_data = request.response_data(false).await?;
-        let region_string = String::from_utf8_lossy(response_data.bytes());
+        let region_string = String::from_utf8_lossy(response_data.as_slice());
         let region = match serde_xml::from_reader(region_string.as_bytes()) {
             Ok(r) => {
                 let location_result: BucketLocationResult = r;
@@ -1562,7 +1558,7 @@ impl Bucket {
         let mut tags = Vec::new();
 
         if result.status_code() == 200 {
-            let result_string = String::from_utf8_lossy(result.bytes());
+            let result_string = String::from_utf8_lossy(result.as_slice());
             let ns = "http://s3.amazonaws.com/doc/2006-03-01/";
             if let Ok(tagging) = result_string.parse::<Element>() {
                 for tag_set in tagging.children() {
@@ -1620,7 +1616,7 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command);
         let response_data = request.response_data(false).await?;
-        let list_bucket_result = serde_xml::from_reader(response_data.bytes())?;
+        let list_bucket_result = serde_xml::from_reader(response_data.as_slice())?;
 
         Ok((list_bucket_result, response_data.status_code()))
     }
@@ -1703,7 +1699,7 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command);
         let response_data = request.response_data(false).await?;
-        let list_bucket_result = serde_xml::from_reader(response_data.bytes())?;
+        let list_bucket_result = serde_xml::from_reader(response_data.as_slice())?;
 
         Ok((list_bucket_result, response_data.status_code()))
     }
@@ -1809,7 +1805,7 @@ impl Bucket {
         if (200..300).contains(&response_data.status_code()) {
             Ok(())
         } else {
-            let utf8_content = String::from_utf8(response_data.bytes().to_vec())?;
+            let utf8_content = String::from_utf8(response_data.as_slice().to_vec())?;
             Err(S3Error::Http(response_data.status_code(), utf8_content))
         }
     }
@@ -2140,19 +2136,17 @@ mod test {
         let test: Vec<u8> = object(3072);
 
         let response_data = bucket.put_object(s3_path, &test).await.unwrap();
-        // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(response_data.status_code(), 200);
         let response_data = bucket.get_object(s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test, response_data.bytes());
+        assert_eq!(test, response_data.as_slice());
 
         let response_data = bucket
             .get_object_range(s3_path, 100, Some(1000))
             .await
             .unwrap();
         assert_eq!(response_data.status_code(), 206);
-        assert_eq!(test[100..1001].to_vec(), response_data.bytes());
+        assert_eq!(test[100..1001].to_vec(), response_data.as_slice());
         if head {
             let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
             assert_eq!(code, 200);
@@ -2382,22 +2376,19 @@ mod test {
 
         // Test PutObject
         let response_data = bucket.put_object_blocking(s3_path, &test).unwrap();
-        // println!("{}", std::str::from_utf8(&data).unwrap());
         assert_eq!(response_data.status_code(), 200);
 
         // Test GetObject
         let response_data = bucket.get_object_blocking(s3_path).unwrap();
         assert_eq!(response_data.status_code(), 200);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test, response_data.bytes());
+        assert_eq!(test, response_data.as_slice());
 
         // Test GetObject with a range
         let response_data = bucket
             .get_object_range_blocking(s3_path, 100, Some(1000))
             .unwrap();
         assert_eq!(response_data.status_code(), 206);
-        // println!("{}", std::str::from_utf8(&data).unwrap());
-        assert_eq!(test[100..1001].to_vec(), response_data.bytes());
+        assert_eq!(test[100..1001].to_vec(), response_data.as_slice());
 
         // Test HeadObject
         let (head_object_result, code) = bucket.head_object_blocking(s3_path).unwrap();

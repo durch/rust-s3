@@ -9,13 +9,12 @@ use crate::command::Command;
 use crate::error::S3Error;
 use crate::signing;
 use crate::LONG_DATETIME;
+use bytes::Bytes;
 use http::header::{
     HeaderName, ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DATE, HOST, RANGE,
 };
 use http::HeaderMap;
 use std::fmt::Write as _;
-#[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
-use bytes::Bytes;
 
 #[cfg(feature = "with-async-std")]
 use futures_util::Stream;
@@ -23,29 +22,61 @@ use futures_util::Stream;
 #[cfg(feature = "with-tokio")]
 use tokio_stream::Stream;
 
+#[derive(Debug)]
+
 pub struct ResponseData {
-    bytes: Vec<u8>,
+    bytes: Bytes,
     status_code: u16,
 }
 
 #[allow(clippy::from_over_into)]
 impl Into<Vec<u8>> for ResponseData {
     fn into(self) -> Vec<u8> {
-        self.bytes
+        self.bytes.to_vec()
     }
 }
 
 impl ResponseData {
-    pub fn new(bytes: Vec<u8>, status_code: u16) -> ResponseData {
+    pub fn new(bytes: Bytes, status_code: u16) -> ResponseData {
         ResponseData { bytes, status_code }
     }
 
-    pub fn bytes(&self) -> &[u8] {
+    pub fn as_slice(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn to_vec(self) -> Vec<u8> {
+        self.bytes.to_vec()
+    }
+
+    pub fn bytes(&self) -> &Bytes {
         &self.bytes
     }
 
     pub fn status_code(&self) -> u16 {
         self.status_code
+    }
+
+    pub fn as_str(&self) -> Result<&str, std::str::Utf8Error> {
+        std::str::from_utf8(self.as_slice())
+    }
+
+    pub fn to_string(&self) -> Result<String, std::str::Utf8Error> {
+        std::str::from_utf8(self.as_slice()).map(|s| s.to_string())
+    }
+}
+
+use std::fmt;
+
+impl fmt::Display for ResponseData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Status code: {}\n Data: {}",
+            self.status_code(),
+            self.to_string()
+                .unwrap_or_else(|_| "Data could not be cast to UTF string".to_string())
+        )
     }
 }
 

@@ -8,6 +8,7 @@ use attohttpc::header::HeaderName;
 use super::bucket::Bucket;
 use super::command::Command;
 use crate::error::S3Error;
+use bytes::Bytes;
 use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
@@ -83,12 +84,12 @@ impl<'a> Request for AttoRequest<'a> {
         let status_code = response.status().as_u16();
         let body_vec = if etag {
             if let Some(etag) = response.headers().get("ETag") {
-                etag.to_str()?.as_bytes().to_vec()
+                Bytes::from(etag.to_str()?.to_string())
             } else {
-                vec![]
+                Bytes::from("")
             }
         } else {
-            response.bytes()?
+            Bytes::from(response.bytes()?)
         };
         Ok(ResponseData::new(body_vec, status_code))
     }

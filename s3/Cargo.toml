@@ -17,8 +17,8 @@ path = "src/lib.rs"
 [dependencies]
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
-attohttpc = { version = "0.20", optional = true, default-features = false }
-aws-creds = { version = "0.30.0", default-features = false }
+attohttpc = { version = "0.22", optional = true, default-features = false }
+aws-creds = { version = "0.31.0", default-features = false }
 # aws-creds = { path = "../aws-creds", default-features = false }
 aws-region = "0.25.1"
 # aws-region = {path = "../aws-region"}
@@ -52,14 +52,12 @@ tokio = { version = "1", features = [
 tokio-stream = { version = "0.1", optional = true }
 url = "2"
 minidom = { version = "0.15", optional = true }
-
+bytes = { version = "1" }
 block_on_proc = { version = "0.2", optional = true }
 
-bytes = { version = "1.2.1", optional = true }
-
 [features]
-with-tokio = ["reqwest", "tokio", "tokio/fs", "tokio-stream", "bytes"]
-with-async-std = ["async-std", "surf", "futures-io", "futures-util", "bytes"]
+with-tokio = ["reqwest", "tokio", "tokio/fs", "tokio-stream"]
+with-async-std = ["async-std", "surf", "futures-io", "futures-util"]
 sync = ["attohttpc", "maybe-async/is_sync"]
 default = ["tags", "tokio-native-tls", "fail-on-err"]
 no-verify-ssl = []
@@ -76,6 +74,4 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs"] }
 async-std = { version = "1", features = ["attributes"] }
 uuid = { version = "1", features = ["v4"] }
 env_logger = "0.9"
-aws-creds = { version = "0.30", default-features = false }
-# aws-creds = { path = "../aws-creds", features = ["http-credentials"] }
 anyhow = "1"

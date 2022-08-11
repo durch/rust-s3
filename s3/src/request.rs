@@ -1,11 +1,11 @@
 extern crate base64;
 extern crate md5;
 
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use bytes::Bytes;
 use maybe_async::maybe_async;
 use reqwest::{Client, Response};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use time::OffsetDateTime;
 use tokio_stream::Stream;
 
@@ -107,14 +107,15 @@ impl<'a> Request for Reqwest<'a> {
     async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
         let response = self.response().await?;
         let status_code = response.status().as_u16();
+        let mut headers = response.headers().clone();
         let body_vec = if etag {
-            if let Some(etag) = response.headers().get("ETag") {
-                etag.to_str()?.as_bytes().to_vec()
+            if let Some(etag) = headers.remove("ETag") {
+                Bytes::from(etag.to_str()?.to_string())
             } else {
-                vec![]
+                Bytes::from("")
             }
         } else {
-            response.bytes().await?.to_vec()
+            response.bytes().await?
         };
         Ok(ResponseData::new(body_vec, status_code))
     }
@@ -165,13 +166,16 @@ impl<'a> Reqwest<'a> {
 }
 
 pub struct GetObjectStream {
-    inner: Pin<Box<dyn Stream<Item=Result<Bytes, reqwest::Error>>>>,
+    inner: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>>>>,
 }
 
 impl GetObjectStream {
-    pub(crate) fn new<S: 'static>(stream: S) -> Self where S: Stream<Item=Result<Bytes, reqwest::Error>> {
+    pub(crate) fn new<S: 'static>(stream: S) -> Self
+    where
+        S: Stream<Item = Result<Bytes, reqwest::Error>>,
+    {
         Self {
-            inner: Box::pin(stream)
+            inner: Box::pin(stream),
         }
     }
 }
@@ -181,9 +185,7 @@ impl Stream for GetObjectStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.inner.as_mut().poll_next(cx) {
-            Poll::Ready(v) => {
-                Poll::Ready(v.map(|v| v.map_err(S3Error::from)))
-            }
+            Poll::Ready(v) => Poll::Ready(v.map(|v| v.map_err(S3Error::from))),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -192,7 +194,6 @@ impl Stream for GetObjectStream {
         self.inner.size_hint()
     }
 }
-
 
 #[cfg(test)]
 mod tests {

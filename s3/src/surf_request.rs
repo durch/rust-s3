@@ -1,9 +1,9 @@
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use async_std::io::{ReadExt, WriteExt};
 use bytes::Bytes;
 use futures_io::{AsyncRead, AsyncWrite};
 use futures_util::Stream;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use super::bucket::Bucket;
 use super::command::Command;
@@ -85,23 +85,19 @@ impl<'a> Request for SurfRequest<'a> {
     async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
         let mut response = self.response().await?;
         let status_code = response.status();
-        // let body = response
-        //     .body_bytes()
-        //     .await
-        //     .map_err(|e| S3Error::Surf(e.to_string()))?;
-        // let mut body_vec = Vec::new();
-        // body_vec.extend_from_slice(&body[..]);
+
         let body_vec = if etag {
             if let Some(etag) = response.header("ETag") {
-                etag.as_str().to_string().as_bytes().to_vec()
+                Bytes::from(etag.as_str().to_string())
             } else {
-                vec![]
+                Bytes::from("")
             }
         } else {
-            response
-                .body_bytes()
-                .await
-                .map_err(|e| S3Error::Surf(e.to_string()))?
+            let body = match response.body_bytes().await {
+                Ok(bytes) => Ok(Bytes::from(bytes)),
+                Err(e) => Err(S3Error::Surf(e.to_string())),
+            };
+            body?
         };
         Ok(ResponseData::new(body_vec, status_code.into()))
     }
@@ -170,11 +166,9 @@ pub struct GetObjectStream {
 }
 
 impl GetObjectStream {
-    pub(crate) fn new<R: 'static>(
-        length: Option<usize>,
-        reader: R,
-    ) -> Self
-        where R: AsyncRead + Send
+    pub(crate) fn new<R: 'static>(length: Option<usize>, reader: R) -> Self
+    where
+        R: AsyncRead + Send,
     {
         Self {
             length,

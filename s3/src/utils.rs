@@ -173,7 +173,7 @@ impl From<&http::HeaderMap> for HeadObjectResult {
 }
 
 pub(crate) fn error_from_response_data(response_data: ResponseData) -> Result<S3Error, S3Error> {
-    let utf8_content = String::from_utf8(response_data.bytes().to_vec())?;
+    let utf8_content = String::from_utf8(response_data.as_slice().to_vec())?;
     Err(S3Error::Http(response_data.status_code(), utf8_content))
 }
 
