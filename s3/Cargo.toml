@@ -1,11 +1,11 @@
 [package]
 name = "rust-s3"
-version = "0.32.3"
+version = "0.33.0"
 authors = ["Drazen Urch"]
 description = "Rust library for working with Amazon S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
 readme = "README.md"
-keywords = ["S3", "Wasabi", "Minio", "Yandex", "GCP"]
+keywords = ["S3", "Wasabi", "Minio", "GCP", "R2"]
 license = "MIT"
 documentation = "https://durch.github.io/rust-s3/s3/"
 edition = "2018"
@@ -14,14 +14,10 @@ edition = "2018"
 name = "s3"
 path = "src/lib.rs"
 
-# [[bin]]
-# name = "simple_crud"
-# path = "bin/simple_crud.rs"
-
 [dependencies]
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
-attohttpc = { version = "0.19", optional = true, default-features = false }
+attohttpc = { version = "0.20", optional = true, default-features = false }
 aws-creds = { version = "0.30.0", default-features = false }
 # aws-creds = { path = "../aws-creds", default-features = false }
 aws-region = "0.25.1"
