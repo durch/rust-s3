@@ -997,7 +997,9 @@ impl Bucket {
         // Otherwise perform a multi-part upload.
         let first_chunk = crate::utils::read_chunk(reader).await?;
         if first_chunk.len() < CHUNK_SIZE {
-            let response_data = self.put_object(s3_path, first_chunk.as_slice()).await?;
+            let response_data = self
+                .put_object_with_content_type(s3_path, first_chunk.as_slice(), content_type)
+                .await?;
             if response_data.status_code() >= 300 {
                 return Err(error_from_response_data(response_data)?);
             }
