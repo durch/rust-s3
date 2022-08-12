@@ -29,10 +29,9 @@ pub struct ResponseData {
     status_code: u16,
 }
 
-#[allow(clippy::from_over_into)]
-impl Into<Vec<u8>> for ResponseData {
-    fn into(self) -> Vec<u8> {
-        self.bytes.to_vec()
+impl From<ResponseData> for Vec<u8> {
+    fn from(data: ResponseData) -> Vec<u8> {
+        data.to_vec()
     }
 }
 
