@@ -1561,7 +1561,18 @@ impl Bucket {
 
         if result.status_code() == 200 {
             let result_string = String::from_utf8_lossy(result.as_slice());
+
+            // Add namespace if it doesn't exist
             let ns = "http://s3.amazonaws.com/doc/2006-03-01/";
+            let result_string =
+                if let Err(minidom::Error::MissingNamespace) = result_string.parse::<Element>() {
+                    result_string
+                        .replace("<Tagging>", &format!("<Tagging xmlns=\"{}\">", ns))
+                        .into()
+                } else {
+                    result_string
+                };
+
             if let Ok(tagging) = result_string.parse::<Element>() {
                 for tag_set in tagging.children() {
                     if tag_set.is("TagSet", ns) {
@@ -1572,7 +1583,7 @@ impl Bucket {
                                 } else {
                                     "Could not parse Key from Tag".to_string()
                                 };
-                                let value = if let Some(element) = tag.get_child("Values", ns) {
+                                let value = if let Some(element) = tag.get_child("Value", ns) {
                                     element.text()
                                 } else {
                                     "Could not parse Values from Tag".to_string()
