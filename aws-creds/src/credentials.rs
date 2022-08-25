@@ -96,6 +96,7 @@ pub struct AssumeRoleWithWebIdentityResult {
 pub struct StsResponseCredentials {
     pub session_token: String,
     pub secret_access_key: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub expiration: time::OffsetDateTime,
     pub access_key_id: String,
 }
