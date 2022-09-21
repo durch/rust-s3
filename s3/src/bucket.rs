@@ -1560,7 +1560,18 @@ impl Bucket {
 
         if result.status_code() == 200 {
             let result_string = String::from_utf8_lossy(result.as_slice());
+
+            // Add namespace if it doesn't exist
             let ns = "http://s3.amazonaws.com/doc/2006-03-01/";
+            let result_string =
+                if let Err(minidom::Error::MissingNamespace) = result_string.parse::<Element>() {
+                    result_string
+                        .replace("<Tagging>", &format!("<Tagging xmlns=\"{}\">", ns))
+                        .into()
+                } else {
+                    result_string
+                };
+
             if let Ok(tagging) = result_string.parse::<Element>() {
                 for tag_set in tagging.children() {
                     if tag_set.is("TagSet", ns) {
@@ -1571,7 +1582,7 @@ impl Bucket {
                                 } else {
                                     "Could not parse Key from Tag".to_string()
                                 };
-                                let value = if let Some(element) = tag.get_child("Values", ns) {
+                                let value = if let Some(element) = tag.get_child("Value", ns) {
                                     element.text()
                                 } else {
                                     "Could not parse Values from Tag".to_string()
@@ -2174,6 +2185,47 @@ mod test {
     )]
     async fn test_tagging_aws() {
         let bucket = test_aws_bucket();
+        let _target_tags = vec![
+            Tag {
+                key: "Tag1".to_string(),
+                value: "Value1".to_string(),
+            },
+            Tag {
+                key: "Tag2".to_string(),
+                value: "Value2".to_string(),
+            },
+        ];
+        let empty_tags: Vec<Tag> = Vec::new();
+        let response_data = bucket
+            .put_object("tagging_test", b"Gimme tags")
+            .await
+            .unwrap();
+        assert_eq!(response_data.status_code(), 200);
+        let (tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
+        assert_eq!(tags, empty_tags);
+        let response_data = bucket
+            .put_object_tagging("tagging_test", &[("Tag1", "Value1"), ("Tag2", "Value2")])
+            .await
+            .unwrap();
+        assert_eq!(response_data.status_code(), 200);
+        // This could be eventually consistent now
+        let (_tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
+        // assert_eq!(tags, target_tags)
+        let _response_data = bucket.delete_object("tagging_test").await.unwrap();
+    }
+
+    #[ignore]
+    #[cfg(feature = "tags")]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn test_tagging_minio() {
+        let bucket = test_minio_bucket();
         let _target_tags = vec![
             Tag {
                 key: "Tag1".to_string(),
