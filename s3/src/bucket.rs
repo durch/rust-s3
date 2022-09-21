@@ -2214,6 +2214,47 @@ mod test {
         let _response_data = bucket.delete_object("tagging_test").await.unwrap();
     }
 
+    #[ignore]
+    #[cfg(feature = "tags")]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn test_tagging_minio() {
+        let bucket = test_minio_bucket();
+        let _target_tags = vec![
+            Tag {
+                key: "Tag1".to_string(),
+                value: "Value1".to_string(),
+            },
+            Tag {
+                key: "Tag2".to_string(),
+                value: "Value2".to_string(),
+            },
+        ];
+        let empty_tags: Vec<Tag> = Vec::new();
+        let response_data = bucket
+            .put_object("tagging_test", b"Gimme tags")
+            .await
+            .unwrap();
+        assert_eq!(response_data.status_code(), 200);
+        let (tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
+        assert_eq!(tags, empty_tags);
+        let response_data = bucket
+            .put_object_tagging("tagging_test", &[("Tag1", "Value1"), ("Tag2", "Value2")])
+            .await
+            .unwrap();
+        assert_eq!(response_data.status_code(), 200);
+        // This could be eventually consistent now
+        let (_tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
+        // assert_eq!(tags, target_tags)
+        let _response_data = bucket.delete_object("tagging_test").await.unwrap();
+    }
+
     /// Test multi-part upload
     // #[ignore]
     // #[maybe_async::test(
