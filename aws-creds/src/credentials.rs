@@ -35,9 +35,10 @@ use url::Url;
 /// // Load credentials from `[my-profile]` profile
 /// #[cfg(feature="http-credentials")]
 /// let credentials = Credentials::new(None, None, None, None, Some("my-profile".into()));
-/// ```
+///
 /// // Use anonymous credentials for public objects
 /// let credentials = Credentials::anonymous();
+/// ```
 ///
 /// Credentials may also be initialized directly or by the following environment variables:
 ///

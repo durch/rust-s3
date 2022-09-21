@@ -404,7 +404,6 @@ impl Bucket {
     /// # Example
     /// ```no_run
     /// use s3::bucket::Bucket;
-    /// use s3::creds::Credentials;
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();

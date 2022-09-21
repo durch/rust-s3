@@ -79,7 +79,7 @@ pub enum Region {
     DoAms3,
     /// Digital Ocean sgp1
     DoSgp1,
-    /// Digiral Ocean fra1
+    /// Digital Ocean fra1
     DoFra1,
     /// Yandex Object Storage
     Yandex,
