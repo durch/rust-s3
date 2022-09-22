@@ -644,11 +644,14 @@ impl Bucket {
     ) -> Result<(HeadObjectResult, ResponseData, u16), S3Error> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
-        let (headers, status) = request.response_header().await?;
-        let header_object = HeadObjectResult::from(&headers);
-        let response_data = request.response_data(false).await?;
+        let response = request.response().await?;
+        let status_code = response.status().as_u16();
+        let header_object = HeadObjectResult::from(response.headers());
 
-        Ok((header_object, response_data, status))
+        let body_vec = response.bytes().await?;
+        let response_data = ResponseData::new(body_vec, status_code);
+
+        Ok((header_object, response_data, status_code))
     }
 
     /// Gets torrent from an S3 path.
