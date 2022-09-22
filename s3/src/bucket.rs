@@ -638,10 +638,17 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<ResponseData, S3Error> {
+    pub async fn get_object<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> Result<(HeadObjectResult, ResponseData, u16), S3Error> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
-        request.response_data(false).await
+        let (headers, status) = request.response_header().await?;
+        let header_object = HeadObjectResult::from(&headers);
+        let response_data = request.response_data(false).await?;
+
+        Ok((header_object, response_data, status))
     }
 
     /// Gets torrent from an S3 path.
@@ -2149,7 +2156,7 @@ mod test {
 
         let response_data = bucket.put_object(s3_path, &test).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
-        let response_data = bucket.get_object(s3_path).await.unwrap();
+        let (_, response_data, _) = bucket.get_object(s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
         assert_eq!(test, response_data.as_slice());
 
