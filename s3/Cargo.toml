@@ -25,6 +25,7 @@ aws-region = "0.25.1"
 base64 = "0.13"
 cfg-if = "1"
 time = { version = "^0.3.6", features = ["formatting", "macros"] }
+futures = { version = "0.3", optional = true }
 futures-io = { version = "0.3", optional = true }
 futures-util = { version = "0.3", optional = true, features = ["io"] }
 hex = "0.4"
@@ -56,8 +57,8 @@ bytes = { version = "1" }
 block_on_proc = { version = "0.2", optional = true }
 
 [features]
-with-tokio = ["reqwest", "tokio", "tokio/fs", "tokio-stream"]
-with-async-std = ["async-std", "surf", "futures-io", "futures-util"]
+with-tokio = ["reqwest", "tokio", "tokio/fs", "tokio-stream", "futures"]
+with-async-std = ["async-std", "surf", "futures-io", "futures-util", "futures"]
 sync = ["attohttpc", "maybe-async/is_sync"]
 default = ["tags", "tokio-native-tls", "fail-on-err"]
 no-verify-ssl = []
