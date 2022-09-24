@@ -4,6 +4,7 @@ extern crate md5;
 use bytes::Bytes;
 use maybe_async::maybe_async;
 use reqwest::{Client, Response};
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use time::OffsetDateTime;
@@ -108,6 +109,18 @@ impl<'a> Request for Reqwest<'a> {
         let response = self.response().await?;
         let status_code = response.status().as_u16();
         let mut headers = response.headers().clone();
+        let response_headers = headers
+            .clone()
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.to_string(),
+                    v.to_str()
+                        .unwrap_or("could-not-decode-header-value")
+                        .to_string(),
+                )
+            })
+            .collect::<HashMap<String, String>>();
         let body_vec = if etag {
             if let Some(etag) = headers.remove("ETag") {
                 Bytes::from(etag.to_str()?.to_string())
@@ -117,7 +130,7 @@ impl<'a> Request for Reqwest<'a> {
         } else {
             response.bytes().await?
         };
-        Ok(ResponseData::new(body_vec, status_code))
+        Ok(ResponseData::new(body_vec, status_code, response_headers))
     }
 
     async fn response_data_to_writer<T: tokio::io::AsyncWrite + Send + Unpin>(

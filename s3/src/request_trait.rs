@@ -27,6 +27,7 @@ use tokio_stream::Stream;
 pub struct ResponseData {
     bytes: Bytes,
     status_code: u16,
+    headers: HashMap<String, String>,
 }
 
 impl From<ResponseData> for Vec<u8> {
@@ -36,8 +37,12 @@ impl From<ResponseData> for Vec<u8> {
 }
 
 impl ResponseData {
-    pub fn new(bytes: Bytes, status_code: u16) -> ResponseData {
-        ResponseData { bytes, status_code }
+    pub fn new(bytes: Bytes, status_code: u16, headers: HashMap<String, String>) -> ResponseData {
+        ResponseData {
+            bytes,
+            status_code,
+            headers,
+        }
     }
 
     pub fn as_slice(&self) -> &[u8] {
@@ -62,6 +67,10 @@ impl ResponseData {
 
     pub fn to_string(&self) -> Result<String, std::str::Utf8Error> {
         std::str::from_utf8(self.as_slice()).map(|s| s.to_string())
+    }
+
+    pub fn headers(&self) -> HashMap<String, String> {
+        self.headers.clone()
     }
 }
 

@@ -9,6 +9,7 @@ use super::bucket::Bucket;
 use super::command::Command;
 use crate::error::S3Error;
 use bytes::Bytes;
+use std::collections::HashMap;
 use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
@@ -82,6 +83,20 @@ impl<'a> Request for AttoRequest<'a> {
     fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
         let response = self.response()?;
         let status_code = response.status().as_u16();
+
+        let response_headers = response
+            .headers()
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.to_string(),
+                    v.to_str()
+                        .unwrap_or("could-not-decode-header-value")
+                        .to_string(),
+                )
+            })
+            .collect::<HashMap<String, String>>();
+
         let body_vec = if etag {
             if let Some(etag) = response.headers().get("ETag") {
                 Bytes::from(etag.to_str()?.to_string())
@@ -91,7 +106,7 @@ impl<'a> Request for AttoRequest<'a> {
         } else {
             Bytes::from(response.bytes()?)
         };
-        Ok(ResponseData::new(body_vec, status_code))
+        Ok(ResponseData::new(body_vec, status_code, response_headers))
     }
 
     fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16, S3Error> {

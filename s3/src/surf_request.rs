@@ -2,6 +2,7 @@ use async_std::io::{ReadExt, WriteExt};
 use bytes::Bytes;
 use futures_io::{AsyncRead, AsyncWrite};
 use futures_util::Stream;
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -86,6 +87,12 @@ impl<'a> Request for SurfRequest<'a> {
         let mut response = self.response().await?;
         let status_code = response.status();
 
+        let response_headers = response
+            .header_names()
+            .zip(response.header_values())
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect::<HashMap<String, String>>();
+
         let body_vec = if etag {
             if let Some(etag) = response.header("ETag") {
                 Bytes::from(etag.as_str().to_string())
@@ -99,7 +106,11 @@ impl<'a> Request for SurfRequest<'a> {
             };
             body?
         };
-        Ok(ResponseData::new(body_vec, status_code.into()))
+        Ok(ResponseData::new(
+            body_vec,
+            status_code.into(),
+            response_headers,
+        ))
     }
 
     async fn response_data_to_writer<T: AsyncWrite + Send + Unpin>(

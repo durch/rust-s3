@@ -57,10 +57,11 @@ bytes = { version = "1" }
 block_on_proc = { version = "0.2", optional = true }
 
 [features]
+default = ["tags", "tokio-native-tls", "fail-on-err"]
 with-tokio = ["reqwest", "tokio", "tokio/fs", "tokio-stream", "futures"]
+async-std-native-tls = ["with-async-std", "aws-creds/native-tls"]
 with-async-std = ["async-std", "surf", "futures-io", "futures-util", "futures"]
 sync = ["attohttpc", "maybe-async/is_sync"]
-default = ["tags", "tokio-native-tls", "fail-on-err"]
 no-verify-ssl = []
 fail-on-err = []
 tokio-native-tls = ["with-tokio", "reqwest/native-tls", "aws-creds/native-tls"]
