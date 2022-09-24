@@ -160,7 +160,10 @@ pub trait Request {
     }
 
     fn string_to_sign(&self, request: &str) -> String {
-        signing::string_to_sign(&self.datetime(), &self.bucket().region(), request)
+        match self.command() {
+            Command::PresignPost { post_policy, .. } => post_policy,
+            _ => signing::string_to_sign(&self.datetime(), &self.bucket().region(), request),
+        }
     }
 
     fn host_header(&self) -> String {

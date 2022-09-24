@@ -102,6 +102,10 @@ pub enum Command<'a> {
         expiry_secs: u32,
         custom_headers: Option<HeaderMap>,
     },
+    PresignPost {
+        expiry_secs: u32,
+        post_policy: String,
+    },
     PresignDelete {
         expiry_secs: u32,
     },
@@ -129,7 +133,6 @@ pub enum Command<'a> {
 impl<'a> Command<'a> {
     pub fn http_verb(&self) -> HttpMethod {
         match *self {
-            Command::CopyObject { from: _ } => HttpMethod::Put,
             Command::GetObject
             | Command::GetObjectTorrent
             | Command::GetObjectRange { .. }
@@ -140,6 +143,7 @@ impl<'a> Command<'a> {
             | Command::ListMultipartUploads { .. }
             | Command::PresignGet { .. } => HttpMethod::Get,
             Command::PutObject { .. }
+            | Command::CopyObject { from: _ }
             | Command::PutObjectTagging { .. }
             | Command::PresignPut { .. }
             | Command::UploadPart { .. }
@@ -153,6 +157,7 @@ impl<'a> Command<'a> {
                 HttpMethod::Post
             }
             Command::HeadObject => HttpMethod::Head,
+            Command::PresignPost { .. } => HttpMethod::Post,
         }
     }
 
