@@ -827,7 +827,7 @@ impl Bucket {
 
         let command = Command::GetObjectRange { start, end };
         let request = RequestImpl::new(self, path.as_ref(), command);
-        request.response_data_to_writer(writer).await
+        request.response_data_to_writer(writer)
     }
 
     /// Stream file from S3 path to a local file, generic over T: Write.
@@ -2848,6 +2848,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_builder_composition() {
         use std::time::Duration;
 
