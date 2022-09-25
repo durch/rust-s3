@@ -12,6 +12,8 @@ use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
 use crate::request_trait::ResponseData;
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+use crate::request_trait::ResponseDataStream;
 use std::str::FromStr;
 
 pub type Query = HashMap<String, String>;
@@ -29,15 +31,6 @@ use tokio::io::AsyncWrite;
 #[cfg(feature = "sync")]
 use crate::blocking::AttoRequest as RequestImpl;
 use std::io::Read;
-
-#[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
-use bytes::Bytes;
-
-#[cfg(feature = "with-tokio")]
-use tokio_stream::Stream;
-
-#[cfg(feature = "with-async-std")]
-use futures_util::Stream;
 
 use crate::error::S3Error;
 use crate::request_trait::Request;
@@ -786,22 +779,22 @@ impl Bucket {
     /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let status_code = bucket.get_object_stream("/test.file", &mut async_output_file).await?;
+    /// let status_code = bucket.get_object_to_writer("/test.file", &mut async_output_file).await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// let status_code = bucket.get_object_stream("/test.file", &mut output_file)?;
+    /// let status_code = bucket.get_object_to_writer("/test.file", &mut output_file)?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features. Based of the async branch
     /// #[cfg(feature = "blocking")]
-    /// let status_code = bucket.get_object_stream_blocking("/test.file", &mut async_output_file)?;
+    /// let status_code = bucket.get_object_to_writer_blocking("/test.file", &mut async_output_file)?;
     /// #
     /// # Ok(())
     /// # }
     /// ```
     #[maybe_async::async_impl]
-    pub async fn get_object_stream<T: AsyncWrite + Send + Unpin, S: AsRef<str>>(
+    pub async fn get_object_to_writer<T: AsyncWrite + Send + Unpin, S: AsRef<str>>(
         &self,
         path: S,
         writer: &mut T,
@@ -812,7 +805,7 @@ impl Bucket {
     }
 
     #[maybe_async::sync_impl]
-    pub fn get_object_stream<T: std::io::Write + Send, S: AsRef<str>>(
+    pub fn get_object_to_writer<T: std::io::Write + Send, S: AsRef<str>>(
         &self,
         path: S,
         writer: &mut T,
@@ -835,7 +828,7 @@ impl Bucket {
     /// #[cfg(feature = "with-tokio")]
     /// use tokio::io::AsyncWriteExt;
     /// #[cfg(feature = "with-async-std")]
-    /// use futures_util::TryStreamExt;
+    /// use futures_util::StreamExt;
     /// #[cfg(feature = "with-async-std")]
     /// use futures_util::AsyncWriteExt;
     ///
@@ -848,14 +841,14 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     /// let path = "path";
     ///
-    /// let (mut stream, status_code) = bucket.get_object_async_stream(path).await?;
+    /// let mut response_data_stream = bucket.get_object_stream(path).await?;
     ///
     /// #[cfg(feature = "with-tokio")]
     /// let mut async_output_file = tokio::fs::File::create("async_output_file").await.expect("Unable to create file");
     /// #[cfg(feature = "with-async-std")]
     /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
     ///
-    /// while let Some(chunk) = stream.try_next().await? {
+    /// while let Some(chunk) = response_data_stream.bytes().next().await {
     ///     async_output_file.write_all(&chunk).await?;
     /// }
     ///
@@ -864,10 +857,10 @@ impl Bucket {
     /// # }
     /// ```
     #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-    pub async fn get_object_async_stream<S: AsRef<str>>(
+    pub async fn get_object_stream<S: AsRef<str>>(
         &self,
         path: S,
-    ) -> Result<(impl Stream<Item = Result<Bytes, S3Error>>, u16), S3Error> {
+    ) -> Result<ResponseDataStream, S3Error> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command);
         request.response_data_to_stream().await
@@ -2322,6 +2315,10 @@ mod test {
         )
     )]
     async fn streaming_test_put_get_delete_big_object() {
+        #[cfg(feature = "with-async-std")]
+        use async_std::stream::StreamExt;
+        #[cfg(feature = "with-tokio")]
+        use futures::StreamExt;
         use std::fs::File;
         use std::io::Write;
 
@@ -2343,13 +2340,25 @@ mod test {
         assert_eq!(code, 200);
         let mut writer = Vec::new();
         let code = bucket
-            .get_object_stream(remote_path, &mut writer)
+            .get_object_to_writer(remote_path, &mut writer)
             .await
             .unwrap();
         assert_eq!(code, 200);
         assert_eq!(content, writer);
         assert_eq!(content.len(), writer.len());
         assert_eq!(content.len(), 20_000_000);
+
+        #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+        {
+            let mut response_data_stream = bucket.get_object_stream(remote_path).await.unwrap();
+
+            let mut bytes = vec![];
+
+            while let Some(chunk) = response_data_stream.bytes().next().await {
+                bytes.push(chunk)
+            }
+            assert_ne!(bytes.len(), 0);
+        }
 
         let response_data = bucket.delete_object(remote_path).await.unwrap();
         assert_eq!(response_data.status_code(), 204);
@@ -2388,7 +2397,7 @@ mod test {
         assert_eq!(code, 200);
         let mut writer = Vec::new();
         let code = bucket
-            .get_object_stream(remote_path, &mut writer)
+            .get_object_to_writer(remote_path, &mut writer)
             .await
             .unwrap();
         assert_eq!(code, 200);

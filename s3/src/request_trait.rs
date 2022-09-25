@@ -1,5 +1,7 @@
 use hmac::Mac;
 use std::collections::HashMap;
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+use std::pin::Pin;
 use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
 use url::Url;
@@ -28,6 +30,19 @@ pub struct ResponseData {
     bytes: Bytes,
     status_code: u16,
     headers: HashMap<String, String>,
+}
+
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+pub struct ResponseDataStream {
+    pub bytes: Pin<Box<dyn Stream<Item = Bytes>>>,
+    pub status_code: u16,
+}
+
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+impl ResponseDataStream {
+    pub fn bytes(&mut self) -> &mut Pin<Box<dyn Stream<Item = Bytes>>> {
+        &mut self.bytes
+    }
 }
 
 impl From<ResponseData> for Vec<u8> {
@@ -93,9 +108,6 @@ pub trait Request {
     type Response;
     type HeaderMap;
 
-    #[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
-    type ResponseStream: Stream<Item = Result<Bytes, S3Error>>;
-
     async fn response(&self) -> Result<Self::Response, S3Error>;
     async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error>;
     #[cfg(feature = "with-tokio")]
@@ -114,7 +126,7 @@ pub trait Request {
         writer: &mut T,
     ) -> Result<u16, S3Error>;
     #[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
-    async fn response_data_to_stream(&self) -> Result<(Self::ResponseStream, u16), S3Error>;
+    async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error>;
     async fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error>;
     fn datetime(&self) -> OffsetDateTime;
     fn bucket(&self) -> Bucket;
