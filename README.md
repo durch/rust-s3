@@ -16,9 +16,9 @@ Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully c
 ### Intro
 
 Modest interface towards Amazon S3, as well as S3 compatible object storage APIs such as Backblaze B2, Wasabi, Yandex, Minio or Google Cloud Storage.
-Supports: `put`, `get`, `list`, `delete`, operations on `tags` and `location`, well as `head`. 
+Supports: `put`, `get`, `list`, `delete`, operations on `tags` and `location`, as well as `head`. 
 
-Additionally a dedicated `presign_get` `Bucket` method is available. This means you can upload to S3, and give the link to select people without having to worry about publicly accessible files on S3. This also means that you can give people 
+Additionally, a dedicated `presign_get` `Bucket` method is available. This means you can upload to S3, and give the link to select people without having to worry about publicly accessible files on S3. This also means that you can give people 
 a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the duration of the presigned URL.
 
 **[AWS, Yandex and Custom (Minio) Example](https://github.com/durch/rust-s3/blob/master/s3/bin/simple_crud.rs)**
@@ -43,19 +43,19 @@ All runtimes support either `native-tls` or `rustls-tls`, there are features for
 
 #### Path or subdomain style URLs and headers
 
-`Bucket` struct provides constructors for `path-style` paths, `subdomain` style is the default. `Bucket` exposes methods for configuring and accessing `path-style` configuration. `blocking` feature will generate a `*_blocking` variant of all of the methods listed below.
+`Bucket` struct provides constructors for `path-style` paths, `subdomain` style is the default. `Bucket` exposes methods for configuring and accessing `path-style` configuration. `blocking` feature will generate a `*_blocking` variant of all the methods listed below.
 
 #### Buckets
 
 |          |                                                                                    |
-| -------- | ---------------------------------------------------------------------------------- |
+|----------|------------------------------------------------------------------------------------|
 | `create` | [async](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.create) |
 | `delete` | [async](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.delete) |
 
 #### Presign
 
 |          |                                                                                                     |
-| -------- | --------------------------------------------------------------------------------------------------- |
+|----------|-----------------------------------------------------------------------------------------------------|
 | `POST`   | [presign_put](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_post)      |
 | `PUT`    | [presign_put](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_put)       |
 | `GET`    | [presign_get](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_get)       |
@@ -67,7 +67,7 @@ There are a few different options for getting an object. `sync` and `async` meth
 while `tokio` methods are generic over `tokio::io::AsyncWriteExt`.
 
 |                             |                                                                                                                 |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+|-----------------------------|-----------------------------------------------------------------------------------------------------------------|
 | `async/sync/async-blocking` | [get_object](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.get_object)                     |
 | `async/sync/async-blocking` | [get_object_stream](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.get_object_stream)       |
 | `async/sync/async-blocking` | [get_object_to_writer](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.get_object_to_writer) |
@@ -77,7 +77,7 @@ while `tokio` methods are generic over `tokio::io::AsyncWriteExt`.
 Each `GET` method has a `PUT` companion `sync` and `async` methods are generic over `std::io::Read`. `async` `stream` methods are generic over `futures_io::AsyncReadExt`, while `tokio` methods are generic over `tokio::io::AsyncReadExt`.
 
 |                             |                                                                                                                                 |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------|
 | `async/sync/async-blocking` | [put_object](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.put_object)                                     |
 | `async/sync/async-blocking` | [put_object_with_content_type](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.put_object_with_content_type) |
 | `async/sync/async-blocking` | [put_object_stream](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.put_object_stream)                       |
@@ -85,32 +85,32 @@ Each `GET` method has a `PUT` companion `sync` and `async` methods are generic o
 #### List
 
 |                             |                                                                                 |
-| --------------------------- | ------------------------------------------------------------------------------- |
+|-----------------------------|---------------------------------------------------------------------------------|
 | `async/sync/async-blocking` | [list](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.list) |
 
 #### DELETE
 
 |                             |                                                                                                   |
-| --------------------------- | ------------------------------------------------------------------------------------------------- |
+|-----------------------------|---------------------------------------------------------------------------------------------------|
 | `async/sync/async-blocking` | [delete_object](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.delete_object) |
 
 #### Location
 
 |                             |                                                                                         |
-| --------------------------- | --------------------------------------------------------------------------------------- |
+|-----------------------------|-----------------------------------------------------------------------------------------|
 | `async/sync/async-blocking` | [location](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.location) |
 
 #### Tagging
 
 |                             |                                                                                                             |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------- |
+|-----------------------------|-------------------------------------------------------------------------------------------------------------|
 | `async/sync/async-blocking` | [put_object_tagging](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.put_object_tagging) |
 | `async/sync/async-blocking` | [get_object_tagging](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.get_object_tagging) |
 
 #### Head
 
 |                             |                                                                                               |
-| --------------------------- | --------------------------------------------------------------------------------------------- |
+|-----------------------------|-----------------------------------------------------------------------------------------------|
 | `async/sync/async-blocking` | [head_object](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.head_object) |
 
 ### Usage (in `Cargo.toml`)
