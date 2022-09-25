@@ -7,11 +7,11 @@ use reqwest::{Client, Response};
 use std::collections::HashMap;
 use time::OffsetDateTime;
 
+use super::request_trait::{Request, ResponseData, ResponseDataStream};
 use crate::bucket::Bucket;
 use crate::command::Command;
 use crate::command::HttpMethod;
 use crate::error::S3Error;
-use crate::request_trait::{Request, ResponseData, ResponseDataStream};
 
 use tokio_stream::StreamExt;
 
@@ -181,8 +181,8 @@ impl<'a> Reqwest<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request::Reqwest;
-    use crate::request_trait::Request;
+    use crate::request::tokio_backend::Reqwest;
+    use crate::request::Request;
     use awscreds::Credentials;
     use http::header::{HOST, RANGE};
 

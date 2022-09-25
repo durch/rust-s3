@@ -5,15 +5,15 @@ use std::io::Write;
 
 use attohttpc::header::HeaderName;
 
-use super::bucket::Bucket;
-use super::command::Command;
+use crate::bucket::Bucket;
+use crate::command::Command;
 use crate::error::S3Error;
 use bytes::Bytes;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
-use crate::request_trait::{Request, ResponseData};
+use crate::request::{Request, ResponseData};
 
 // Temporary structure for making a request
 pub struct AttoRequest<'a> {
@@ -142,10 +142,10 @@ impl<'a> AttoRequest<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::blocking::AttoRequest;
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request_trait::Request;
+    use crate::request::blocking::AttoRequest;
+    use crate::request::Request;
     use anyhow::Result;
     use awscreds::Credentials;
 
@@ -176,7 +176,8 @@ mod tests {
     #[test]
     fn url_uses_https_by_default_path_style() -> Result<()> {
         let region = "custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-first-bucket", region, fake_credentials())?;
+        let mut bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
+        bucket.with_path_style();
         let path = "/my-first/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject);
 
@@ -207,7 +208,8 @@ mod tests {
     #[test]
     fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
         let region = "http://custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
+        let mut bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
+        bucket.with_path_style();
         let path = "/my-second/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject);
 

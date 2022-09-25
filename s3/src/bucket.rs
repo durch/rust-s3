@@ -11,17 +11,17 @@ use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
 use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
-use crate::request_trait::ResponseData;
+use crate::request::ResponseData;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-use crate::request_trait::ResponseDataStream;
+use crate::request::ResponseDataStream;
 use std::str::FromStr;
 
 pub type Query = HashMap<String, String>;
 
-#[cfg(feature = "with-tokio")]
-use crate::request::Reqwest as RequestImpl;
 #[cfg(feature = "with-async-std")]
-use crate::surf_request::SurfRequest as RequestImpl;
+use crate::request::async_std_backend::SurfRequest as RequestImpl;
+#[cfg(feature = "with-tokio")]
+use crate::request::tokio_backend::Reqwest as RequestImpl;
 
 #[cfg(feature = "with-async-std")]
 use futures_io::AsyncWrite;
@@ -29,11 +29,11 @@ use futures_io::AsyncWrite;
 use tokio::io::AsyncWrite;
 
 #[cfg(feature = "sync")]
-use crate::blocking::AttoRequest as RequestImpl;
+use crate::request::blocking::AttoRequest as RequestImpl;
 use std::io::Read;
 
 use crate::error::S3Error;
-use crate::request_trait::Request;
+use crate::request::Request;
 use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,

@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use crate::error::S3Error;
-use crate::request_trait::ResponseData;
+use crate::request::ResponseData;
 use crate::{bucket::CHUNK_SIZE, serde_types::HeadObjectResult};
 
 use std::fs::File;

@@ -5,13 +5,13 @@ use futures_io::AsyncWrite;
 use futures_util::FutureExt;
 use std::collections::HashMap;
 
-use super::bucket::Bucket;
-use super::command::Command;
+use crate::bucket::Bucket;
+use crate::command::Command;
 use crate::error::S3Error;
 use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
-use crate::request_trait::{Request, ResponseData, ResponseDataStream};
+use crate::request::{Request, ResponseData, ResponseDataStream};
 
 use http::HeaderMap;
 use maybe_async::maybe_async;
@@ -184,8 +184,8 @@ impl<'a> SurfRequest<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request_trait::Request;
-    use crate::surf_request::SurfRequest;
+    use crate::request::async_std_backend::SurfRequest;
+    use crate::request::Request;
     use anyhow::Result;
     use awscreds::Credentials;
 
