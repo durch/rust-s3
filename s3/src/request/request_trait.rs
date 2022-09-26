@@ -138,7 +138,7 @@ pub trait Request {
             &self.datetime(),
             &self
                 .bucket()
-                .secret_key()
+                .secret_key()?
                 .expect("Secret key must be provided to sign headers, found None"),
             &self.bucket().region(),
             "s3",
@@ -253,21 +253,21 @@ pub trait Request {
         custom_queries: Option<&HashMap<String, String>>,
     ) -> Result<Url, S3Error> {
         let bucket = self.bucket();
-        let token = if let Some(security_token) = bucket.security_token() {
+        let token = if let Some(security_token) = bucket.security_token()? {
             Some(security_token)
         } else {
-            bucket.session_token()
+            bucket.session_token()?
         };
         let url = Url::parse(&format!(
             "{}{}{}",
             self.url(),
             &signing::authorization_query_params_no_sig(
-                &self.bucket().access_key().unwrap(),
+                &self.bucket().access_key()?.unwrap(),
                 &self.datetime(),
                 &self.bucket().region(),
                 expiry,
                 custom_headers,
-                token
+                token.as_ref()
             )?,
             &signing::flatten_queries(custom_queries),
         ))?;
@@ -410,7 +410,7 @@ pub trait Request {
         let signature = hex::encode(hmac.finalize().into_bytes());
         let signed_header = signing::signed_header_string(headers);
         Ok(signing::authorization_header(
-            &self.bucket().access_key().unwrap(),
+            &self.bucket().access_key()?.expect("No access_key provided"),
             &self.datetime(),
             &self.bucket().region(),
             &signed_header,
@@ -464,15 +464,15 @@ pub trait Request {
             self.long_date().parse().unwrap(),
         );
 
-        if let Some(session_token) = self.bucket().session_token() {
+        if let Some(session_token) = self.bucket().session_token()? {
             headers.insert(
                 HeaderName::from_static("x-amz-security-token"),
-                session_token.to_string().parse().unwrap(),
+                session_token.parse().unwrap(),
             );
-        } else if let Some(security_token) = self.bucket().security_token() {
+        } else if let Some(security_token) = self.bucket().security_token()? {
             headers.insert(
                 HeaderName::from_static("x-amz-security-token"),
-                security_token.to_string().parse().unwrap(),
+                security_token.parse().unwrap(),
             );
         }
 
@@ -521,7 +521,7 @@ pub trait Request {
         }
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided
-        if self.bucket().secret_key().is_some() {
+        if self.bucket().secret_key()?.is_some() {
             let authorization = self.authorization(&headers)?;
             headers.insert(AUTHORIZATION, authorization.parse().unwrap());
         }

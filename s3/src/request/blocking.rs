@@ -129,14 +129,19 @@ impl<'a> Request for AttoRequest<'a> {
 }
 
 impl<'a> AttoRequest<'a> {
-    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> AttoRequest<'b> {
-        AttoRequest {
+    pub fn new<'b>(
+        bucket: &'b Bucket,
+        path: &'b str,
+        command: Command<'b>,
+    ) -> Result<AttoRequest<'b>, S3Error> {
+        bucket.credentials_refresh()?;
+        Ok(AttoRequest {
             bucket,
             path,
             command,
             datetime: OffsetDateTime::now_utc(),
             sync: false,
-        }
+        })
     }
 }
 
@@ -162,7 +167,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject);
+        let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -179,7 +184,7 @@ mod tests {
         let mut bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         bucket.with_path_style();
         let path = "/my-first/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject);
+        let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -195,7 +200,7 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject);
+        let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "http");
 
@@ -211,7 +216,7 @@ mod tests {
         let mut bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         bucket.with_path_style();
         let path = "/my-second/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject);
+        let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "http");
 

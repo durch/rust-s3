@@ -169,14 +169,19 @@ impl<'a> Request for SurfRequest<'a> {
 }
 
 impl<'a> SurfRequest<'a> {
-    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> SurfRequest<'b> {
-        SurfRequest {
+    pub fn new<'b>(
+        bucket: &'b Bucket,
+        path: &'b str,
+        command: Command<'b>,
+    ) -> Result<SurfRequest<'b>, S3Error> {
+        bucket.credentials_refresh()?;
+        Ok(SurfRequest {
             bucket,
             path,
             command,
             datetime: OffsetDateTime::now_utc(),
             sync: false,
-        }
+        })
     }
 }
 
@@ -202,7 +207,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject);
+        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -216,9 +221,9 @@ mod tests {
     #[test]
     fn url_uses_https_by_default_path_style() -> Result<()> {
         let region = "custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-first-bucket", region, fake_credentials())?;
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-first/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject);
+        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -234,7 +239,7 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject);
+        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "http");
 
@@ -247,9 +252,9 @@ mod tests {
     #[test]
     fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
         let region = "http://custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
+        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-second/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject);
+        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "http");
 

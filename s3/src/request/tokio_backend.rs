@@ -166,14 +166,19 @@ impl<'a> Request for Reqwest<'a> {
 }
 
 impl<'a> Reqwest<'a> {
-    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> Reqwest<'b> {
-        Reqwest {
+    pub fn new<'b>(
+        bucket: &'b Bucket,
+        path: &'b str,
+        command: Command<'b>,
+    ) -> Result<Reqwest<'b>, S3Error> {
+        bucket.credentials_refresh()?;
+        Ok(Reqwest {
             bucket,
             path,
             command,
             datetime: OffsetDateTime::now_utc(),
             sync: false,
-        }
+        })
     }
 }
 
@@ -199,7 +204,7 @@ mod tests {
         let region = "custom-region".parse().unwrap();
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials()).unwrap();
         let path = "/my-first/path";
-        let request = Reqwest::new(&bucket, path, Command::GetObject);
+        let request = Reqwest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -216,7 +221,7 @@ mod tests {
             .unwrap()
             .with_path_style();
         let path = "/my-first/path";
-        let request = Reqwest::new(&bucket, path, Command::GetObject);
+        let request = Reqwest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -231,7 +236,7 @@ mod tests {
         let region = "http://custom-region".parse().unwrap();
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials()).unwrap();
         let path = "/my-second/path";
-        let request = Reqwest::new(&bucket, path, Command::GetObject);
+        let request = Reqwest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "http");
 
@@ -247,7 +252,7 @@ mod tests {
             .unwrap()
             .with_path_style();
         let path = "/my-second/path";
-        let request = Reqwest::new(&bucket, path, Command::GetObject);
+        let request = Reqwest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "http");
 
@@ -271,7 +276,8 @@ mod tests {
                 start: 0,
                 end: None,
             },
-        );
+        )
+        .unwrap();
         let headers = request.headers().unwrap();
         let range = headers.get(RANGE).unwrap();
         assert_eq!(range, "bytes=0-");
@@ -283,7 +289,8 @@ mod tests {
                 start: 0,
                 end: Some(1),
             },
-        );
+        )
+        .unwrap();
         let headers = request.headers().unwrap();
         let range = headers.get(RANGE).unwrap();
         assert_eq!(range, "bytes=0-1");

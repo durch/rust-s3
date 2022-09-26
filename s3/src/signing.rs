@@ -199,7 +199,7 @@ pub fn authorization_query_params_no_sig(
     region: &Region,
     expires: u32,
     custom_headers: Option<&HeaderMap>,
-    token: Option<&str>,
+    token: Option<&String>,
 ) -> Result<String, S3Error> {
     let credentials = format!("{}/{}", access_key, scope_string(datetime, region));
     let credentials = utf8_percent_encode(&credentials, FRAGMENT_SLASH);
