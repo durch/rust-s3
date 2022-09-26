@@ -10,6 +10,7 @@ use std::ops::Deref;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use time::OffsetDateTime;
 use url::Url;
 
 /// AWS access credentials: access key, secret key, and optional token.
@@ -187,6 +188,16 @@ fn http_get(url: &str) -> attohttpc::Result<attohttpc::Response> {
 }
 
 impl Credentials {
+    pub fn refresh(&mut self) -> Result<(), CredentialsError> {
+        if let Some(expiration) = self.expiration {
+            if expiration.0 <= OffsetDateTime::now_utc() {
+                let refreshed = Credentials::default()?;
+                *self = refreshed
+            }
+        }
+        Ok(())
+    }
+
     #[cfg(feature = "http-credentials")]
     pub fn from_sts_env(session_name: &str) -> Result<Credentials, CredentialsError> {
         let role_arn = env::var("AWS_ROLE_ARN")?;
@@ -284,6 +295,11 @@ impl Credentials {
             .or_else(|_| Credentials::from_env())
             .or_else(|_| Credentials::from_profile(profile))
             .or_else(|_| Credentials::from_instance_metadata())
+            .or_else(|_| {
+                panic!(
+                    "Could not get valid credentials from STS, ENV, Profile or Instance metadata"
+                )
+            })
     }
 
     pub fn from_env_specific(
@@ -425,4 +441,15 @@ fn test_instance_metadata_creds_deserialization() {
     "#,
     )
     .unwrap();
+}
+
+#[cfg(test)]
+#[test]
+fn test_credentials_refresh() {
+    let mut c = Credentials::default().expect("Could not generate credentials");
+    let e = Rfc3339OffsetDateTime(OffsetDateTime::now_utc());
+    c.expiration = Some(e);
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    c.refresh().expect("Could not refresh");
+    assert!(c.expiration.is_none())
 }
