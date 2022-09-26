@@ -446,6 +446,7 @@ fn test_instance_metadata_creds_deserialization() {
 }
 
 #[cfg(test)]
+#[ignore]
 #[test]
 fn test_credentials_refresh() {
     let mut c = Credentials::default().expect("Could not generate credentials");
