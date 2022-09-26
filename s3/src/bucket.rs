@@ -2371,24 +2371,47 @@ mod test {
         let _response_data = bucket.delete_object("tagging_test").await.unwrap();
     }
 
-    // Test multi-part upload
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(
-            all(
-                not(feature = "sync"),
-                not(feature = "tokio-rustls-tls"),
-                feature = "with-tokio"
-            ),
-            tokio::test
-        ),
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
         async(
             all(not(feature = "sync"), feature = "with-async-std"),
             async_std::test
         )
     )]
-    async fn streaming_test_put_get_delete_big_object() {
+    async fn streaming_big_aws_put_head_get_delete_object() {
+        streaming_test_put_get_delete_big_object(test_aws_bucket()).await;
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn streaming_big_put_head_get_delete_object() {
+        streaming_test_put_get_delete_big_object(test_gc_bucket()).await;
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn streaming_big_minio_put_head_get_delete_object() {
+        streaming_test_put_get_delete_big_object(test_minio_bucket()).await;
+    }
+
+    // Test multi-part upload
+    async fn streaming_test_put_get_delete_big_object(bucket: Bucket) {
         #[cfg(feature = "with-async-std")]
         use async_std::stream::StreamExt;
         #[cfg(feature = "with-tokio")]
@@ -2400,7 +2423,6 @@ mod test {
         let remote_path = "+stream_test_big";
         let local_path = "+stream_test_big";
         std::fs::remove_file(remote_path).unwrap_or_else(|_| {});
-        let bucket = test_aws_bucket();
         let content: Vec<u8> = object(20_000_000);
 
         let mut file = File::create(local_path).unwrap();
@@ -2439,28 +2461,62 @@ mod test {
         std::fs::remove_file(local_path).unwrap_or_else(|_| {});
     }
 
-    /// Test streaming upload, with an object that's smaller than CHUNK_SIZE.
-    /// This should be optimized into a plain PUT, not a multi-part upload.
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(
-            all(
-                not(feature = "sync"),
-                not(feature = "tokio-rustls-tls"),
-                feature = "with-tokio"
-            ),
-            tokio::test
-        ),
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
         async(
             all(not(feature = "sync"), feature = "with-async-std"),
             async_std::test
         )
     )]
-    async fn streaming_test_put_get_delete_small_object() {
+    async fn streaming_aws_put_head_get_delete_object() {
+        streaming_test_put_get_delete_small_object(test_aws_bucket()).await;
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn streaming_gc_put_head_get_delete_object() {
+        streaming_test_put_get_delete_small_object(test_gc_bucket()).await;
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn streaming_r2_put_head_get_delete_object() {
+        streaming_test_put_get_delete_small_object(test_r2_bucket()).await;
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn streaming_minio_put_head_get_delete_object() {
+        streaming_test_put_get_delete_small_object(test_minio_bucket()).await;
+    }
+
+    #[maybe_async::maybe_async]
+    async fn streaming_test_put_get_delete_small_object(bucket: Bucket) {
         init();
         let remote_path = "+stream_test_small";
-        let bucket = test_gc_bucket();
         let content: Vec<u8> = object(1000);
         let mut reader = std::io::Cursor::new(&content);
 
