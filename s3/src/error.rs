@@ -7,7 +7,7 @@ pub enum S3Error {
     #[error("Max expiration for presigned URLs is one week, or 604.800 seconds, got {0} instead")]
     MaxExpiry(u32),
     #[error("Got HTTP {0} with content '{1}'")]
-    Http(u16, String),
+    HttpFailWithBody(u16, String),
     #[error("Http request returned a non 2** code")]
     HttpFail,
     #[error("aws-creds: {0}")]
@@ -21,8 +21,14 @@ pub enum S3Error {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[cfg(feature = "with-tokio")]
-    #[error("reqwest: {0}")]
-    Reqwest(#[from] reqwest::Error),
+    #[error("http: {0}")]
+    Http(#[from] http::Error),
+    #[cfg(feature = "with-tokio")]
+    #[error("hyper: {0}")]
+    Hyper(#[from] hyper::Error),
+    #[cfg(feature = "with-tokio")]
+    #[error("native-tls: {0}")]
+    NativeTls(#[from] native_tls::Error),
     #[error("header to string: {0}")]
     HeaderToStr(#[from] http::header::ToStrError),
     #[error("from utf8: {0}")]

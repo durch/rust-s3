@@ -74,7 +74,7 @@ impl<'a> Request for AttoRequest<'a> {
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             let status = response.status().as_u16();
             let text = response.text()?;
-            return Err(S3Error::Http(status, text));
+            return Err(S3Error::HttpFailWithBody(status, text));
         }
 
         Ok(response)

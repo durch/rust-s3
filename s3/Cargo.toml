@@ -31,14 +31,12 @@ futures-util = { version = "0.3", optional = true, features = ["io"] }
 hex = "0.4"
 hmac = "0.12"
 http = "0.2"
+hyper = { version = "0.14", default-features = false, features = ["client", "http1", "stream"], optional = true }
+hyper-tls = { version = "0.5.0", default-features = false, optional = true }
 log = "0.4"
 maybe-async = { version = "0.2" }
 md5 = "0.7"
 percent-encoding = "2"
-reqwest = { version = "0.11", default-features = false, features = [
-    "json",
-    "stream",
-], optional = true }
 serde = "1"
 serde_derive = "1"
 serde-xml-rs = "0.5"
@@ -50,6 +48,8 @@ surf = { version = "2", optional = true, default-features = false, features = [
 tokio = { version = "1", features = [
     "io-util",
 ], optional = true, default-features = false }
+tokio-native-tls = { version = "0.3", optional = true }
+native-tls = { version = "0.2", optional = true }
 tokio-stream = { version = "0.1", optional = true }
 url = "2"
 minidom = { version = "0.15", optional = true }
@@ -57,15 +57,15 @@ bytes = { version = "1" }
 block_on_proc = { version = "0.2", optional = true }
 
 [features]
-default = ["tags", "tokio-native-tls", "fail-on-err"]
-with-tokio = ["reqwest", "tokio", "tokio/fs", "tokio-stream", "futures"]
+default = ["tags", "use-tokio-native-tls", "fail-on-err"]
+with-tokio = ["hyper", "hyper-tls", "tokio", "tokio/fs", "tokio-stream", "tokio-native-tls", "native-tls", "futures"]
 async-std-native-tls = ["with-async-std", "aws-creds/native-tls"]
 with-async-std = ["async-std", "surf", "futures-io", "futures-util", "futures"]
 sync = ["attohttpc", "maybe-async/is_sync"]
 no-verify-ssl = []
 fail-on-err = []
-tokio-native-tls = ["with-tokio", "reqwest/native-tls", "aws-creds/native-tls"]
-tokio-rustls-tls = ["with-tokio", "reqwest/rustls-tls", "aws-creds/rustls-tls"]
+use-tokio-native-tls = ["with-tokio", "aws-creds/native-tls"]
+tokio-rustls-tls = ["with-tokio", "aws-creds/rustls-tls"]
 sync-native-tls = ["sync", "aws-creds/native-tls", "attohttpc/tls"]
 sync-rustls-tls = ["sync", "aws-creds/rustls-tls", "attohttpc/tls-rustls"]
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]

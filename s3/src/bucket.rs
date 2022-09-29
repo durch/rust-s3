@@ -21,7 +21,7 @@ pub type Query = HashMap<String, String>;
 #[cfg(feature = "with-async-std")]
 use crate::request::async_std_backend::SurfRequest as RequestImpl;
 #[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::Reqwest as RequestImpl;
+use crate::request::tokio_backend::HyperRequest as RequestImpl;
 
 #[cfg(feature = "with-async-std")]
 use futures_io::AsyncWrite;
@@ -1882,7 +1882,10 @@ impl Bucket {
             Ok(())
         } else {
             let utf8_content = String::from_utf8(response_data.as_slice().to_vec())?;
-            Err(S3Error::Http(response_data.status_code(), utf8_content))
+            Err(S3Error::HttpFailWithBody(
+                response_data.status_code(),
+                utf8_content,
+            ))
         }
     }
 
@@ -1910,7 +1913,7 @@ impl Bucket {
     /// requests, or no (infinity) timeout if `None`.  Defaults to
     /// 30 seconds.
     ///
-    /// Only the attohttpc and the Reqwest backends obey this option;
+    /// Only the [`attohttpc`] and the [`hyper`] backends obey this option;
     /// async code may instead await with a timeout.
     pub fn set_request_timeout(&mut self, timeout: Option<Duration>) {
         self.request_timeout = timeout;
