@@ -177,13 +177,13 @@ impl<'a> Request for HyperRequest<'a> {
 }
 
 impl<'a> HyperRequest<'a> {
-    pub fn new<'b>(
-        bucket: &'b Bucket,
-        path: &'b str,
-        command: Command<'b>,
-    ) -> Result<HyperRequest<'b>, S3Error> {
+    pub fn new(
+        bucket: &'a Bucket,
+        path: &'a str,
+        command: Command<'a>,
+    ) -> Result<HyperRequest<'a>, S3Error> {
         bucket.credentials_refresh()?;
-        Ok(HyperRequest {
+        Ok(Self {
             bucket,
             path,
             command,
