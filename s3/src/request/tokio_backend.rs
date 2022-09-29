@@ -183,7 +183,7 @@ impl<'a> HyperRequest<'a> {
         command: Command<'b>,
     ) -> Result<HyperRequest<'b>, S3Error> {
         bucket.credentials_refresh()?;
-        Ok(Self {
+        Ok(HyperRequest {
             bucket,
             path,
             command,
