@@ -1,14 +1,18 @@
 use async_std::io::{ReadExt, WriteExt};
+use async_std::stream::StreamExt;
+use bytes::Bytes;
 use futures_io::AsyncWrite;
+use futures_util::FutureExt;
+use std::collections::HashMap;
 
-use super::bucket::Bucket;
-use super::command::Command;
+use crate::bucket::Bucket;
+use crate::command::Command;
+use crate::error::S3Error;
 use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
-use crate::request_trait::Request;
+use crate::request::{Request, ResponseData, ResponseDataStream};
 
-use anyhow::{anyhow, Result};
 use http::HeaderMap;
 use maybe_async::maybe_async;
 use surf::http::headers::{HeaderName, HeaderValue};
@@ -44,7 +48,7 @@ impl<'a> Request for SurfRequest<'a> {
         self.path.to_string()
     }
 
-    async fn response(&self) -> Result<surf::Response> {
+    async fn response(&self) -> Result<surf::Response, S3Error> {
         // Build headers
         let headers = self.headers()?;
 
@@ -68,36 +72,49 @@ impl<'a> Request for SurfRequest<'a> {
         let response = request
             .send()
             .await
-            .map_err(|e| anyhow!("Request failed with {}", e))?;
+            .map_err(|e| S3Error::Surf(e.to_string()))?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-            return Err(anyhow!("Request failed with code {}", response.status()));
+            return Err(S3Error::HttpFail);
         }
 
         Ok(response)
     }
 
-    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
+    async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
         let mut response = self.response().await?;
         let status_code = response.status();
-        let body = response
-            .body_bytes()
-            .await
-            .map_err(|e| anyhow!("Request failed with {}", e))?;
-        let mut body_vec = Vec::new();
-        body_vec.extend_from_slice(&body[..]);
-        if etag {
+
+        let response_headers = response
+            .header_names()
+            .zip(response.header_values())
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect::<HashMap<String, String>>();
+
+        let body_vec = if etag {
             if let Some(etag) = response.header("ETag") {
-                body_vec = etag.as_str().to_string().as_bytes().to_vec();
+                Bytes::from(etag.as_str().to_string())
+            } else {
+                Bytes::from("")
             }
-        }
-        Ok((body_vec, status_code.into()))
+        } else {
+            let body = match response.body_bytes().await {
+                Ok(bytes) => Ok(Bytes::from(bytes)),
+                Err(e) => Err(S3Error::Surf(e.to_string())),
+            };
+            body?
+        };
+        Ok(ResponseData::new(
+            body_vec,
+            status_code.into(),
+            response_headers,
+        ))
     }
 
     async fn response_data_to_writer<T: AsyncWrite + Send + Unpin>(
         &self,
         writer: &mut T,
-    ) -> Result<u16> {
+    ) -> Result<u16, S3Error> {
         let mut buffer = Vec::new();
 
         let response = self.response().await?;
@@ -113,7 +130,7 @@ impl<'a> Request for SurfRequest<'a> {
         Ok(status_code.into())
     }
 
-    async fn response_header(&self) -> Result<(HeaderMap, u16)> {
+    async fn response_header(&self) -> Result<(HeaderMap, u16), S3Error> {
         let mut header_map = HeaderMap::new();
         let response = self.response().await?;
         let status_code = response.status();
@@ -128,17 +145,43 @@ impl<'a> Request for SurfRequest<'a> {
         }
         Ok((header_map, status_code.into()))
     }
+
+    async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
+        let mut response = self.response().await?;
+        let status_code = response.status();
+
+        let body = response
+            .take_body()
+            .bytes()
+            .filter_map(|n| n.ok())
+            .fold(vec![], |mut b, n| {
+                b.push(n);
+                b
+            })
+            .then(|b| async move { Bytes::from(b) })
+            .into_stream();
+
+        Ok(ResponseDataStream {
+            bytes: Box::pin(body),
+            status_code: status_code.into(),
+        })
+    }
 }
 
 impl<'a> SurfRequest<'a> {
-    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> SurfRequest<'b> {
-        SurfRequest {
+    pub fn new<'b>(
+        bucket: &'b Bucket,
+        path: &'b str,
+        command: Command<'b>,
+    ) -> Result<SurfRequest<'b>, S3Error> {
+        bucket.credentials_refresh()?;
+        Ok(SurfRequest {
             bucket,
             path,
             command,
             datetime: OffsetDateTime::now_utc(),
             sync: false,
-        }
+        })
     }
 }
 
@@ -146,8 +189,8 @@ impl<'a> SurfRequest<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request_trait::Request;
-    use crate::surf_request::SurfRequest;
+    use crate::request::async_std_backend::SurfRequest;
+    use crate::request::Request;
     use anyhow::Result;
     use awscreds::Credentials;
 
@@ -164,7 +207,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject);
+        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -178,9 +221,9 @@ mod tests {
     #[test]
     fn url_uses_https_by_default_path_style() -> Result<()> {
         let region = "custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-first-bucket", region, fake_credentials())?;
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-first/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject);
+        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -196,7 +239,7 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject);
+        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "http");
 
@@ -209,9 +252,9 @@ mod tests {
     #[test]
     fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
         let region = "http://custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
+        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-second/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject);
+        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "http");
 

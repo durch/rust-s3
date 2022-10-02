@@ -21,13 +21,13 @@ creds-ci:
 	cd aws-creds; make ci
 
 s3-fmt:
-	cd s3; cargo fmt
+	cd s3; cargo fmt --all
 
 region-fmt:
-	cd aws-region; cargo fmt
+	cd aws-region; cargo fmt --all
 
 creds-fmt:
-	cd aws-creds; cargo fmt
+	cd aws-creds; cargo fmt --all
 
 s3-clippy:
 	cd s3; make clippy

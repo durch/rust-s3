@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::serde_types::CompleteMultipartUploadData;
 
 use crate::EMPTY_PAYLOAD_SHA;
@@ -94,15 +96,22 @@ pub enum Command<'a> {
     GetBucketLocation,
     PresignGet {
         expiry_secs: u32,
+        custom_queries: Option<HashMap<String, String>>,
     },
     PresignPut {
         expiry_secs: u32,
         custom_headers: Option<HeaderMap>,
     },
+    PresignPost {
+        expiry_secs: u32,
+        post_policy: String,
+    },
     PresignDelete {
         expiry_secs: u32,
     },
-    InitiateMultipartUpload,
+    InitiateMultipartUpload {
+        content_type: &'a str,
+    },
     UploadPart {
         part_number: u32,
         content: &'a [u8],
@@ -124,7 +133,6 @@ pub enum Command<'a> {
 impl<'a> Command<'a> {
     pub fn http_verb(&self) -> HttpMethod {
         match *self {
-            Command::CopyObject { from: _ } => HttpMethod::Put,
             Command::GetObject
             | Command::GetObjectTorrent
             | Command::GetObjectRange { .. }
@@ -135,6 +143,7 @@ impl<'a> Command<'a> {
             | Command::ListMultipartUploads { .. }
             | Command::PresignGet { .. } => HttpMethod::Get,
             Command::PutObject { .. }
+            | Command::CopyObject { from: _ }
             | Command::PutObjectTagging { .. }
             | Command::PresignPut { .. }
             | Command::UploadPart { .. }
@@ -144,10 +153,11 @@ impl<'a> Command<'a> {
             | Command::AbortMultipartUpload { .. }
             | Command::PresignDelete { .. }
             | Command::DeleteBucket => HttpMethod::Delete,
-            Command::InitiateMultipartUpload | Command::CompleteMultipartUpload { .. } => {
+            Command::InitiateMultipartUpload { .. } | Command::CompleteMultipartUpload { .. } => {
                 HttpMethod::Post
             }
             Command::HeadObject => HttpMethod::Head,
+            Command::PresignPost { .. } => HttpMethod::Post,
         }
     }
 
@@ -171,6 +181,7 @@ impl<'a> Command<'a> {
 
     pub fn content_type(&self) -> String {
         match self {
+            Command::InitiateMultipartUpload { content_type } => content_type.to_string(),
             Command::PutObject { content_type, .. } => content_type.to_string(),
             Command::CompleteMultipartUpload { .. } => "application/xml".into(),
             _ => "text/plain".into(),

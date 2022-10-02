@@ -1,51 +1,144 @@
 use hmac::Mac;
-use hmac::NewMac;
+use std::collections::HashMap;
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+use std::pin::Pin;
 use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
 use url::Url;
 
 use crate::bucket::Bucket;
 use crate::command::Command;
+use crate::error::S3Error;
 use crate::signing;
 use crate::LONG_DATETIME;
-use anyhow::anyhow;
-use anyhow::Result;
+use bytes::Bytes;
 use http::header::{
     HeaderName, ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DATE, HOST, RANGE,
 };
 use http::HeaderMap;
+use std::fmt::Write as _;
+
+#[cfg(feature = "with-async-std")]
+use futures_util::Stream;
+
+#[cfg(feature = "with-tokio")]
+use tokio_stream::Stream;
+
+#[derive(Debug)]
+
+pub struct ResponseData {
+    bytes: Bytes,
+    status_code: u16,
+    headers: HashMap<String, String>,
+}
+
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+pub struct ResponseDataStream {
+    pub bytes: Pin<Box<dyn Stream<Item = Bytes>>>,
+    pub status_code: u16,
+}
+
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+impl ResponseDataStream {
+    pub fn bytes(&mut self) -> &mut Pin<Box<dyn Stream<Item = Bytes>>> {
+        &mut self.bytes
+    }
+}
+
+impl From<ResponseData> for Vec<u8> {
+    fn from(data: ResponseData) -> Vec<u8> {
+        data.to_vec()
+    }
+}
+
+impl ResponseData {
+    pub fn new(bytes: Bytes, status_code: u16, headers: HashMap<String, String>) -> ResponseData {
+        ResponseData {
+            bytes,
+            status_code,
+            headers,
+        }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn to_vec(self) -> Vec<u8> {
+        self.bytes.to_vec()
+    }
+
+    pub fn bytes(&self) -> &Bytes {
+        &self.bytes
+    }
+
+    pub fn status_code(&self) -> u16 {
+        self.status_code
+    }
+
+    pub fn as_str(&self) -> Result<&str, std::str::Utf8Error> {
+        std::str::from_utf8(self.as_slice())
+    }
+
+    pub fn to_string(&self) -> Result<String, std::str::Utf8Error> {
+        std::str::from_utf8(self.as_slice()).map(|s| s.to_string())
+    }
+
+    pub fn headers(&self) -> HashMap<String, String> {
+        self.headers.clone()
+    }
+}
+
+use std::fmt;
+
+impl fmt::Display for ResponseData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Status code: {}\n Data: {}",
+            self.status_code(),
+            self.to_string()
+                .unwrap_or_else(|_| "Data could not be cast to UTF string".to_string())
+        )
+    }
+}
 
 #[maybe_async::maybe_async]
 pub trait Request {
     type Response;
     type HeaderMap;
 
-    async fn response(&self) -> Result<Self::Response>;
-    async fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)>;
+    async fn response(&self) -> Result<Self::Response, S3Error>;
+    async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error>;
     #[cfg(feature = "with-tokio")]
     async fn response_data_to_writer<T: tokio::io::AsyncWrite + Send + Unpin>(
         &self,
         writer: &mut T,
-    ) -> Result<u16>;
+    ) -> Result<u16, S3Error>;
     #[cfg(feature = "with-async-std")]
     async fn response_data_to_writer<T: futures_io::AsyncWrite + Send + Unpin>(
         &self,
         writer: &mut T,
-    ) -> Result<u16>;
+    ) -> Result<u16, S3Error>;
     #[cfg(feature = "sync")]
-    fn response_data_to_writer<T: std::io::Write + Send>(&self, writer: &mut T) -> Result<u16>;
-    async fn response_header(&self) -> Result<(Self::HeaderMap, u16)>;
+    fn response_data_to_writer<T: std::io::Write + Send>(
+        &self,
+        writer: &mut T,
+    ) -> Result<u16, S3Error>;
+    #[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
+    async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error>;
+    async fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error>;
     fn datetime(&self) -> OffsetDateTime;
     fn bucket(&self) -> Bucket;
     fn command(&self) -> Command;
     fn path(&self) -> String;
 
-    fn signing_key(&self) -> Result<Vec<u8>> {
+    fn signing_key(&self) -> Result<Vec<u8>, S3Error> {
         signing::signing_key(
             &self.datetime(),
             &self
                 .bucket()
-                .secret_key()
+                .secret_key()?
                 .expect("Secret key must be provided to sign headers, found None"),
             &self.bucket().region(),
             "s3",
@@ -79,41 +172,41 @@ pub trait Request {
     }
 
     fn string_to_sign(&self, request: &str) -> String {
-        signing::string_to_sign(&self.datetime(), &self.bucket().region(), request)
+        match self.command() {
+            Command::PresignPost { post_policy, .. } => post_policy,
+            _ => signing::string_to_sign(&self.datetime(), &self.bucket().region(), request),
+        }
     }
 
     fn host_header(&self) -> String {
         self.bucket().host()
     }
 
-    fn presigned(&self) -> Result<String> {
-        let expiry = match self.command() {
-            Command::PresignGet { expiry_secs } => expiry_secs,
-            Command::PresignPut { expiry_secs, .. } => expiry_secs,
-            Command::PresignDelete { expiry_secs } => expiry_secs,
+    fn presigned(&self) -> Result<String, S3Error> {
+        let (expiry, custom_headers, custom_queries) = match self.command() {
+            Command::PresignGet {
+                expiry_secs,
+                custom_queries,
+            } => (expiry_secs, None, custom_queries),
+            Command::PresignPut {
+                expiry_secs,
+                custom_headers,
+            } => (expiry_secs, custom_headers, None),
+            Command::PresignDelete { expiry_secs } => (expiry_secs, None, None),
             _ => unreachable!(),
         };
 
-        #[allow(clippy::collapsible_match)]
-        if let Command::PresignPut { custom_headers, .. } = self.command() {
-            if let Some(custom_headers) = custom_headers {
-                let authorization = self.presigned_authorization(Some(&custom_headers))?;
-                return Ok(format!(
-                    "{}&X-Amz-Signature={}",
-                    self.presigned_url_no_sig(expiry, Some(&custom_headers))?,
-                    authorization
-                ));
-            }
-        }
-
         Ok(format!(
             "{}&X-Amz-Signature={}",
-            self.presigned_url_no_sig(expiry, None)?,
-            self.presigned_authorization(None)?
+            self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())?,
+            self.presigned_authorization(custom_headers.as_ref())?
         ))
     }
 
-    fn presigned_authorization(&self, custom_headers: Option<&HeaderMap>) -> Result<String> {
+    fn presigned_authorization(
+        &self,
+        custom_headers: Option<&HeaderMap>,
+    ) -> Result<String, S3Error> {
         let mut headers = HeaderMap::new();
         let host_header = self.host_header();
         headers.insert(HOST, host_header.parse().unwrap());
@@ -124,60 +217,59 @@ pub trait Request {
         }
         let canonical_request = self.presigned_canonical_request(&headers)?;
         let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac = signing::HmacSha256::new_from_slice(&self.signing_key()?)
-            .map_err(|e| anyhow! {"{}",e})?;
+        let mut hmac = signing::HmacSha256::new_from_slice(&self.signing_key()?)?;
         hmac.update(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         // let signed_header = signing::signed_header_string(&headers);
         Ok(signature)
     }
 
-    fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String> {
-        let expiry = match self.command() {
-            Command::PresignGet { expiry_secs } => expiry_secs,
-            Command::PresignPut { expiry_secs, .. } => expiry_secs,
-            Command::PresignDelete { expiry_secs } => expiry_secs,
+    fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String, S3Error> {
+        let (expiry, custom_headers, custom_queries) = match self.command() {
+            Command::PresignGet {
+                expiry_secs,
+                custom_queries,
+            } => (expiry_secs, None, custom_queries),
+            Command::PresignPut {
+                expiry_secs,
+                custom_headers,
+            } => (expiry_secs, custom_headers, None),
+            Command::PresignDelete { expiry_secs } => (expiry_secs, None, None),
             _ => unreachable!(),
         };
 
-        #[allow(clippy::collapsible_match)]
-        if let Command::PresignPut { custom_headers, .. } = self.command() {
-            if let Some(custom_headers) = custom_headers {
-                return Ok(signing::canonical_request(
-                    &self.command().http_verb().to_string(),
-                    &self.presigned_url_no_sig(expiry, Some(&custom_headers))?,
-                    headers,
-                    "UNSIGNED-PAYLOAD",
-                ));
-            }
-        }
-
         Ok(signing::canonical_request(
             &self.command().http_verb().to_string(),
-            &self.presigned_url_no_sig(expiry, None)?,
+            &self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())?,
             headers,
             "UNSIGNED-PAYLOAD",
         ))
     }
 
-    fn presigned_url_no_sig(&self, expiry: u32, custom_headers: Option<&HeaderMap>) -> Result<Url> {
+    fn presigned_url_no_sig(
+        &self,
+        expiry: u32,
+        custom_headers: Option<&HeaderMap>,
+        custom_queries: Option<&HashMap<String, String>>,
+    ) -> Result<Url, S3Error> {
         let bucket = self.bucket();
-        let token = if let Some(security_token) = bucket.security_token() {
+        let token = if let Some(security_token) = bucket.security_token()? {
             Some(security_token)
         } else {
-            bucket.session_token()
+            bucket.session_token()?
         };
         let url = Url::parse(&format!(
-            "{}{}",
+            "{}{}{}",
             self.url(),
             &signing::authorization_query_params_no_sig(
-                &self.bucket().access_key().unwrap(),
+                &self.bucket().access_key()?.unwrap(),
                 &self.datetime(),
                 &self.bucket().region(),
                 expiry,
                 custom_headers,
-                token
-            )?
+                token.as_ref()
+            )?,
+            &signing::flatten_queries(custom_queries),
         ))?;
 
         Ok(url)
@@ -202,14 +294,14 @@ pub trait Request {
         // Append to url_path
         #[allow(clippy::collapsible_match)]
         match self.command() {
-            Command::InitiateMultipartUpload | Command::ListMultipartUploads { .. } => {
+            Command::InitiateMultipartUpload { .. } | Command::ListMultipartUploads { .. } => {
                 url_str.push_str("?uploads")
             }
             Command::AbortMultipartUpload { upload_id } => {
-                url_str.push_str(&format!("?uploadId={}", upload_id))
+                write!(url_str, "?uploadId={}", upload_id).expect("Could not write to url_str");
             }
             Command::CompleteMultipartUpload { upload_id, .. } => {
-                url_str.push_str(&format!("?uploadId={}", upload_id))
+                write!(url_str, "?uploadId={}", upload_id).expect("Could not write to url_str");
             }
             Command::GetObjectTorrent => url_str.push_str("?torrent"),
             Command::PutObject { multipart, .. } => {
@@ -227,8 +319,6 @@ pub trait Request {
         for (key, value) in &self.bucket().extra_query {
             url.query_pairs_mut().append_pair(key, value);
         }
-
-        // println!("{}", url_str);
 
         if let Command::ListObjectsV2 {
             prefix,
@@ -312,16 +402,15 @@ pub trait Request {
         )
     }
 
-    fn authorization(&self, headers: &HeaderMap) -> Result<String> {
+    fn authorization(&self, headers: &HeaderMap) -> Result<String, S3Error> {
         let canonical_request = self.canonical_request(headers);
         let string_to_sign = self.string_to_sign(&canonical_request);
-        let mut hmac = signing::HmacSha256::new_from_slice(&self.signing_key()?)
-            .map_err(|e| anyhow! {"{}",e})?;
+        let mut hmac = signing::HmacSha256::new_from_slice(&self.signing_key()?)?;
         hmac.update(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         let signed_header = signing::signed_header_string(headers);
         Ok(signing::authorization_header(
-            &self.bucket().access_key().unwrap(),
+            &self.bucket().access_key()?.expect("No access_key provided"),
             &self.datetime(),
             &self.bucket().region(),
             &signed_header,
@@ -329,7 +418,7 @@ pub trait Request {
         ))
     }
 
-    fn headers(&self) -> Result<HeaderMap> {
+    fn headers(&self) -> Result<HeaderMap, S3Error> {
         // Generate this once, but it's used in more than one place.
         let sha256 = self.command().sha256();
 
@@ -375,15 +464,15 @@ pub trait Request {
             self.long_date().parse().unwrap(),
         );
 
-        if let Some(session_token) = self.bucket().session_token() {
+        if let Some(session_token) = self.bucket().session_token()? {
             headers.insert(
                 HeaderName::from_static("x-amz-security-token"),
-                session_token.to_string().parse().unwrap(),
+                session_token.parse().unwrap(),
             );
-        } else if let Some(security_token) = self.bucket().security_token() {
+        } else if let Some(security_token) = self.bucket().security_token()? {
             headers.insert(
                 HeaderName::from_static("x-amz-security-token"),
-                security_token.to_string().parse().unwrap(),
+                security_token.parse().unwrap(),
             );
         }
 
@@ -432,7 +521,7 @@ pub trait Request {
         }
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided
-        if self.bucket().secret_key().is_some() {
+        if self.bucket().secret_key()?.is_some() {
             let authorization = self.authorization(&headers)?;
             headers.insert(AUTHORIZATION, authorization.parse().unwrap());
         }

@@ -15,12 +15,4 @@ jobs:
       - name: test
         run: make ci
       - name: test-all
-        if: github.repository == 'durch/rust-s3'
-        env:
-          EU_AWS_ACCESS_KEY_ID: ${{ secrets.EU_AWS_ACCESS_KEY_ID }}
-          EU_AWS_SECRET_ACCESS_KEY: ${{ secrets.EU_AWS_SECRET_ACCESS_KEY }}
-          GC_ACCESS_KEY_ID: ${{ secrets.GC_ACCESS_KEY_ID }}
-          GC_SECRET_ACCESS_KEY: ${{ secrets.GC_SECRET_ACCESS_KEY }}
-          WASABI_ACCESS_KEY_ID: ${{ secrets.WASABI_ACCESS_KEY_ID }}
-          WASABI_SECRET_ACCESS_KEY: ${{ secrets.WASABI_SECRET_ACCESS_KEY }}
-        run: make ci-all
+        run: make ci

@@ -5,25 +5,15 @@ use std::io::Write;
 
 use attohttpc::header::HeaderName;
 
-use super::bucket::Bucket;
-use super::command::Command;
+use crate::bucket::Bucket;
+use crate::command::Command;
+use crate::error::S3Error;
+use bytes::Bytes;
+use std::collections::HashMap;
 use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
-use crate::request_trait::Request;
-use anyhow::anyhow;
-use anyhow::Result;
-// static CLIENT: Lazy<Client> = Lazy::new(|| {
-//     if cfg!(feature = "no-verify-ssl") {
-//         Client::builder()
-//             .danger_accept_invalid_certs(true)
-//             .danger_accept_invalid_hostnames(true)
-//             .build()
-//             .expect("Could not build dangerous client!")
-//     } else {
-//         Client::new()
-//     }
-// });
+use crate::request::{Request, ResponseData};
 
 // Temporary structure for making a request
 pub struct AttoRequest<'a> {
@@ -54,7 +44,7 @@ impl<'a> Request for AttoRequest<'a> {
         self.path.to_string()
     }
 
-    fn response(&self) -> Result<Self::Response> {
+    fn response(&self) -> Result<Self::Response, S3Error> {
         // Build headers
         let headers = match self.headers() {
             Ok(headers) => headers,
@@ -82,33 +72,44 @@ impl<'a> Request for AttoRequest<'a> {
         let response = request.bytes(&self.request_body()).send()?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-            return Err(anyhow!(
-                "Request failed with code {}\n{}",
-                response.status().as_u16(),
-                response.text()?
-            ));
+            let status = response.status().as_u16();
+            let text = response.text()?;
+            return Err(S3Error::Http(status, text));
         }
 
         Ok(response)
     }
 
-    fn response_data(&self, etag: bool) -> Result<(Vec<u8>, u16)> {
+    fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
         let response = self.response()?;
         let status_code = response.status().as_u16();
-        let headers = response.headers().clone();
-        let etag_header = headers.get("ETag");
-        let body = response.bytes()?;
-        let mut body_vec = Vec::new();
-        body_vec.extend_from_slice(&body[..]);
-        if etag {
-            if let Some(etag) = etag_header {
-                body_vec = etag.to_str()?.as_bytes().to_vec();
+
+        let response_headers = response
+            .headers()
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.to_string(),
+                    v.to_str()
+                        .unwrap_or("could-not-decode-header-value")
+                        .to_string(),
+                )
+            })
+            .collect::<HashMap<String, String>>();
+
+        let body_vec = if etag {
+            if let Some(etag) = response.headers().get("ETag") {
+                Bytes::from(etag.to_str()?.to_string())
+            } else {
+                Bytes::from("")
             }
-        }
-        Ok((body_vec, status_code))
+        } else {
+            Bytes::from(response.bytes()?)
+        };
+        Ok(ResponseData::new(body_vec, status_code, response_headers))
     }
 
-    fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16> {
+    fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16, S3Error> {
         let response = self.response()?;
 
         let status_code = response.status();
@@ -119,7 +120,7 @@ impl<'a> Request for AttoRequest<'a> {
         Ok(status_code.as_u16())
     }
 
-    fn response_header(&self) -> Result<(Self::HeaderMap, u16)> {
+    fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error> {
         let response = self.response()?;
         let status_code = response.status().as_u16();
         let headers = response.headers().clone();
@@ -128,23 +129,28 @@ impl<'a> Request for AttoRequest<'a> {
 }
 
 impl<'a> AttoRequest<'a> {
-    pub fn new<'b>(bucket: &'b Bucket, path: &'b str, command: Command<'b>) -> AttoRequest<'b> {
-        AttoRequest {
+    pub fn new<'b>(
+        bucket: &'b Bucket,
+        path: &'b str,
+        command: Command<'b>,
+    ) -> Result<AttoRequest<'b>, S3Error> {
+        bucket.credentials_refresh()?;
+        Ok(AttoRequest {
             bucket,
             path,
             command,
             datetime: OffsetDateTime::now_utc(),
             sync: false,
-        }
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::blocking::AttoRequest;
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request_trait::Request;
+    use crate::request::blocking::AttoRequest;
+    use crate::request::Request;
     use anyhow::Result;
     use awscreds::Credentials;
 
@@ -161,7 +167,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject);
+        let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -175,9 +181,10 @@ mod tests {
     #[test]
     fn url_uses_https_by_default_path_style() -> Result<()> {
         let region = "custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-first-bucket", region, fake_credentials())?;
+        let mut bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
+        bucket.with_path_style();
         let path = "/my-first/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject);
+        let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "https");
 
@@ -193,7 +200,7 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject);
+        let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "http");
 
@@ -206,9 +213,10 @@ mod tests {
     #[test]
     fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
         let region = "http://custom-region".parse()?;
-        let bucket = Bucket::new_with_path_style("my-second-bucket", region, fake_credentials())?;
+        let mut bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
+        bucket.with_path_style();
         let path = "/my-second/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject);
+        let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().scheme(), "http");
 

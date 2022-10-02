@@ -1,13 +1,13 @@
-#![allow(dead_code)]
-
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::{self, FromStr};
-
-use anyhow::Result;
 
 /// AWS S3 [region identifier](https://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region),
 /// passing in custom values is also possible, in that case it is up to you to pass a valid endpoint,
 /// otherwise boom will happen :)
+///
+/// Serde support available with the `serde` feature
 ///
 /// # Example
 /// ```
@@ -26,6 +26,7 @@ use anyhow::Result;
 /// let region = Region::Custom { region: region_name, endpoint };
 ///
 /// ```
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Region {
     /// us-east-1
@@ -78,7 +79,7 @@ pub enum Region {
     DoAms3,
     /// Digital Ocean sgp1
     DoSgp1,
-    /// Digiral Ocean fra1
+    /// Digital Ocean fra1
     DoFra1,
     /// Yandex Object Storage
     Yandex,
@@ -91,7 +92,13 @@ pub enum Region {
     /// Wasabi eu-central-1
     WaEuCentral1,
     /// Custom region
-    Custom { region: String, endpoint: String },
+    R2 {
+        account_id: String,
+    },
+    Custom {
+        region: String,
+        endpoint: String,
+    },
 }
 
 impl fmt::Display for Region {
@@ -129,15 +136,16 @@ impl fmt::Display for Region {
             WaUsEast2 => write!(f, "us-east-2"),
             WaUsWest1 => write!(f, "us-west-1"),
             WaEuCentral1 => write!(f, "eu-central-1"),
+            R2 { .. } => write!(f, "auto"),
             Custom { ref region, .. } => write!(f, "{}", region),
         }
     }
 }
 
 impl FromStr for Region {
-    type Err = anyhow::Error;
+    type Err = std::str::Utf8Error;
 
-    fn from_str(s: &str) -> Result<Self> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         use self::Region::*;
         match s {
             "us-east-1" => Ok(UsEast1),
@@ -217,6 +225,7 @@ impl Region {
             WaUsEast2 => String::from("s3.us-east-2.wasabisys.com"),
             WaUsWest1 => String::from("s3.us-west-1.wasabisys.com"),
             WaEuCentral1 => String::from("s3.eu-central-1.wasabisys.com"),
+            R2 { ref account_id } => format!("{}.r2.cloudflarestorage.com", account_id),
             Custom { ref endpoint, .. } => endpoint.to_string(),
         }
     }

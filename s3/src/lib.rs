@@ -12,20 +12,15 @@ pub use bucket::Tag;
 pub use bucket_ops::BucketConfiguration;
 pub use region::Region;
 
-#[cfg(feature = "sync")]
-pub mod blocking;
 pub mod bucket;
 pub mod bucket_ops;
 pub mod command;
 pub mod deserializer;
-#[cfg(feature = "with-tokio")]
-pub mod request;
 pub mod serde_types;
 pub mod signing;
-#[cfg(feature = "with-async-std")]
-pub mod surf_request;
 
-pub mod request_trait;
+pub mod error;
+pub mod request;
 pub mod utils;
 
 const LONG_DATETIME: &[time::format_description::FormatItem<'static>] =

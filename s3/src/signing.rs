@@ -2,19 +2,21 @@
 //!
 //! [link]: https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html
 
+use std::collections::HashMap;
 use std::str;
 
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
+use http::HeaderMap;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use sha2::{Digest, Sha256};
 use time::{macros::format_description, OffsetDateTime};
 use url::Url;
 
+use crate::error::S3Error;
 use crate::region::Region;
 use crate::LONG_DATETIME;
-use anyhow::anyhow;
-use anyhow::Result;
-use http::HeaderMap;
+
+use std::fmt::Write as _;
 
 const SHORT_DATE: &[time::format_description::FormatItem<'static>] =
     format_description!("[year][month][day]");
@@ -82,7 +84,13 @@ pub fn canonical_query_string(uri: &Url) -> String {
     keyvalues.sort();
     let keyvalues: Vec<String> = keyvalues
         .iter()
-        .map(|(k, v)| uri_encode(k, true) + "=" + &uri_encode(v, true))
+        .map(|(k, v)| {
+            format!(
+                "{}={}",
+                utf8_percent_encode(k, FRAGMENT_SLASH),
+                utf8_percent_encode(v, FRAGMENT_SLASH)
+            )
+        })
         .collect();
     keyvalues.join("&")
 }
@@ -154,19 +162,15 @@ pub fn signing_key(
     secret_key: &str,
     region: &Region,
     service: &str,
-) -> Result<Vec<u8>> {
+) -> Result<Vec<u8>, S3Error> {
     let secret = format!("AWS4{}", secret_key);
-    let mut date_hmac =
-        HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| anyhow! {"{}",e})?;
+    let mut date_hmac = HmacSha256::new_from_slice(secret.as_bytes())?;
     date_hmac.update(datetime.format(SHORT_DATE).unwrap().as_bytes());
-    let mut region_hmac = HmacSha256::new_from_slice(&date_hmac.finalize().into_bytes())
-        .map_err(|e| anyhow! {"{}",e})?;
+    let mut region_hmac = HmacSha256::new_from_slice(&date_hmac.finalize().into_bytes())?;
     region_hmac.update(region.to_string().as_bytes());
-    let mut service_hmac = HmacSha256::new_from_slice(&region_hmac.finalize().into_bytes())
-        .map_err(|e| anyhow! {"{}",e})?;
+    let mut service_hmac = HmacSha256::new_from_slice(&region_hmac.finalize().into_bytes())?;
     service_hmac.update(service.as_bytes());
-    let mut signing_hmac = HmacSha256::new_from_slice(&service_hmac.finalize().into_bytes())
-        .map_err(|e| anyhow! {"{}",e})?;
+    let mut signing_hmac = HmacSha256::new_from_slice(&service_hmac.finalize().into_bytes())?;
     signing_hmac.update(b"aws4_request");
     Ok(signing_hmac.finalize().into_bytes().to_vec())
 }
@@ -195,12 +199,10 @@ pub fn authorization_query_params_no_sig(
     region: &Region,
     expires: u32,
     custom_headers: Option<&HeaderMap>,
-    token: Option<&str>,
-) -> Result<String> {
-    let credentials = uri_encode(
-        &format!("{}/{}", access_key, scope_string(datetime, region)),
-        true,
-    );
+    token: Option<&String>,
+) -> Result<String, S3Error> {
+    let credentials = format!("{}/{}", access_key, scope_string(datetime, region));
+    let credentials = utf8_percent_encode(&credentials, FRAGMENT_SLASH);
 
     let mut signed_headers = vec!["host".to_string()];
 
@@ -210,7 +212,8 @@ pub fn authorization_query_params_no_sig(
         }
     }
 
-    let signed_headers_string = uri_encode(&signed_headers.join(";"), true);
+    let signed_headers = signed_headers.join(";");
+    let signed_headers = utf8_percent_encode(&signed_headers, FRAGMENT_SLASH);
 
     let mut query_params = format!(
         "?X-Amz-Algorithm=AWS4-HMAC-SHA256\
@@ -221,32 +224,54 @@ pub fn authorization_query_params_no_sig(
         credentials = credentials,
         long_date = datetime.format(LONG_DATETIME).unwrap(),
         expires = expires,
-        signed_headers = signed_headers_string
+        signed_headers = signed_headers,
     );
 
     if let Some(token) = token {
-        query_params.push_str(&format!(
+        write!(
+            query_params,
             "&X-Amz-Security-Token={}",
-            uri_encode(token, true)
-        ))
+            utf8_percent_encode(token, FRAGMENT_SLASH)
+        )
+        .expect("Could not write token");
     }
 
     Ok(query_params)
+}
+
+pub fn flatten_queries(queries: Option<&HashMap<String, String>>) -> String {
+    match queries {
+        None => String::new(),
+        Some(queries) => {
+            let mut query_str = String::new();
+            for (k, v) in queries {
+                write!(
+                    query_str,
+                    "&{}={}",
+                    utf8_percent_encode(k, FRAGMENT_SLASH),
+                    utf8_percent_encode(v, FRAGMENT_SLASH),
+                )
+                .unwrap();
+            }
+            query_str
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::convert::TryInto;
     use std::str;
-    use time::Date;
-    use url::Url;
 
-    use super::*;
-
-    use crate::serde_types::ListBucketResult;
     use http::header::{HeaderName, HOST, RANGE};
     use http::HeaderMap;
     use serde_xml_rs as serde_xml;
+    use time::Date;
+    use url::Url;
+
+    use crate::serde_types::ListBucketResult;
+
+    use super::*;
 
     #[test]
     fn test_base_url_encode() {
