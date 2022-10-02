@@ -1,6 +1,7 @@
 extern crate base64;
 extern crate md5;
 
+use std::io;
 use std::io::Write;
 
 use attohttpc::header::HeaderName;
@@ -110,12 +111,10 @@ impl<'a> Request for AttoRequest<'a> {
     }
 
     fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16, S3Error> {
-        let response = self.response()?;
+        let mut response = self.response()?;
 
         let status_code = response.status();
-        let stream = response.bytes()?;
-
-        writer.write_all(&stream)?;
+        io::copy(&mut response, writer)?;
 
         Ok(status_code.as_u16())
     }
