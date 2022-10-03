@@ -1057,7 +1057,9 @@ impl Bucket {
             return Ok(response_data.status_code());
         }
 
-        let msg = self.initiate_multipart_upload(s3_path, content_type).await?;
+        let msg = self
+            .initiate_multipart_upload(s3_path, content_type)
+            .await?;
         let path = msg.key;
         let upload_id = &msg.upload_id;
 
@@ -1152,7 +1154,13 @@ impl Bucket {
                     self.put_object(s3_path, chunk.as_slice())?;
                 } else {
                     part_number += 1;
-                    let part = self.put_multipart_chunk(chunk, &path, part_number, upload_id, content_type)?;
+                    let part = self.put_multipart_chunk(
+                        chunk,
+                        &path,
+                        part_number,
+                        upload_id,
+                        content_type,
+                    )?;
                     etags.push(part.etag);
                     let inner_data = etags
                         .into_iter()
@@ -1162,12 +1170,15 @@ impl Bucket {
                             part_number: i as u32 + 1,
                         })
                         .collect::<Vec<Part>>();
-                    return Ok(self.complete_multipart_upload(&path, upload_id, inner_data)?.status_code());
+                    return Ok(self
+                        .complete_multipart_upload(&path, upload_id, inner_data)?
+                        .status_code());
                     // let response = std::str::from_utf8(data.as_slice())?;
                 }
             } else {
                 part_number += 1;
-                let part = self.put_multipart_chunk(chunk, &path, part_number, upload_id, content_type)?;
+                let part =
+                    self.put_multipart_chunk(chunk, &path, part_number, upload_id, content_type)?;
                 etags.push(part.etag.to_string());
             }
         }
@@ -1316,10 +1327,7 @@ impl Bucket {
         parts: Vec<Part>,
     ) -> Result<ResponseData, S3Error> {
         let data = CompleteMultipartUploadData { parts };
-        let complete = Command::CompleteMultipartUpload {
-            upload_id,
-            data,
-        };
+        let complete = Command::CompleteMultipartUpload { upload_id, data };
         let complete_request = RequestImpl::new(self, path, complete)?;
         complete_request.response_data(false).await
     }
@@ -1332,10 +1340,7 @@ impl Bucket {
         parts: Vec<Part>,
     ) -> Result<ResponseData, S3Error> {
         let data = CompleteMultipartUploadData { parts };
-        let complete = Command::CompleteMultipartUpload {
-            upload_id,
-            data,
-        };
+        let complete = Command::CompleteMultipartUpload { upload_id, data };
         let complete_request = RequestImpl::new(self, path, complete)?;
         complete_request.response_data(false)
     }
