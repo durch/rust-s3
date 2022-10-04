@@ -167,14 +167,18 @@ pub trait Request {
         }
     }
 
-    fn long_date(&self) -> String {
-        self.datetime().format(LONG_DATETIME).unwrap()
+    fn long_date(&self) -> Result<String, S3Error> {
+        Ok(self.datetime().format(LONG_DATETIME)?)
     }
 
-    fn string_to_sign(&self, request: &str) -> String {
+    fn string_to_sign(&self, request: &str) -> Result<String, S3Error> {
         match self.command() {
-            Command::PresignPost { post_policy, .. } => post_policy,
-            _ => signing::string_to_sign(&self.datetime(), &self.bucket().region(), request),
+            Command::PresignPost { post_policy, .. } => Ok(post_policy),
+            _ => Ok(signing::string_to_sign(
+                &self.datetime(),
+                &self.bucket().region(),
+                request,
+            )?),
         }
     }
 
@@ -209,14 +213,14 @@ pub trait Request {
     ) -> Result<String, S3Error> {
         let mut headers = HeaderMap::new();
         let host_header = self.host_header();
-        headers.insert(HOST, host_header.parse().unwrap());
+        headers.insert(HOST, host_header.parse()?);
         if let Some(custom_headers) = custom_headers {
             for (k, v) in custom_headers.iter() {
                 headers.insert(k.clone(), v.clone());
             }
         }
         let canonical_request = self.presigned_canonical_request(&headers)?;
-        let string_to_sign = self.string_to_sign(&canonical_request);
+        let string_to_sign = self.string_to_sign(&canonical_request)?;
         let mut hmac = signing::HmacSha256::new_from_slice(&self.signing_key()?)?;
         hmac.update(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
@@ -238,12 +242,12 @@ pub trait Request {
             _ => unreachable!(),
         };
 
-        Ok(signing::canonical_request(
+        signing::canonical_request(
             &self.command().http_verb().to_string(),
             &self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())?,
             headers,
             "UNSIGNED-PAYLOAD",
-        ))
+        )
     }
 
     fn presigned_url_no_sig(
@@ -260,26 +264,26 @@ pub trait Request {
         };
         let url = Url::parse(&format!(
             "{}{}{}",
-            self.url(),
+            self.url()?,
             &signing::authorization_query_params_no_sig(
-                &self.bucket().access_key()?.unwrap(),
+                &self.bucket().access_key()?.unwrap_or_default(),
                 &self.datetime(),
                 &self.bucket().region(),
                 expiry,
                 custom_headers,
                 token.as_ref()
             )?,
-            &signing::flatten_queries(custom_queries),
+            &signing::flatten_queries(custom_queries)?,
         ))?;
 
         Ok(url)
     }
 
-    fn url(&self) -> Url {
+    fn url(&self) -> Result<Url, S3Error> {
         let mut url_str = self.bucket().url();
 
         if let Command::CreateBucket { .. } = self.command() {
-            return Url::parse(&url_str).unwrap();
+            return Ok(Url::parse(&url_str)?);
         }
 
         let path = if self.path().starts_with('/') {
@@ -312,9 +316,7 @@ pub trait Request {
             _ => {}
         }
 
-        // Since every part of this URL is either pre-encoded or statically
-        // generated, there's really no way this should fail.
-        let mut url = Url::parse(&url_str).expect("static URL parsing");
+        let mut url = Url::parse(&url_str)?;
 
         for (key, value) in &self.bucket().extra_query {
             url.query_pairs_mut().append_pair(key, value);
@@ -390,32 +392,32 @@ pub trait Request {
             _ => {}
         }
 
-        url
+        Ok(url)
     }
 
-    fn canonical_request(&self, headers: &HeaderMap) -> String {
+    fn canonical_request(&self, headers: &HeaderMap) -> Result<String, S3Error> {
         signing::canonical_request(
             &self.command().http_verb().to_string(),
-            &self.url(),
+            &self.url()?,
             headers,
             &self.command().sha256(),
         )
     }
 
     fn authorization(&self, headers: &HeaderMap) -> Result<String, S3Error> {
-        let canonical_request = self.canonical_request(headers);
-        let string_to_sign = self.string_to_sign(&canonical_request);
+        let canonical_request = self.canonical_request(headers)?;
+        let string_to_sign = self.string_to_sign(&canonical_request)?;
         let mut hmac = signing::HmacSha256::new_from_slice(&self.signing_key()?)?;
         hmac.update(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         let signed_header = signing::signed_header_string(headers);
-        Ok(signing::authorization_header(
+        signing::authorization_header(
             &self.bucket().access_key()?.expect("No access_key provided"),
             &self.datetime(),
             &self.bucket().region(),
             &signed_header,
             &signature,
-        ))
+        )
     }
 
     fn headers(&self) -> Result<HeaderMap, S3Error> {
@@ -433,14 +435,11 @@ pub trait Request {
 
         let host_header = self.host_header();
 
-        headers.insert(HOST, host_header.parse().unwrap());
+        headers.insert(HOST, host_header.parse()?);
 
         match self.command() {
             Command::CopyObject { from } => {
-                headers.insert(
-                    HeaderName::from_static("x-amz-copy-source"),
-                    from.parse().unwrap(),
-                );
+                headers.insert(HeaderName::from_static("x-amz-copy-source"), from.parse()?);
             }
             Command::ListObjects { .. } => {}
             Command::ListObjectsV2 { .. } => {}
@@ -450,64 +449,49 @@ pub trait Request {
             _ => {
                 headers.insert(
                     CONTENT_LENGTH,
-                    self.command().content_length().to_string().parse().unwrap(),
+                    self.command().content_length().to_string().parse()?,
                 );
-                headers.insert(CONTENT_TYPE, self.command().content_type().parse().unwrap());
+                headers.insert(CONTENT_TYPE, self.command().content_type().parse()?);
             }
         }
         headers.insert(
             HeaderName::from_static("x-amz-content-sha256"),
-            sha256.parse().unwrap(),
+            sha256.parse()?,
         );
         headers.insert(
             HeaderName::from_static("x-amz-date"),
-            self.long_date().parse().unwrap(),
+            self.long_date()?.parse()?,
         );
 
         if let Some(session_token) = self.bucket().session_token()? {
             headers.insert(
                 HeaderName::from_static("x-amz-security-token"),
-                session_token.parse().unwrap(),
+                session_token.parse()?,
             );
         } else if let Some(security_token) = self.bucket().security_token()? {
             headers.insert(
                 HeaderName::from_static("x-amz-security-token"),
-                security_token.parse().unwrap(),
+                security_token.parse()?,
             );
         }
 
         if let Command::PutObjectTagging { tags } = self.command() {
             let digest = md5::compute(tags);
             let hash = base64::encode(digest.as_ref());
-            headers.insert(
-                HeaderName::from_static("content-md5"),
-                hash.parse().unwrap(),
-            );
+            headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
         } else if let Command::PutObject { content, .. } = self.command() {
             let digest = md5::compute(content);
             let hash = base64::encode(digest.as_ref());
-            headers.insert(
-                HeaderName::from_static("content-md5"),
-                hash.parse().unwrap(),
-            );
+            headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
         } else if let Command::UploadPart { content, .. } = self.command() {
             let digest = md5::compute(content);
             let hash = base64::encode(digest.as_ref());
-            headers.insert(
-                HeaderName::from_static("content-md5"),
-                hash.parse().unwrap(),
-            );
+            headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
         } else if let Command::GetObject {} = self.command() {
-            headers.insert(
-                ACCEPT,
-                "application/octet-stream".to_string().parse().unwrap(),
-            );
+            headers.insert(ACCEPT, "application/octet-stream".to_string().parse()?);
         // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
         } else if let Command::GetObjectRange { start, end } = self.command() {
-            headers.insert(
-                ACCEPT,
-                "application/octet-stream".to_string().parse().unwrap(),
-            );
+            headers.insert(ACCEPT, "application/octet-stream".to_string().parse()?);
 
             let mut range = format!("bytes={}-", start);
 
@@ -515,7 +499,7 @@ pub trait Request {
                 range.push_str(&end.to_string());
             }
 
-            headers.insert(RANGE, range.parse().unwrap());
+            headers.insert(RANGE, range.parse()?);
         } else if let Command::CreateBucket { ref config } = self.command() {
             config.add_headers(&mut headers)?;
         }
@@ -523,7 +507,7 @@ pub trait Request {
         // This must be last, as it signs the other headers, omitted if no secret key is provided
         if self.bucket().secret_key()?.is_some() {
             let authorization = self.authorization(&headers)?;
-            headers.insert(AUTHORIZATION, authorization.parse().unwrap());
+            headers.insert(AUTHORIZATION, authorization.parse()?);
         }
 
         // The format of RFC2822 is somewhat malleable, so including it in
@@ -532,10 +516,7 @@ pub trait Request {
         // range and can't be used again e.g. reply attacks. Adding this header
         // after the generation of the Authorization header leaves it out of
         // the signed headers.
-        headers.insert(
-            DATE,
-            self.datetime().format(&Rfc2822).unwrap().parse().unwrap(),
-        );
+        headers.insert(DATE, self.datetime().format(&Rfc2822)?.parse()?);
 
         Ok(headers)
     }

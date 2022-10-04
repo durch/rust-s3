@@ -96,17 +96,17 @@ pub fn canonical_query_string(uri: &Url) -> String {
 }
 
 /// Generate a canonical header string from the provided headers.
-pub fn canonical_header_string(headers: &HeaderMap) -> String {
-    let mut keyvalues = headers
-        .iter()
-        .map(|(key, value)| {
-            // Values that are not strings are silently dropped (AWS wouldn't
-            // accept them anyway)
-            key.as_str().to_lowercase() + ":" + value.to_str().unwrap().trim()
-        })
-        .collect::<Vec<String>>();
+pub fn canonical_header_string(headers: &HeaderMap) -> Result<String, S3Error> {
+    let mut keyvalues = vec![];
+    for (key, value) in headers.iter() {
+        keyvalues.push(format!(
+            "{}:{}",
+            key.as_str().to_lowercase(),
+            value.to_str()?.trim()
+        ))
+    }
     keyvalues.sort();
-    keyvalues.join("\n")
+    Ok(keyvalues.join("\n"))
 }
 
 /// Generate a signed header string from the provided headers.
@@ -120,39 +120,48 @@ pub fn signed_header_string(headers: &HeaderMap) -> String {
 }
 
 /// Generate a canonical request.
-pub fn canonical_request(method: &str, url: &Url, headers: &HeaderMap, sha256: &str) -> String {
-    format!(
+pub fn canonical_request(
+    method: &str,
+    url: &Url,
+    headers: &HeaderMap,
+    sha256: &str,
+) -> Result<String, S3Error> {
+    Ok(format!(
         "{method}\n{uri}\n{query_string}\n{headers}\n\n{signed}\n{sha256}",
         method = method,
         uri = canonical_uri_string(url),
         query_string = canonical_query_string(url),
-        headers = canonical_header_string(headers),
+        headers = canonical_header_string(headers)?,
         signed = signed_header_string(headers),
         sha256 = sha256
-    )
+    ))
 }
 
 /// Generate an AWS scope string.
-pub fn scope_string(datetime: &OffsetDateTime, region: &Region) -> String {
-    format!(
+pub fn scope_string(datetime: &OffsetDateTime, region: &Region) -> Result<String, S3Error> {
+    Ok(format!(
         "{date}/{region}/s3/aws4_request",
-        date = datetime.format(SHORT_DATE).unwrap(),
+        date = datetime.format(SHORT_DATE)?,
         region = region
-    )
+    ))
 }
 
 /// Generate the "string to sign" - the value to which the HMAC signing is
 /// applied to sign requests.
-pub fn string_to_sign(datetime: &OffsetDateTime, region: &Region, canonical_req: &str) -> String {
+pub fn string_to_sign(
+    datetime: &OffsetDateTime,
+    region: &Region,
+    canonical_req: &str,
+) -> Result<String, S3Error> {
     let mut hasher = Sha256::default();
     hasher.update(canonical_req.as_bytes());
     let string_to = format!(
         "AWS4-HMAC-SHA256\n{timestamp}\n{scope}\n{hash}",
-        timestamp = datetime.format(LONG_DATETIME).unwrap(),
-        scope = scope_string(datetime, region),
+        timestamp = datetime.format(LONG_DATETIME)?,
+        scope = scope_string(datetime, region)?,
         hash = hex::encode(hasher.finalize().as_slice())
     );
-    string_to
+    Ok(string_to)
 }
 
 /// Generate the AWS signing key, derived from the secret key, date, region,
@@ -165,7 +174,7 @@ pub fn signing_key(
 ) -> Result<Vec<u8>, S3Error> {
     let secret = format!("AWS4{}", secret_key);
     let mut date_hmac = HmacSha256::new_from_slice(secret.as_bytes())?;
-    date_hmac.update(datetime.format(SHORT_DATE).unwrap().as_bytes());
+    date_hmac.update(datetime.format(SHORT_DATE)?.as_bytes());
     let mut region_hmac = HmacSha256::new_from_slice(&date_hmac.finalize().into_bytes())?;
     region_hmac.update(region.to_string().as_bytes());
     let mut service_hmac = HmacSha256::new_from_slice(&region_hmac.finalize().into_bytes())?;
@@ -182,15 +191,15 @@ pub fn authorization_header(
     region: &Region,
     signed_headers: &str,
     signature: &str,
-) -> String {
-    format!(
+) -> Result<String, S3Error> {
+    Ok(format!(
         "AWS4-HMAC-SHA256 Credential={access_key}/{scope},\
             SignedHeaders={signed_headers},Signature={signature}",
         access_key = access_key,
-        scope = scope_string(datetime, region),
+        scope = scope_string(datetime, region)?,
         signed_headers = signed_headers,
         signature = signature
-    )
+    ))
 }
 
 pub fn authorization_query_params_no_sig(
@@ -201,7 +210,7 @@ pub fn authorization_query_params_no_sig(
     custom_headers: Option<&HeaderMap>,
     token: Option<&String>,
 ) -> Result<String, S3Error> {
-    let credentials = format!("{}/{}", access_key, scope_string(datetime, region));
+    let credentials = format!("{}/{}", access_key, scope_string(datetime, region)?);
     let credentials = utf8_percent_encode(&credentials, FRAGMENT_SLASH);
 
     let mut signed_headers = vec!["host".to_string()];
@@ -222,7 +231,7 @@ pub fn authorization_query_params_no_sig(
             &X-Amz-Expires={expires}\
             &X-Amz-SignedHeaders={signed_headers}",
         credentials = credentials,
-        long_date = datetime.format(LONG_DATETIME).unwrap(),
+        long_date = datetime.format(LONG_DATETIME)?,
         expires = expires,
         signed_headers = signed_headers,
     );
@@ -239,9 +248,9 @@ pub fn authorization_query_params_no_sig(
     Ok(query_params)
 }
 
-pub fn flatten_queries(queries: Option<&HashMap<String, String>>) -> String {
+pub fn flatten_queries(queries: Option<&HashMap<String, String>>) -> Result<String, S3Error> {
     match queries {
-        None => String::new(),
+        None => Ok(String::new()),
         Some(queries) => {
             let mut query_str = String::new();
             for (k, v) in queries {
@@ -250,10 +259,9 @@ pub fn flatten_queries(queries: Option<&HashMap<String, String>>) -> String {
                     "&{}={}",
                     utf8_percent_encode(k, FRAGMENT_SLASH),
                     utf8_percent_encode(v, FRAGMENT_SLASH),
-                )
-                .unwrap();
+                )?;
             }
-            query_str
+            Ok(query_str)
         }
     }
 }
@@ -342,7 +350,7 @@ mod tests {
         );
         headers.insert(HeaderName::from_static("foo"), "bAr".parse().unwrap());
         headers.insert(HOST, "s3.amazonaws.com".parse().unwrap());
-        let canonical = canonical_header_string(&headers);
+        let canonical = canonical_header_string(&headers).unwrap();
         let expected = "foo:bAr\nhost:s3.amazonaws.com\nx-amz-date:20130708T220855Z";
         assert_eq!(expected, canonical);
 
@@ -400,7 +408,7 @@ mod tests {
             HeaderName::from_static("x-amz-content-sha256"),
             EXPECTED_SHA.parse().unwrap(),
         );
-        let canonical = canonical_request("GET", &url, &headers, EXPECTED_SHA);
+        let canonical = canonical_request("GET", &url, &headers, EXPECTED_SHA).unwrap();
         assert_eq!(EXPECTED_CANONICAL_REQUEST, canonical);
 
         let datetime = Date::from_calendar_date(2013, 5.try_into().unwrap(), 24)
@@ -408,7 +416,8 @@ mod tests {
             .with_hms(0, 0, 0)
             .unwrap()
             .assume_utc();
-        let string_to_sign = string_to_sign(&datetime, &"us-east-1".parse().unwrap(), &canonical);
+        let string_to_sign =
+            string_to_sign(&datetime, &"us-east-1".parse().unwrap(), &canonical).unwrap();
         assert_eq!(EXPECTED_STRING_TO_SIGN, string_to_sign);
 
         let expected = "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41";

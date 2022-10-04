@@ -43,4 +43,8 @@ pub enum S3Error {
     WLCredentials,
     #[error("Could not get Read lock on Credentials")]
     RLCredentials,
+    #[error("Time format error: {0}")]
+    TimeFormatError(#[from] time::error::Format),
+    #[error("fmt error: {0}")]
+    FmtError(#[from] std::fmt::Error),
 }

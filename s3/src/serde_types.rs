@@ -69,7 +69,10 @@ impl fmt::Display for CompleteMultipartUploadData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut parts = String::new();
         for part in self.parts.clone() {
-            parts.push_str(&serde_xml_rs::to_string(&part).unwrap())
+            parts.push_str(
+                &serde_xml_rs::to_string(&part)
+                    .unwrap_or_else(|_| "Could not parse XML".to_string()),
+            )
         }
         write!(
             f,

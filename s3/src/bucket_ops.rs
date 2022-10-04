@@ -122,42 +122,42 @@ impl BucketConfiguration {
     pub fn add_headers(&self, headers: &mut HeaderMap) -> Result<(), S3Error> {
         headers.insert(
             HeaderName::from_static("x-amz-acl"),
-            self.acl.to_string().parse().unwrap(),
+            self.acl.to_string().parse()?,
         );
         if self.object_lock_enabled {
             headers.insert(
                 HeaderName::from_static("x-amz-bucket-object-lock-enabled"),
-                "Enabled".to_string().parse().unwrap(),
+                "Enabled".to_string().parse()?,
             );
         }
         if let Some(ref value) = self.grant_full_control {
             headers.insert(
                 HeaderName::from_static("x-amz-grant-full-control"),
-                acl_list(value).parse().unwrap(),
+                acl_list(value).parse()?,
             );
         }
         if let Some(ref value) = self.grant_read {
             headers.insert(
                 HeaderName::from_static("x-amz-grant-read"),
-                acl_list(value).parse().unwrap(),
+                acl_list(value).parse()?,
             );
         }
         if let Some(ref value) = self.grant_read_acp {
             headers.insert(
                 HeaderName::from_static("x-amz-grant-read-acp"),
-                acl_list(value).parse().unwrap(),
+                acl_list(value).parse()?,
             );
         }
         if let Some(ref value) = self.grant_write {
             headers.insert(
                 HeaderName::from_static("x-amz-grant-write"),
-                acl_list(value).parse().unwrap(),
+                acl_list(value).parse()?,
             );
         }
         if let Some(ref value) = self.grant_write_acp {
             headers.insert(
                 HeaderName::from_static("x-amz-grant-write-acp"),
-                acl_list(value).parse().unwrap(),
+                acl_list(value).parse()?,
             );
         }
         Ok(())

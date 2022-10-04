@@ -55,7 +55,7 @@ impl<'a> Request for AttoRequest<'a> {
         let mut session = attohttpc::Session::new();
 
         for (name, value) in headers.iter() {
-            session.header(HeaderName::from_bytes(name.as_ref()).unwrap(), value);
+            session.header(HeaderName::from_bytes(name.as_ref())?, value);
         }
 
         if let Some(timeout) = self.bucket.request_timeout {
@@ -63,11 +63,11 @@ impl<'a> Request for AttoRequest<'a> {
         }
 
         let request = match self.command.http_verb() {
-            HttpMethod::Get => session.get(self.url()),
-            HttpMethod::Delete => session.delete(self.url()),
-            HttpMethod::Put => session.put(self.url()),
-            HttpMethod::Post => session.post(self.url()),
-            HttpMethod::Head => session.head(self.url()),
+            HttpMethod::Get => session.get(self.url()?),
+            HttpMethod::Delete => session.delete(self.url()?),
+            HttpMethod::Put => session.put(self.url()?),
+            HttpMethod::Post => session.post(self.url()?),
+            HttpMethod::Head => session.head(self.url()?),
         };
 
         let response = request.bytes(&self.request_body()).send()?;
@@ -168,7 +168,7 @@ mod tests {
         let path = "/my-first/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "https");
+        assert_eq!(request.url()?.scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -185,7 +185,7 @@ mod tests {
         let path = "/my-first/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "https");
+        assert_eq!(request.url()?.scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -201,7 +201,7 @@ mod tests {
         let path = "/my-second/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "http");
+        assert_eq!(request.url()?.scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -212,12 +212,12 @@ mod tests {
     #[test]
     fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
         let region = "http://custom-region".parse()?;
-        let mut bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
+        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         bucket.with_path_style();
         let path = "/my-second/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "http");
+        assert_eq!(request.url()?.scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();

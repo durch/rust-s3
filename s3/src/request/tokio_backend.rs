@@ -86,7 +86,7 @@ impl<'a> Request for Reqwest<'a> {
         };
 
         let request = client
-            .request(method, self.url().as_str())
+            .request(method, self.url()?.as_str())
             .headers(headers)
             .body(self.request_body());
 
@@ -206,7 +206,7 @@ mod tests {
         let path = "/my-first/path";
         let request = Reqwest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "https");
+        assert_eq!(request.url().unwrap().scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get(HOST).unwrap();
@@ -223,7 +223,7 @@ mod tests {
         let path = "/my-first/path";
         let request = Reqwest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "https");
+        assert_eq!(request.url().unwrap().scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get(HOST).unwrap();
@@ -238,7 +238,7 @@ mod tests {
         let path = "/my-second/path";
         let request = Reqwest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "http");
+        assert_eq!(request.url().unwrap().scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get(HOST).unwrap();
@@ -254,7 +254,7 @@ mod tests {
         let path = "/my-second/path";
         let request = Reqwest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "http");
+        assert_eq!(request.url().unwrap().scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get(HOST).unwrap();
