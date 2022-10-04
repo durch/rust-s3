@@ -1057,14 +1057,9 @@ impl Bucket {
             return Ok(response_data.status_code());
         }
 
-        let command = Command::InitiateMultipartUpload { content_type };
-        let request = RequestImpl::new(self, s3_path, command)?;
-        let response_data = request.response_data(false).await?;
-        if response_data.status_code() >= 300 {
-            return Err(error_from_response_data(response_data)?);
-        }
-
-        let msg: InitiateMultipartUploadResponse = serde_xml::from_str(response_data.as_str()?)?;
+        let msg = self
+            .initiate_multipart_upload(s3_path, content_type)
+            .await?;
         let path = msg.key;
         let upload_id = &msg.upload_id;
 
@@ -1128,13 +1123,9 @@ impl Bucket {
                 part_number: i as u32 + 1,
             })
             .collect::<Vec<Part>>();
-        let data = CompleteMultipartUploadData { parts: inner_data };
-        let complete = Command::CompleteMultipartUpload {
-            upload_id: &msg.upload_id,
-            data,
-        };
-        let complete_request = RequestImpl::new(self, &path, complete)?;
-        let _respose_data = complete_request.response_data(false).await?;
+        let response_data = self
+            .complete_multipart_upload(&path, &msg.upload_id, inner_data)
+            .await?;
 
         Ok(response_data.status_code())
     }
@@ -1146,14 +1137,7 @@ impl Bucket {
         s3_path: &str,
         content_type: &str,
     ) -> Result<u16, S3Error> {
-        let command = Command::InitiateMultipartUpload { content_type };
-        let request = RequestImpl::new(self, s3_path, command)?;
-        let response_data = request.response_data(false)?;
-        if response_data.status_code() >= 300 {
-            return Err(error_from_response_data(response_data)?);
-        }
-        let msg: InitiateMultipartUploadResponse = serde_xml::from_str(response_data.as_str()?)?;
-
+        let msg = self.initiate_multipart_upload(s3_path, content_type)?;
         let path = msg.key;
         let upload_id = &msg.upload_id;
 
@@ -1170,28 +1154,14 @@ impl Bucket {
                     self.put_object(s3_path, chunk.as_slice())?;
                 } else {
                     part_number += 1;
-                    let command = Command::PutObject {
-                        // part_number,
-                        content: &chunk,
-                        multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
+                    let part = self.put_multipart_chunk(
+                        chunk,
+                        &path,
+                        part_number,
+                        upload_id,
                         content_type,
-                    };
-                    let request = RequestImpl::new(self, &path, command)?;
-                    let response_data = request.response_data(true)?;
-                    if !(200..300).contains(&response_data.status_code()) {
-                        // if chunk upload failed - abort the upload
-                        match self.abort_upload(&path, upload_id) {
-                            Ok(_) => {
-                                return Err(error_from_response_data(response_data)?);
-                            }
-                            Err(error) => {
-                                return Err(error);
-                            }
-                        }
-                    }
-
-                    let etag = response_data.as_str()?;
-                    etags.push(etag.to_string());
+                    )?;
+                    etags.push(part.etag);
                     let inner_data = etags
                         .into_iter()
                         .enumerate()
@@ -1200,41 +1170,179 @@ impl Bucket {
                             part_number: i as u32 + 1,
                         })
                         .collect::<Vec<Part>>();
-                    let data = CompleteMultipartUploadData { parts: inner_data };
-                    let complete = Command::CompleteMultipartUpload {
-                        upload_id: &msg.upload_id,
-                        data,
-                    };
-                    let complete_request = RequestImpl::new(self, &path, complete)?;
-                    let _response_data = complete_request.response_data(false)?;
+                    return Ok(self
+                        .complete_multipart_upload(&path, upload_id, inner_data)?
+                        .status_code());
+                    // let response = std::str::from_utf8(data.as_slice())?;
                 }
-                break;
             } else {
                 part_number += 1;
-                let command = Command::PutObject {
-                    content: &chunk,
-                    multipart: Some(Multipart::new(part_number, upload_id)),
-                    content_type,
-                };
-                let request = RequestImpl::new(self, &path, command)?;
-                let response_data = request.response_data(true)?;
-                if !(200..300).contains(&response_data.status_code()) {
-                    // if chunk upload failed - abort the upload
-                    match self.abort_upload(&path, upload_id) {
-                        Ok(_) => {
-                            return Err(error_from_response_data(response_data)?);
-                        }
-                        Err(error) => {
-                            return Err(error);
-                        }
-                    }
-                }
-
-                let etag = response_data.as_str()?;
-                etags.push(etag.to_string());
+                let part =
+                    self.put_multipart_chunk(chunk, &path, part_number, upload_id, content_type)?;
+                etags.push(part.etag.to_string());
             }
         }
-        Ok(response_data.status_code())
+    }
+
+    /// Initiate multipart upload to s3.
+    #[maybe_async::async_impl]
+    pub async fn initiate_multipart_upload(
+        &self,
+        s3_path: &str,
+        content_type: &str,
+    ) -> Result<InitiateMultipartUploadResponse, S3Error> {
+        let command = Command::InitiateMultipartUpload { content_type };
+        let request = RequestImpl::new(self, s3_path, command)?;
+        let response_data = request.response_data(false).await?;
+        if response_data.status_code() >= 300 {
+            return Err(error_from_response_data(response_data)?);
+        }
+
+        let msg: InitiateMultipartUploadResponse = serde_xml::from_str(response_data.as_str()?)?;
+        Ok(msg)
+    }
+
+    #[maybe_async::sync_impl]
+    pub fn initiate_multipart_upload(
+        &self,
+        s3_path: &str,
+        content_type: &str,
+    ) -> Result<InitiateMultipartUploadResponse, S3Error> {
+        let command = Command::InitiateMultipartUpload { content_type };
+        let request = RequestImpl::new(self, s3_path, command)?;
+        let response_data = request.response_data(false)?;
+        if response_data.status_code() >= 300 {
+            return Err(error_from_response_data(response_data)?);
+        }
+
+        let msg: InitiateMultipartUploadResponse = serde_xml::from_str(response_data.as_str()?)?;
+        Ok(msg)
+    }
+
+    /// Upload a streamed multipart chunk to s3 using a previously initiated multipart upload
+    #[maybe_async::async_impl]
+    pub async fn put_multipart_stream<R: Read + Unpin>(
+        &self,
+        reader: &mut R,
+        path: &str,
+        part_number: u32,
+        upload_id: &str,
+        content_type: &str,
+    ) -> Result<Part, S3Error> {
+        let chunk = crate::utils::read_chunk(reader)?;
+        self.put_multipart_chunk(chunk, path, part_number, upload_id, content_type)
+            .await
+    }
+
+    #[maybe_async::sync_impl]
+    pub async fn put_multipart_stream<R: Read + Unpin>(
+        &self,
+        reader: &mut R,
+        path: &str,
+        part_number: u32,
+        upload_id: &str,
+        content_type: &str,
+    ) -> Result<Part, S3Error> {
+        let chunk = crate::utils::read_chunk(reader)?;
+        self.put_multipart_chunk(chunk, path, part_number, upload_id, content_type)
+    }
+
+    /// Upload a buffered multipart chunk to s3 using a previously initiated multipart upload
+    #[maybe_async::async_impl]
+    pub async fn put_multipart_chunk(
+        &self,
+        chunk: Vec<u8>,
+        path: &str,
+        part_number: u32,
+        upload_id: &str,
+        content_type: &str,
+    ) -> Result<Part, S3Error> {
+        let command = Command::PutObject {
+            // part_number,
+            content: &chunk,
+            multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
+            content_type,
+        };
+        let request = RequestImpl::new(self, path, command)?;
+        let response_data = request.response_data(true).await?;
+        if !(200..300).contains(&response_data.status_code()) {
+            // if chunk upload failed - abort the upload
+            match self.abort_upload(path, upload_id).await {
+                Ok(_) => {
+                    return Err(error_from_response_data(response_data)?);
+                }
+                Err(error) => {
+                    return Err(error);
+                }
+            }
+        }
+        let etag = response_data.as_str()?;
+        Ok(Part {
+            etag: etag.to_string(),
+            part_number,
+        })
+    }
+
+    #[maybe_async::sync_impl]
+    pub fn put_multipart_chunk(
+        &self,
+        chunk: Vec<u8>,
+        path: &str,
+        part_number: u32,
+        upload_id: &str,
+        content_type: &str,
+    ) -> Result<Part, S3Error> {
+        let command = Command::PutObject {
+            // part_number,
+            content: &chunk,
+            multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
+            content_type,
+        };
+        let request = RequestImpl::new(self, path, command)?;
+        let response_data = request.response_data(true)?;
+        if !(200..300).contains(&response_data.status_code()) {
+            // if chunk upload failed - abort the upload
+            match self.abort_upload(path, upload_id) {
+                Ok(_) => {
+                    return Err(error_from_response_data(response_data)?);
+                }
+                Err(error) => {
+                    return Err(error);
+                }
+            }
+        }
+        let etag = response_data.as_str()?;
+        Ok(Part {
+            etag: etag.to_string(),
+            part_number,
+        })
+    }
+
+    /// Completes a previously initiated multipart upload, with optional final data chunks
+    #[maybe_async::async_impl]
+    pub async fn complete_multipart_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+        parts: Vec<Part>,
+    ) -> Result<ResponseData, S3Error> {
+        let data = CompleteMultipartUploadData { parts };
+        let complete = Command::CompleteMultipartUpload { upload_id, data };
+        let complete_request = RequestImpl::new(self, path, complete)?;
+        complete_request.response_data(false).await
+    }
+
+    #[maybe_async::sync_impl]
+    pub fn complete_multipart_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+        parts: Vec<Part>,
+    ) -> Result<ResponseData, S3Error> {
+        let data = CompleteMultipartUploadData { parts };
+        let complete = Command::CompleteMultipartUpload { upload_id, data };
+        let complete_request = RequestImpl::new(self, path, complete)?;
+        complete_request.response_data(false)
     }
 
     /// Get Bucket location.
