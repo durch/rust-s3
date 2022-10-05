@@ -1,7 +1,6 @@
 extern crate base64;
 extern crate md5;
 
-use std::io;
 use std::io::Write;
 
 use attohttpc::header::HeaderName;
@@ -111,10 +110,10 @@ impl<'a> Request for AttoRequest<'a> {
     }
 
     fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16, S3Error> {
-        let mut response = self.response()?;
+        let response = self.response()?;
 
         let status_code = response.status();
-        io::copy(&mut response, writer)?;
+        response.write_to(writer)?;
 
         Ok(status_code.as_u16())
     }
@@ -181,7 +180,7 @@ mod tests {
     fn url_uses_https_by_default_path_style() -> Result<()> {
         let region = "custom-region".parse()?;
         let mut bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
-        bucket.with_path_style();
+        bucket.set_path_style();
         let path = "/my-first/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
@@ -212,8 +211,8 @@ mod tests {
     #[test]
     fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
         let region = "http://custom-region".parse()?;
-        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
-        bucket.with_path_style();
+        let mut bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
+        bucket.set_path_style();
         let path = "/my-second/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
