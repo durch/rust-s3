@@ -2498,21 +2498,21 @@ mod test {
     #[maybe_async::maybe_async]
     async fn streaming_test_put_get_delete_big_object(bucket: Bucket) {
         #[cfg(feature = "with-async-std")]
+        use async_std::fs::File;
+        #[cfg(feature = "with-async-std")]
+        use async_std::io::WriteExt;
+        #[cfg(feature = "with-async-std")]
         use async_std::stream::StreamExt;
         #[cfg(feature = "with-tokio")]
         use futures::StreamExt;
         #[cfg(not(any(feature = "with-tokio", feature = "with-async-std")))]
         use std::fs::File;
-        #[cfg(feature = "with-tokio")]
-        use tokio::fs::File;
-        #[cfg(feature = "with-async-std")]
-        use async_std::fs::File;
         #[cfg(not(any(feature = "with-tokio", feature = "with-async-std")))]
         use std::io::Write;
         #[cfg(feature = "with-tokio")]
+        use tokio::fs::File;
+        #[cfg(feature = "with-tokio")]
         use tokio::io::AsyncWriteExt;
-        #[cfg(feature = "with-async-std")]
-        use async_std::io::WriteExt;
 
         init();
         let remote_path = "+stream_test_big";
