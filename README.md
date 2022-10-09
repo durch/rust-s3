@@ -21,7 +21,31 @@ Supports: `put`, `get`, `list`, `delete`, operations on `tags` and `location`, w
 Additionally a dedicated `presign_get` `Bucket` method is available. This means you can upload to S3, and give the link to select people without having to worry about publicly accessible files on S3. This also means that you can give people 
 a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the duration of the presigned URL.
 
-**[AWS, Yandex and Custom (Minio) Example](https://github.com/durch/rust-s3/blob/master/s3/bin/simple_crud.rs)**
+#### Quick Start
+
+Read and run examples from the `examples` folder, make sure you have valid credentials for the variant you're running.
+
+```
+# tokio, default
+cargo run --example tokio
+
+# async-std
+cargo run --example async-std --no-default-features --features async-std-native-tls
+
+# sync
+cargo run --example sync --no-default-features --features sync-native-tls
+
+# minio
+cargo run --example minio
+
+# r2
+cargo run --example r2
+
+# google cloud
+cargo run --example google-cloud
+
+
+```
 
 #### Features
 
