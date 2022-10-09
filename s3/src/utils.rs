@@ -8,6 +8,13 @@ use std::fs::File;
 
 use std::io::Read;
 use std::path::Path;
+
+#[cfg(feature = "with-tokio")]
+use tokio::io::{AsyncRead, AsyncReadExt};
+
+#[cfg(feature = "with-async-std")]
+use futures::io::{AsyncRead, AsyncReadExt};
+
 /// # Example
 /// ```rust,no_run
 /// use s3::utils::etag_for_path;
@@ -45,6 +52,16 @@ pub fn read_chunk<R: Read>(reader: &mut R) -> Result<Vec<u8>, S3Error> {
 
     Ok(chunk)
 }
+
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+pub async fn read_chunk_async<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>, S3Error> {
+    let mut chunk = Vec::with_capacity(CHUNK_SIZE);
+    let mut take = reader.take(CHUNK_SIZE as u64);
+    take.read_to_end(&mut chunk).await?;
+
+    Ok(chunk)
+}
+
 pub trait GetAndConvertHeaders {
     fn get_and_convert<T: FromStr>(&self, header: &str) -> Option<T>;
     fn get_string(&self, header: &str) -> Option<String>;
