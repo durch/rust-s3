@@ -43,8 +43,6 @@ cargo run --example r2
 
 # google cloud
 cargo run --example google-cloud
-
-
 ```
 
 #### Features
