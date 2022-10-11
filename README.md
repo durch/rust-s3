@@ -25,7 +25,7 @@ a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the d
 
 Read and run examples from the `examples` folder, make sure you have valid credentials for the variant you're running.
 
-```
+```bash
 # tokio, default
 cargo run --example tokio
 
