@@ -44,7 +44,7 @@ path = "../examples/gcs-tokio.rs"
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
 attohttpc = { version = "0.22", optional = true, default-features = false }
-aws-creds = { version = "0.33.0", default-features = false }
+aws-creds = { path = "../aws-creds", version = "0.33.0", default-features = false }
 # aws-creds = { path = "../aws-creds", default-features = false }
 aws-region = "0.25.1"
 # aws-region = {path = "../aws-region"}
@@ -93,6 +93,7 @@ fail-on-err = []
 tokio-native-tls = ["with-tokio", "reqwest/native-tls", "aws-creds/native-tls"]
 tokio-rustls-tls = ["with-tokio", "reqwest/rustls-tls", "aws-creds/rustls-tls"]
 sync-native-tls = ["sync", "aws-creds/native-tls", "attohttpc/tls"]
+sync-native-tls-vendored = [ "sync", "aws-creds/native-tls-vendored", "attohttpc/tls-vendored" ]
 sync-rustls-tls = ["sync", "aws-creds/rustls-tls", "attohttpc/tls-rustls"]
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]
 tags = ["minidom"]
