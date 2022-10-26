@@ -2867,7 +2867,7 @@ mod test {
             .presign_put(s3_path, 86400, Some(custom_headers))
             .unwrap();
 
-        assert!(url.contains("host%3Bcustom_header"));
+        assert!(url.contains("custom_header%3Bhost"));
         assert!(url.contains("/test/test.file"))
     }
 
