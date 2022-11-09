@@ -1387,6 +1387,12 @@ impl Bucket {
     pub async fn location(&self) -> Result<(Region, u16), S3Error> {
         let request = RequestImpl::new(self, "?location", Command::GetBucketLocation)?;
         let response_data = request.response_data(false).await?;
+        // Amazon docs state that successful response will come with HTTP 200
+        // Response
+        if response_data.status_code() != 200 {
+            let utf8_content = String::from_utf8(response_data.bytes().to_vec())?;
+            return Err(S3Error::Http(response_data.status_code(), utf8_content));
+        }
         let region_string = String::from_utf8_lossy(response_data.as_slice());
         let region = match serde_xml::from_reader(region_string.as_bytes()) {
             Ok(r) => {
@@ -1806,9 +1812,15 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command)?;
         let response_data = request.response_data(false).await?;
-        let list_bucket_result = serde_xml::from_reader(response_data.as_slice())?;
-
-        Ok((list_bucket_result, response_data.status_code()))
+        // Amazon docs state that successful response will come with HTTP 200
+        // Response
+        if response_data.status_code() == 200 {
+            let list_bucket_result = serde_xml::from_reader(response_data.bytes())?;
+            Ok((list_bucket_result, response_data.status_code()))
+        } else {
+            let utf8_content = String::from_utf8(response_data.bytes().to_vec())?;
+            Err(S3Error::Http(response_data.status_code(), utf8_content))
+        }
     }
 
     /// List the contents of an S3 bucket.
@@ -1889,9 +1901,16 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command)?;
         let response_data = request.response_data(false).await?;
-        let list_bucket_result = serde_xml::from_reader(response_data.as_slice())?;
 
-        Ok((list_bucket_result, response_data.status_code()))
+        // Amazon docs state that successful response will come with HTTP 200
+        // Response
+        if response_data.status_code() == 200 {
+            let list_bucket_result = serde_xml::from_reader(response_data.bytes())?;
+            Ok((list_bucket_result, response_data.status_code()))
+        } else {
+            let utf8_content = String::from_utf8(response_data.bytes().to_vec())?;
+            Err(S3Error::Http(response_data.status_code(), utf8_content))
+        }
     }
 
     /// List the ongoing multipart uploads of an S3 bucket. This may be useful to cleanup failed
