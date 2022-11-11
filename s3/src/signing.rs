@@ -273,7 +273,6 @@ mod tests {
 
     use http::header::{HeaderName, HOST, RANGE};
     use http::HeaderMap;
-    use serde_xml_rs as serde_xml;
     use time::Date;
     use url::Url;
 
@@ -442,7 +441,7 @@ mod tests {
             </ListBucketResult>
         "###;
         let deserialized: ListBucketResult =
-            serde_xml::from_reader(result_string.as_bytes()).expect("Parse error!");
+            quick_xml::de::from_reader(result_string.as_bytes()).expect("Parse error!");
         assert!(deserialized.is_truncated);
     }
 

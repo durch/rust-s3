@@ -18,7 +18,7 @@ pub enum CredentialsError {
     #[error("ini: {0}")]
     Ini(#[from] ini::Error),
     #[error("serde_xml: {0}")]
-    SerdeXml(#[from] serde_xml_rs::Error),
+    SerdeXml(#[from] quick_xml::de::DeError),
     #[error("url parse: {0}")]
     UrlParse(#[from] url::ParseError),
     #[error("io: {0}")]

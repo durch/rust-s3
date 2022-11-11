@@ -67,7 +67,7 @@ reqwest = { version = "0.11", default-features = false, features = [
 ], optional = true }
 serde = "1"
 serde_derive = "1"
-serde-xml-rs = "0.5"
+quick-xml = { version = "0.26.0", features = [ "serialize" ] }
 sha2 = "0.10"
 thiserror = "1"
 surf = { version = "2", optional = true, default-features = false, features = [
