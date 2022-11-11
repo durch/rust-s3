@@ -63,6 +63,8 @@ pub enum Region {
     EuNorth1,
     /// eu-central-1
     EuCentral1,
+    /// eu-central-2
+    EuCentral2,
     /// eu-west-1
     EuWest1,
     /// eu-west-2
@@ -122,6 +124,7 @@ impl fmt::Display for Region {
             CnNorthwest1 => write!(f, "cn-northwest-1"),
             EuNorth1 => write!(f, "eu-north-1"),
             EuCentral1 => write!(f, "eu-central-1"),
+            EuCentral2 => write!(f, "eu-central-2"),
             EuWest1 => write!(f, "eu-west-1"),
             EuWest2 => write!(f, "eu-west-2"),
             EuWest3 => write!(f, "eu-west-3"),
@@ -165,6 +168,7 @@ impl FromStr for Region {
             "cn-northwest-1" => Ok(CnNorthwest1),
             "eu-north-1" => Ok(EuNorth1),
             "eu-central-1" => Ok(EuCentral1),
+            "eu-central-2" => Ok(EuCentral2),
             "eu-west-1" => Ok(EuWest1),
             "eu-west-2" => Ok(EuWest2),
             "eu-west-3" => Ok(EuWest3),
@@ -211,6 +215,7 @@ impl Region {
             CnNorthwest1 => String::from("s3.cn-northwest-1.amazonaws.com.cn"),
             EuNorth1 => String::from("s3-eu-north-1.amazonaws.com"),
             EuCentral1 => String::from("s3.eu-central-1.amazonaws.com"),
+            EuCentral2 => String::from("s3.eu-central-2.amazonaws.com"),
             EuWest1 => String::from("s3-eu-west-1.amazonaws.com"),
             EuWest2 => String::from("s3-eu-west-2.amazonaws.com"),
             EuWest3 => String::from("s3-eu-west-3.amazonaws.com"),
@@ -263,4 +268,10 @@ fn yandex_object_storage() {
     assert_eq!(yandex.endpoint(), yandex_region.endpoint());
 
     assert_eq!(yandex.to_string(), yandex_region.to_string());
+}
+
+#[test]
+fn test_region_eu_central_2() {
+    let region = "eu-central-2".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.eu-central-2.amazonaws.com");
 }
