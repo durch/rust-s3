@@ -2,7 +2,7 @@
 
 use crate::error::CredentialsError;
 use ini::Ini;
-use log::info;
+use log::debug;
 use serde::{Deserialize, Serialize};
 use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
@@ -192,7 +192,7 @@ impl Credentials {
     pub fn refresh(&mut self) -> Result<(), CredentialsError> {
         if let Some(expiration) = self.expiration {
             if expiration.0 <= OffsetDateTime::now_utc() {
-                info!("Refreshing credentials!");
+                debug!("Refreshing credentials!");
                 let refreshed = Credentials::default()?;
                 *self = refreshed
             }
