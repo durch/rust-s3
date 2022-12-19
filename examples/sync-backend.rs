@@ -4,6 +4,7 @@ use awscreds::Credentials;
 use s3::error::S3Error;
 use s3::Bucket;
 
+#[cfg(feature = "sync")]
 fn main() -> Result<(), S3Error> {
     let bucket = Bucket::new(
         "rust-s3-test",
@@ -35,3 +36,6 @@ fn main() -> Result<(), S3Error> {
     assert_eq!(response_data.status_code(), 204);
     Ok(())
 }
+
+#[cfg(not(feature = "sync"))]
+fn main() {}

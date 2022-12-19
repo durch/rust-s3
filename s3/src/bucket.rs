@@ -914,10 +914,17 @@ impl Bucket {
     /// let path = "path";
     /// let test: Vec<u8> = (0..1000).map(|_| 42).collect();
     /// let mut file = File::create(path)?;
+    /// // tokio open file
+    /// let mut async_output_file = tokio::fs::File::create("async_output_file").await.expect("Unable to create file");
     /// file.write_all(&test)?;
     ///
     /// // Generic over std::io::Read
-    /// let status_code = bucket.put_object_stream(&mut file, "/path").await?;
+    /// #[cfg(feature = "with-tokio")]
+    /// let status_code = bucket.put_object_stream(&mut async_output_file, "/path").await?;
+    ///
+    ///
+    /// #[cfg(feature = "with-async-std")]
+    /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
@@ -982,10 +989,16 @@ impl Bucket {
     /// let mut file = File::create(path)?;
     /// file.write_all(&test)?;
     ///
+    /// #[cfg(feature = "with-tokio")]
+    /// let mut async_output_file = tokio::fs::File::create("async_output_file").await.expect("Unable to create file");
+    ///
+    /// #[cfg(feature = "with-async-std")]
+    /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
+    ///
     /// // Async variant with `tokio` or `async-std` features
     /// // Generic over std::io::Read
     /// let status_code = bucket
-    ///     .put_object_stream_with_content_type(&mut file, "/path", "application/octet-stream")
+    ///     .put_object_stream_with_content_type(&mut async_output_file, "/path", "application/octet-stream")
     ///     .await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1124,7 +1137,7 @@ impl Bucket {
             .into_iter()
             .enumerate()
             .map(|(i, x)| Part {
-                etag: x,
+                etag: x.replace('"', ""),
                 part_number: i as u32 + 1,
             })
             .collect::<Vec<Part>>();
@@ -2620,7 +2633,10 @@ mod test {
         init();
         let remote_path = "+stream_test_small";
         let content: Vec<u8> = object(1000);
+        #[cfg(feature = "with-tokio")]
         let mut reader = std::io::Cursor::new(&content);
+        #[cfg(feature = "with-async-std")]
+        let mut reader = async_std::io::Cursor::new(&content);
 
         let code = bucket
             .put_object_stream(&mut reader, remote_path)
