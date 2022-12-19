@@ -22,7 +22,7 @@ attohttpc = { version = "0.22", default-features = false, features = [
     "json",
 ], optional = true }
 url = "2"
-serde-xml-rs = "0.5"
+quick-xml = { version = "0.26.0", features = [ "serialize" ] }
 serde = { version = "1", features = ["derive"] }
 time = { version = "^0.3.6", features = ["serde", "serde-well-known"] }
 log = "0.4"

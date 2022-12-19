@@ -2,7 +2,6 @@
 use block_on_proc::block_on;
 #[cfg(feature = "tags")]
 use minidom::Element;
-use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -1204,7 +1203,8 @@ impl Bucket {
             return Err(error_from_response_data(response_data)?);
         }
 
-        let msg: InitiateMultipartUploadResponse = serde_xml::from_str(response_data.as_str()?)?;
+        let msg: InitiateMultipartUploadResponse =
+            quick_xml::de::from_str(response_data.as_str()?)?;
         Ok(msg)
     }
 
@@ -1221,7 +1221,8 @@ impl Bucket {
             return Err(error_from_response_data(response_data)?);
         }
 
-        let msg: InitiateMultipartUploadResponse = serde_xml::from_str(response_data.as_str()?)?;
+        let msg: InitiateMultipartUploadResponse =
+            quick_xml::de::from_str(response_data.as_str()?)?;
         Ok(msg)
     }
 
@@ -1388,7 +1389,7 @@ impl Bucket {
         let request = RequestImpl::new(self, "?location", Command::GetBucketLocation)?;
         let response_data = request.response_data(false).await?;
         let region_string = String::from_utf8_lossy(response_data.as_slice());
-        let region = match serde_xml::from_reader(region_string.as_bytes()) {
+        let region = match quick_xml::de::from_reader(region_string.as_bytes()) {
             Ok(r) => {
                 let location_result: BucketLocationResult = r;
                 location_result.region.parse()?
@@ -1806,7 +1807,7 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command)?;
         let response_data = request.response_data(false).await?;
-        let list_bucket_result = serde_xml::from_reader(response_data.as_slice())?;
+        let list_bucket_result = quick_xml::de::from_reader(response_data.as_slice())?;
 
         Ok((list_bucket_result, response_data.status_code()))
     }
@@ -1889,7 +1890,7 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command)?;
         let response_data = request.response_data(false).await?;
-        let list_bucket_result = serde_xml::from_reader(response_data.as_slice())?;
+        let list_bucket_result = quick_xml::de::from_reader(response_data.as_slice())?;
 
         Ok((list_bucket_result, response_data.status_code()))
     }
