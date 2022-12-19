@@ -1137,7 +1137,7 @@ impl Bucket {
             .into_iter()
             .enumerate()
             .map(|(i, x)| Part {
-                etag: x.replace('"', ""),
+                etag: x,
                 part_number: i as u32 + 1,
             })
             .collect::<Vec<Part>>();
