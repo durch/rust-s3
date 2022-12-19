@@ -2,7 +2,6 @@
 use block_on_proc::block_on;
 #[cfg(feature = "tags")]
 use minidom::Element;
-use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -915,10 +914,17 @@ impl Bucket {
     /// let path = "path";
     /// let test: Vec<u8> = (0..1000).map(|_| 42).collect();
     /// let mut file = File::create(path)?;
+    /// // tokio open file
+    /// let mut async_output_file = tokio::fs::File::create("async_output_file").await.expect("Unable to create file");
     /// file.write_all(&test)?;
     ///
     /// // Generic over std::io::Read
-    /// let status_code = bucket.put_object_stream(&mut file, "/path").await?;
+    /// #[cfg(feature = "with-tokio")]
+    /// let status_code = bucket.put_object_stream(&mut async_output_file, "/path").await?;
+    ///
+    ///
+    /// #[cfg(feature = "with-async-std")]
+    /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
@@ -983,10 +989,16 @@ impl Bucket {
     /// let mut file = File::create(path)?;
     /// file.write_all(&test)?;
     ///
+    /// #[cfg(feature = "with-tokio")]
+    /// let mut async_output_file = tokio::fs::File::create("async_output_file").await.expect("Unable to create file");
+    ///
+    /// #[cfg(feature = "with-async-std")]
+    /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
+    ///
     /// // Async variant with `tokio` or `async-std` features
     /// // Generic over std::io::Read
     /// let status_code = bucket
-    ///     .put_object_stream_with_content_type(&mut file, "/path", "application/octet-stream")
+    ///     .put_object_stream_with_content_type(&mut async_output_file, "/path", "application/octet-stream")
     ///     .await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1125,7 +1137,7 @@ impl Bucket {
             .into_iter()
             .enumerate()
             .map(|(i, x)| Part {
-                etag: x,
+                etag: x.replace('"', ""),
                 part_number: i as u32 + 1,
             })
             .collect::<Vec<Part>>();
@@ -1204,7 +1216,8 @@ impl Bucket {
             return Err(error_from_response_data(response_data)?);
         }
 
-        let msg: InitiateMultipartUploadResponse = serde_xml::from_str(response_data.as_str()?)?;
+        let msg: InitiateMultipartUploadResponse =
+            quick_xml::de::from_str(response_data.as_str()?)?;
         Ok(msg)
     }
 
@@ -1221,7 +1234,8 @@ impl Bucket {
             return Err(error_from_response_data(response_data)?);
         }
 
-        let msg: InitiateMultipartUploadResponse = serde_xml::from_str(response_data.as_str()?)?;
+        let msg: InitiateMultipartUploadResponse =
+            quick_xml::de::from_str(response_data.as_str()?)?;
         Ok(msg)
     }
 
@@ -1388,7 +1402,7 @@ impl Bucket {
         let request = RequestImpl::new(self, "?location", Command::GetBucketLocation)?;
         let response_data = request.response_data(false).await?;
         let region_string = String::from_utf8_lossy(response_data.as_slice());
-        let region = match serde_xml::from_reader(region_string.as_bytes()) {
+        let region = match quick_xml::de::from_reader(region_string.as_bytes()) {
             Ok(r) => {
                 let location_result: BucketLocationResult = r;
                 location_result.region.parse()?
@@ -1806,7 +1820,7 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command)?;
         let response_data = request.response_data(false).await?;
-        let list_bucket_result = serde_xml::from_reader(response_data.as_slice())?;
+        let list_bucket_result = quick_xml::de::from_reader(response_data.as_slice())?;
 
         Ok((list_bucket_result, response_data.status_code()))
     }
@@ -1889,7 +1903,7 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, "/", command)?;
         let response_data = request.response_data(false).await?;
-        let list_bucket_result = serde_xml::from_reader(response_data.as_slice())?;
+        let list_bucket_result = quick_xml::de::from_reader(response_data.as_slice())?;
 
         Ok((list_bucket_result, response_data.status_code()))
     }
@@ -2619,7 +2633,10 @@ mod test {
         init();
         let remote_path = "+stream_test_small";
         let content: Vec<u8> = object(1000);
+        #[cfg(feature = "with-tokio")]
         let mut reader = std::io::Cursor::new(&content);
+        #[cfg(feature = "with-async-std")]
+        let mut reader = async_std::io::Cursor::new(&content);
 
         let code = bucket
             .put_object_stream(&mut reader, remote_path)
