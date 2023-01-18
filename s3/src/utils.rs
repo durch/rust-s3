@@ -25,21 +25,22 @@ use futures::io::{AsyncRead, AsyncReadExt};
 /// ```
 pub fn etag_for_path(path: impl AsRef<Path>) -> Result<String, S3Error> {
     let mut file = File::open(path)?;
+    let mut last_digest: [u8; 16];
     let mut digests = Vec::new();
     let mut chunks = 0;
     loop {
         let chunk = read_chunk(&mut file)?;
-        let digest: [u8; 16] = md5::compute(&chunk).into();
-        digests.extend_from_slice(&digest);
+        last_digest = md5::compute(&chunk).into();
+        digests.extend_from_slice(&last_digest);
         chunks += 1;
         if chunk.len() < CHUNK_SIZE {
             break;
         }
     }
-    let digest = format!("{:x}", md5::compute(digests));
     let etag = if chunks <= 1 {
-        digest
+        format!("{:x}", md5::Digest(last_digest))
     } else {
+        let digest = format!("{:x}", md5::compute(digests));
         format!("{}-{}", digest, chunks)
     };
     Ok(etag)
@@ -144,7 +145,7 @@ mod test {
     }
 
     #[test]
-    fn test_etag() {
+    fn test_etag_large_file() {
         let path = "test_etag";
         std::fs::remove_file(path).unwrap_or_else(|_| {});
         let test: Vec<u8> = object(10_000_000);
@@ -157,6 +158,22 @@ mod test {
         std::fs::remove_file(path).unwrap_or_else(|_| {});
 
         assert_eq!(etag, "e438487f09f09c042b2de097765e5ac2-2");
+    }
+
+    #[test]
+    fn test_etag_small_file() {
+        let path = "test_etag";
+        std::fs::remove_file(path).unwrap_or_else(|_| {});
+        let test: Vec<u8> = object(1000);
+
+        let mut file = File::create(path).unwrap();
+        file.write_all(&test).unwrap();
+
+        let etag = etag_for_path(path).unwrap();
+
+        std::fs::remove_file(path).unwrap_or_else(|_| {});
+
+        assert_eq!(etag, "8122ef1c2b2331f7986349560248cf56");
     }
 
     #[test]
