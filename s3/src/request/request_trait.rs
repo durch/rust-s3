@@ -11,6 +11,7 @@ use crate::command::Command;
 use crate::error::S3Error;
 use crate::signing;
 use crate::LONG_DATETIME;
+use base64::engine::{general_purpose::STANDARD, Engine};
 use bytes::Bytes;
 use http::header::{
     HeaderName, ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DATE, HOST, RANGE,
@@ -477,15 +478,15 @@ pub trait Request {
 
         if let Command::PutObjectTagging { tags } = self.command() {
             let digest = md5::compute(tags);
-            let hash = base64::encode(digest.as_ref());
+            let hash = STANDARD.encode(digest.as_ref());
             headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
         } else if let Command::PutObject { content, .. } = self.command() {
             let digest = md5::compute(content);
-            let hash = base64::encode(digest.as_ref());
+            let hash = STANDARD.encode(digest.as_ref());
             headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
         } else if let Command::UploadPart { content, .. } = self.command() {
             let digest = md5::compute(content);
-            let hash = base64::encode(digest.as_ref());
+            let hash = STANDARD.encode(digest.as_ref());
             headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
         } else if let Command::GetObject {} = self.command() {
             headers.insert(ACCEPT, "application/octet-stream".to_string().parse()?);
