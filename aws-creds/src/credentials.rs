@@ -257,6 +257,7 @@ impl Credentials {
         })
     }
 
+    #[allow(clippy::should_implement_trait)]
     #[cfg(feature = "http-credentials")]
     pub fn default() -> Result<Credentials, CredentialsError> {
         Credentials::new(None, None, None, None, None)
@@ -333,7 +334,7 @@ impl Credentials {
             match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
                 Ok(credentials_path) => {
                     // We are on ECS
-                    attohttpc::get(&format!("http://169.254.170.2{}", credentials_path))
+                    attohttpc::get(format!("http://169.254.170.2{}", credentials_path))
                         .send()?
                         .json()?
                 }
@@ -348,7 +349,7 @@ impl Credentials {
                     .send()?
                     .text()?;
 
-                    attohttpc::get(&format!(
+                    attohttpc::get(format!(
                         "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
                         role
                     ))
@@ -369,7 +370,7 @@ impl Credentials {
     pub fn from_profile(section: Option<&str>) -> Result<Credentials, CredentialsError> {
         let home_dir = dirs::home_dir().ok_or(CredentialsError::HomeDir)?;
         let profile = format!("{}/.aws/credentials", home_dir.display());
-        let conf = Ini::load_from_file(&profile)?;
+        let conf = Ini::load_from_file(profile)?;
         let section = section.unwrap_or("default");
         let data = conf
             .section(Some(section))
