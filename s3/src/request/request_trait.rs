@@ -1,5 +1,6 @@
 use hmac::Mac;
 use std::collections::HashMap;
+use std::convert::TryInto;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use std::pin::Pin;
 use time::format_description::well_known::Rfc2822;
@@ -11,6 +12,7 @@ use crate::command::Command;
 use crate::error::S3Error;
 use crate::signing;
 use crate::LONG_DATETIME;
+use base64::Engine;
 use bytes::Bytes;
 use http::header::{
     HeaderName, ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DATE, HOST, RANGE,
@@ -475,33 +477,41 @@ pub trait Request {
             );
         }
 
-        if let Command::PutObjectTagging { tags } = self.command() {
-            let digest = md5::compute(tags);
-            let hash = base64::encode(digest.as_ref());
-            headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
-        } else if let Command::PutObject { content, .. } = self.command() {
-            let digest = md5::compute(content);
-            let hash = base64::encode(digest.as_ref());
-            headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
-        } else if let Command::UploadPart { content, .. } = self.command() {
-            let digest = md5::compute(content);
-            let hash = base64::encode(digest.as_ref());
-            headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
-        } else if let Command::GetObject {} = self.command() {
-            headers.insert(ACCEPT, "application/octet-stream".to_string().parse()?);
-        // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
-        } else if let Command::GetObjectRange { start, end } = self.command() {
-            headers.insert(ACCEPT, "application/octet-stream".to_string().parse()?);
+        fn insert_content_md5(
+            headers: &mut HeaderMap,
+            content: &[u8],
+        ) -> Result<(), http::header::InvalidHeaderValue> {
+            const CONTENT_MD5: HeaderName = HeaderName::from_static("content-md5");
+            let mut buf = [0; 24];
+            let len = base64::engine::general_purpose::STANDARD
+                .encode_slice(md5::compute(content).as_ref(), &mut buf);
+            headers.insert(CONTENT_MD5, buf[..len.unwrap()].try_into()?);
+            Ok(())
+        }
 
-            let mut range = format!("bytes={}-", start);
-
-            if let Some(end) = end {
-                range.push_str(&end.to_string());
+        match self.command() {
+            Command::PutObjectTagging { tags } => {
+                insert_content_md5(&mut headers, tags.as_bytes())?
             }
-
-            headers.insert(RANGE, range.parse()?);
-        } else if let Command::CreateBucket { ref config } = self.command() {
-            config.add_headers(&mut headers)?;
+            Command::PutObject { content, .. } | Command::UploadPart { content, .. } => {
+                insert_content_md5(&mut headers, content)?
+            }
+            Command::GetObject {} => {
+                headers.insert(ACCEPT, "application/octet-stream".parse()?);
+                // headers.insert(ACCEPT_CHARSET, "UTF-8".parses()?);
+            }
+            Command::GetObjectRange { start, end } => {
+                headers.insert(ACCEPT, "application/octet-stream".parse()?);
+                let mut range = format!("bytes={}-", start);
+                if let Some(end) = end {
+                    write!(&mut range, "{}", end).unwrap();
+                }
+                headers.insert(RANGE, range.parse()?);
+            }
+            Command::CreateBucket { ref config } => {
+                config.add_headers(&mut headers)?;
+            }
+            _ => (),
         }
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided
