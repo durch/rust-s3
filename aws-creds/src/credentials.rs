@@ -188,6 +188,7 @@ fn http_get(url: &str) -> attohttpc::Result<attohttpc::Response> {
 }
 
 impl Credentials {
+    #[cfg(feature = "http-credentials")]
     pub fn refresh(&mut self) -> Result<(), CredentialsError> {
         if let Some(expiration) = self.expiration {
             if expiration.0 <= OffsetDateTime::now_utc() {
@@ -423,7 +424,6 @@ struct CredentialsFromInstanceMetadata {
     expiration: Rfc3339OffsetDateTime, // TODO fix #163
 }
 
-#[cfg(test)]
 #[test]
 fn test_instance_metadata_creds_deserialization() {
     // As documented here:
@@ -444,7 +444,7 @@ fn test_instance_metadata_creds_deserialization() {
     .unwrap();
 }
 
-#[cfg(test)]
+#[cfg(feature = "http-credentials")]
 #[ignore]
 #[test]
 fn test_credentials_refresh() {

@@ -1,16 +1,12 @@
 // cargo run --example sync --no-default-features --features sync-native-tls
 
-use awscreds::Credentials;
-use s3::error::S3Error;
-use s3::Bucket;
-
 #[cfg(feature = "sync")]
-fn main() -> Result<(), S3Error> {
-    let bucket = Bucket::new(
+fn main() -> Result<(), s3::error::S3Error> {
+    let bucket = s3::Bucket::new(
         "rust-s3-test",
         "eu-central-1".parse()?,
         // Credentials are collected from environment, config, profile or instance metadata
-        Credentials::default()?,
+        awscreds::Credentials::default()?,
     )?;
 
     let s3_path = "test.file";
