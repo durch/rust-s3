@@ -2262,6 +2262,7 @@ mod test {
         Credentials::new(Some("test"), Some("test1234"), None, None, None).unwrap()
     }
 
+    #[allow(dead_code)]
     fn test_digital_ocean_credentials() -> Credentials {
         Credentials::new(
             Some(&env::var("DIGITAL_OCEAN_ACCESS_KEY_ID").unwrap()),
@@ -2329,6 +2330,7 @@ mod test {
         .with_path_style()
     }
 
+    #[allow(dead_code)]
     fn test_digital_ocean_bucket() -> Bucket {
         Bucket::new("rust-s3", Region::DoFra1, test_digital_ocean_credentials()).unwrap()
     }
