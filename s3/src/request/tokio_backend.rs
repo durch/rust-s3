@@ -2,6 +2,7 @@ extern crate base64;
 extern crate md5;
 
 use bytes::Bytes;
+use futures::TryStreamExt;
 use maybe_async::maybe_async;
 use reqwest::{Client, Response};
 use std::collections::HashMap;
@@ -156,7 +157,8 @@ impl<'a> Request for Reqwest<'a> {
     async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
         let response = self.response().await?;
         let status_code = response.status();
-        let stream = response.bytes_stream().filter_map(|b| b.ok());
+        let stream = response.bytes_stream()
+            .map_err(| e | S3Error::Reqwest(e));
 
         Ok(ResponseDataStream {
             bytes: Box::pin(stream),

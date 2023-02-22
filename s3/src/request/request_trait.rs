@@ -32,15 +32,17 @@ pub struct ResponseData {
     headers: HashMap<String, String>,
 }
 
+type  DataStream = Pin<Box<dyn Stream<Item = Result<Bytes, S3Error>> + Send>>;
+
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 pub struct ResponseDataStream {
-    pub bytes: Pin<Box<dyn Stream<Item = Bytes>>>,
+    pub bytes: DataStream,
     pub status_code: u16,
 }
 
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 impl ResponseDataStream {
-    pub fn bytes(&mut self) -> &mut Pin<Box<dyn Stream<Item = Bytes>>> {
+    pub fn bytes(&mut self) -> &mut DataStream {
         &mut self.bytes
     }
 }

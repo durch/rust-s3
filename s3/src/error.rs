@@ -48,3 +48,9 @@ pub enum S3Error {
     #[error("fmt error: {0}")]
     FmtError(#[from] std::fmt::Error),
 }
+
+impl From<S3Error> for std::io::Error {
+    fn from(item: S3Error) -> Self {
+        std::io::Error::new(std::io::ErrorKind::Other, item)
+    }
+}
