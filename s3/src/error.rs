@@ -51,6 +51,9 @@ pub enum S3Error {
 
 impl From<S3Error> for std::io::Error {
     fn from(item: S3Error) -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, item)
+        match item {
+            S3Error::Io(e) => e,
+            e => std::io::Error::new(std::io::ErrorKind::Other, e)     
+        }
     }
 }

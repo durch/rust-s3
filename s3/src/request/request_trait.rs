@@ -25,7 +25,6 @@ use futures_util::Stream;
 use tokio_stream::Stream;
 
 #[derive(Debug)]
-
 pub struct ResponseData {
     bytes: Bytes,
     status_code: u16,
@@ -38,6 +37,20 @@ type  DataStream = Pin<Box<dyn Stream<Item = Result<Bytes, S3Error>> + Send>>;
 pub struct ResponseDataStream {
     pub bytes: DataStream,
     pub status_code: u16,
+    pub headers: HashMap<String, String>,
+}
+
+pub fn raw_headers(map: &HeaderMap) -> HashMap<String, String> {
+    map.iter()
+        .map(|(k, v)| {
+            (
+                k.to_string(),
+                v.to_str()
+                    .unwrap_or("could-not-decode-header-value")
+                    .to_string(),
+            )
+        })
+        .collect::<HashMap<String, String>>()
 }
 
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
@@ -523,3 +536,5 @@ pub trait Request {
         Ok(headers)
     }
 }
+
+

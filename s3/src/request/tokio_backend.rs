@@ -5,10 +5,9 @@ use bytes::Bytes;
 use futures::TryStreamExt;
 use maybe_async::maybe_async;
 use reqwest::{Client, Response};
-use std::collections::HashMap;
 use time::OffsetDateTime;
 
-use super::request_trait::{Request, ResponseData, ResponseDataStream};
+use super::request_trait::{Request, ResponseData, ResponseDataStream, raw_headers};
 use crate::bucket::Bucket;
 use crate::command::Command;
 use crate::command::HttpMethod;
@@ -106,18 +105,7 @@ impl<'a> Request for Reqwest<'a> {
         let response = self.response().await?;
         let status_code = response.status().as_u16();
         let mut headers = response.headers().clone();
-        let response_headers = headers
-            .clone()
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.to_string(),
-                    v.to_str()
-                        .unwrap_or("could-not-decode-header-value")
-                        .to_string(),
-                )
-            })
-            .collect::<HashMap<String, String>>();
+        let response_headers = raw_headers(&headers);
         let body_vec = if etag {
             if let Some(etag) = headers.remove("ETag") {
                 Bytes::from(etag.to_str()?.to_string())
@@ -157,12 +145,15 @@ impl<'a> Request for Reqwest<'a> {
     async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
         let response = self.response().await?;
         let status_code = response.status();
+        let headers = raw_headers(response.headers());
+
         let stream = response.bytes_stream()
             .map_err(| e | S3Error::Reqwest(e));
 
         Ok(ResponseDataStream {
             bytes: Box::pin(stream),
             status_code: status_code.as_u16(),
+            headers,
         })
     }
 }
