@@ -31,7 +31,8 @@ pub struct ResponseData {
     headers: HashMap<String, String>,
 }
 
-type  DataStream = Pin<Box<dyn Stream<Item = Result<Bytes, S3Error>> + Send>>;
+pub type StreamItem = Result<Bytes, S3Error>;
+pub type DataStream = Pin<Box<dyn Stream<Item = StreamItem> + Send>>;
 
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 pub struct ResponseDataStream {
