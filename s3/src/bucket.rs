@@ -1603,7 +1603,7 @@ impl Bucket {
         let mut s = String::new();
         let content = tags
             .iter()
-            .map(|&(ref name, ref value)| {
+            .map(|(name, value)| {
                 format!(
                     "<Tag><Key>{}</Key><Value>{}</Value></Tag>",
                     name.as_ref(),
