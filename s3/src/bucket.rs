@@ -876,7 +876,7 @@ impl Bucket {
     /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
     ///
     /// while let Some(chunk) = response_data_stream.bytes().next().await {
-    ///     async_output_file.write_all(&chunk).await?;
+    ///     async_output_file.write_all(&chunk.unwrap()).await?;
     /// }
     ///
     /// #

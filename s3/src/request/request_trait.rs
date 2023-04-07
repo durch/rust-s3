@@ -35,14 +35,19 @@ pub struct ResponseData {
 }
 
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+pub type DataStream = Pin<Box<dyn Stream<Item = StreamItem> + Send>>;
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+pub type StreamItem = Result<Bytes, S3Error>;
+
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 pub struct ResponseDataStream {
-    pub bytes: Pin<Box<dyn Stream<Item = Bytes>>>,
+    pub bytes: DataStream,
     pub status_code: u16,
 }
 
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 impl ResponseDataStream {
-    pub fn bytes(&mut self) -> &mut Pin<Box<dyn Stream<Item = Bytes>>> {
+    pub fn bytes(&mut self) -> &mut DataStream {
         &mut self.bytes
     }
 }

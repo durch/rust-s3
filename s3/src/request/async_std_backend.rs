@@ -160,7 +160,7 @@ impl<'a> Request for SurfRequest<'a> {
                 b.push(n);
                 b
             })
-            .then(|b| async move { Bytes::from(b) })
+            .then(|b| async move { Ok(Bytes::from(b)) })
             .into_stream();
 
         Ok(ResponseDataStream {

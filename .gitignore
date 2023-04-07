@@ -10,3 +10,4 @@ test.file
 .history
 .envrc
 minio
+.vscode
