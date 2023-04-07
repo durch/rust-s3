@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.33.0-beta2"
+version = "0.34.0-beta1"
 authors = ["Drazen Urch"]
 description = "Rust library for working with AWS S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -14,15 +14,41 @@ edition = "2018"
 name = "s3"
 path = "src/lib.rs"
 
+[[example]]
+name = "tokio"
+path = "../examples/tokio-backend.rs"
+
+[[example]]
+name = "async-std"
+path = "../examples/async-std-backend.rs"
+
+[[example]]
+name = "sync"
+path = "../examples/sync-backend.rs"
+
+[[example]]
+name = "minio"
+path = "../examples/minio-tokio.rs"
+
+[[example]]
+name = "r2"
+path = "../examples/r2-tokio.rs"
+
+[[example]]
+name = "google-cloud"
+path = "../examples/gcs-tokio.rs"
+
+
+
 [dependencies]
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
-attohttpc = { version = "0.22", optional = true, default-features = false }
-aws-creds = { version = "0.33.0", default-features = false }
+attohttpc = { version = "0.24", optional = true, default-features = false }
+aws-creds = { version = "0.35.0", default-features = false }
 # aws-creds = { path = "../aws-creds", default-features = false }
-aws-region = "0.25.1"
+aws-region = "0.25.2"
 # aws-region = {path = "../aws-region"}
-base64 = "0.13"
+base64 = "0.21"
 cfg-if = "1"
 time = { version = "^0.3.6", features = ["formatting", "macros"] }
 futures = { version = "0.3", optional = true }
@@ -39,7 +65,7 @@ md5 = "0.7"
 percent-encoding = "2"
 serde = "1"
 serde_derive = "1"
-serde-xml-rs = "0.5"
+quick-xml = { version = "0.28", features = [ "serialize" ] }
 sha2 = "0.10"
 thiserror = "1"
 surf = { version = "2", optional = true, default-features = false, features = [
@@ -67,6 +93,7 @@ fail-on-err = []
 use-tokio-native-tls = ["with-tokio", "aws-creds/native-tls"]
 tokio-rustls-tls = ["with-tokio", "aws-creds/rustls-tls"]
 sync-native-tls = ["sync", "aws-creds/native-tls", "attohttpc/tls"]
+sync-native-tls-vendored = [ "sync", "aws-creds/native-tls-vendored", "attohttpc/tls-vendored" ]
 sync-rustls-tls = ["sync", "aws-creds/rustls-tls", "attohttpc/tls-rustls"]
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]
 tags = ["minidom"]
@@ -75,5 +102,5 @@ tags = ["minidom"]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs"] }
 async-std = { version = "1", features = ["attributes"] }
 uuid = { version = "1", features = ["v4"] }
-env_logger = "0.9"
+env_logger = "0.10"
 anyhow = "1"

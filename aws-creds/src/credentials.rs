@@ -2,9 +2,8 @@
 
 use crate::error::CredentialsError;
 use ini::Ini;
-use log::info;
+use log::debug;
 use serde::{Deserialize, Serialize};
-use serde_xml_rs as serde_xml;
 use std::collections::HashMap;
 use std::env;
 use std::ops::Deref;
@@ -192,7 +191,7 @@ impl Credentials {
     pub fn refresh(&mut self) -> Result<(), CredentialsError> {
         if let Some(expiration) = self.expiration {
             if expiration.0 <= OffsetDateTime::now_utc() {
-                info!("Refreshing credentials!");
+                debug!("Refreshing credentials!");
                 let refreshed = Credentials::default()?;
                 *self = refreshed
             }
@@ -226,8 +225,8 @@ impl Credentials {
         )?;
         let response = http_get(url.as_str())?;
         let serde_response =
-            serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?)?;
-        // assert!(serde_xml::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap());
+            quick_xml::de::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?)?;
+        // assert!(quick_xml::de::from_str::<AssumeRoleWithWebIdentityResponse>(&response.text()?).unwrap());
 
         Ok(Credentials {
             access_key: Some(
@@ -259,6 +258,7 @@ impl Credentials {
     }
 
     #[cfg(feature = "http-credentials")]
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Result<Credentials, CredentialsError> {
         Credentials::new(None, None, None, None, None)
     }
@@ -334,7 +334,7 @@ impl Credentials {
             match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
                 Ok(credentials_path) => {
                     // We are on ECS
-                    attohttpc::get(&format!("http://169.254.170.2{}", credentials_path))
+                    attohttpc::get(format!("http://169.254.170.2{}", credentials_path))
                         .send()?
                         .json()?
                 }
@@ -349,7 +349,7 @@ impl Credentials {
                     .send()?
                     .text()?;
 
-                    attohttpc::get(&format!(
+                    attohttpc::get(format!(
                         "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
                         role
                     ))
@@ -370,7 +370,7 @@ impl Credentials {
     pub fn from_profile(section: Option<&str>) -> Result<Credentials, CredentialsError> {
         let home_dir = dirs::home_dir().ok_or(CredentialsError::HomeDir)?;
         let profile = format!("{}/.aws/credentials", home_dir.display());
-        let conf = Ini::load_from_file(&profile)?;
+        let conf = Ini::load_from_file(profile)?;
         let section = section.unwrap_or("default");
         let data = conf
             .section(Some(section))

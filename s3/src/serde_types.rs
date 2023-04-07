@@ -69,7 +69,7 @@ impl fmt::Display for CompleteMultipartUploadData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut parts = String::new();
         for part in self.parts.clone() {
-            parts.push_str(&serde_xml_rs::to_string(&part).unwrap())
+            parts.push_str(&part.to_string())
         }
         write!(
             f,
@@ -100,6 +100,15 @@ pub struct Part {
     pub part_number: u32,
     #[serde(rename = "ETag")]
     pub etag: String,
+}
+
+impl fmt::Display for Part {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<Part>").expect("Can't fail");
+        write!(f, "<PartNumber>{}</PartNumber>", self.part_number).expect("Can't fail");
+        write!(f, "<ETag>{}</ETag>", self.etag).expect("Can't fail");
+        write!(f, "</Part>")
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]

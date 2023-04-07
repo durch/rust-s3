@@ -78,6 +78,7 @@ impl<'a> Request for HyperRequest<'a> {
                 .method(method)
                 .uri(self.url().as_str());
 
+
             for (header, value) in headers.iter() {
                 request = request.header(header, value);
             }
@@ -144,7 +145,7 @@ impl<'a> Request for HyperRequest<'a> {
     async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
         let response = self.response().await?;
         let status_code = response.status();
-        let stream = response.into_body().into_stream().filter_map(|b| b.ok());
+        let stream = response.into_body().into_stream().map_err(S3Error::Reqwest);
 
         Ok(ResponseDataStream {
             bytes: Box::pin(stream),
@@ -217,7 +218,7 @@ mod tests {
         let path = "/my-first/path";
         let request = HyperRequest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "https");
+        assert_eq!(request.url().unwrap().scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get(HOST).unwrap();
@@ -234,7 +235,7 @@ mod tests {
         let path = "/my-first/path";
         let request = HyperRequest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "https");
+        assert_eq!(request.url().unwrap().scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get(HOST).unwrap();
@@ -249,7 +250,7 @@ mod tests {
         let path = "/my-second/path";
         let request = HyperRequest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "http");
+        assert_eq!(request.url().unwrap().scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get(HOST).unwrap();
@@ -265,7 +266,7 @@ mod tests {
         let path = "/my-second/path";
         let request = HyperRequest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "http");
+        assert_eq!(request.url().unwrap().scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get(HOST).unwrap();

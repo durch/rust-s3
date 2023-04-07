@@ -34,7 +34,7 @@ pub enum S3Error {
     #[error("from utf8: {0}")]
     FromUtf8(#[from] std::string::FromUtf8Error),
     #[error("serde xml: {0}")]
-    SerdeXml(#[from] serde_xml_rs::Error),
+    SerdeXml(#[from] quick_xml::de::DeError),
     #[error("invalid header value: {0}")]
     InvalidHeaderValue(#[from] http::header::InvalidHeaderValue),
     #[error("invalid header name: {0}")]
@@ -49,4 +49,8 @@ pub enum S3Error {
     WLCredentials,
     #[error("Could not get Read lock on Credentials")]
     RLCredentials,
+    #[error("Time format error: {0}")]
+    TimeFormatError(#[from] time::error::Format),
+    #[error("fmt error: {0}")]
+    FmtError(#[from] std::fmt::Error),
 }

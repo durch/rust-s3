@@ -53,19 +53,21 @@ impl<'a> Request for SurfRequest<'a> {
         let headers = self.headers()?;
 
         let request = match self.command.http_verb() {
-            HttpMethod::Get => surf::Request::builder(Method::Get, self.url()),
-            HttpMethod::Delete => surf::Request::builder(Method::Delete, self.url()),
-            HttpMethod::Put => surf::Request::builder(Method::Put, self.url()),
-            HttpMethod::Post => surf::Request::builder(Method::Post, self.url()),
-            HttpMethod::Head => surf::Request::builder(Method::Head, self.url()),
+            HttpMethod::Get => surf::Request::builder(Method::Get, self.url()?),
+            HttpMethod::Delete => surf::Request::builder(Method::Delete, self.url()?),
+            HttpMethod::Put => surf::Request::builder(Method::Put, self.url()?),
+            HttpMethod::Post => surf::Request::builder(Method::Post, self.url()?),
+            HttpMethod::Head => surf::Request::builder(Method::Head, self.url()?),
         };
 
         let mut request = request.body(self.request_body());
 
         for (name, value) in headers.iter() {
             request = request.header(
-                HeaderName::from_bytes(AsRef::<[u8]>::as_ref(&name).to_vec()).unwrap(),
-                HeaderValue::from_bytes(AsRef::<[u8]>::as_ref(&value).to_vec()).unwrap(),
+                HeaderName::from_bytes(AsRef::<[u8]>::as_ref(&name).to_vec())
+                    .expect("Could not parse heaeder name"),
+                HeaderValue::from_bytes(AsRef::<[u8]>::as_ref(&value).to_vec())
+                    .expect("Could not parse header value"),
             );
         }
 
@@ -158,7 +160,7 @@ impl<'a> Request for SurfRequest<'a> {
                 b.push(n);
                 b
             })
-            .then(|b| async move { Bytes::from(b) })
+            .then(|b| async move { Ok(Bytes::from(b)) })
             .into_stream();
 
         Ok(ResponseDataStream {
@@ -209,7 +211,7 @@ mod tests {
         let path = "/my-first/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "https");
+        assert_eq!(request.url()?.scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -225,7 +227,7 @@ mod tests {
         let path = "/my-first/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "https");
+        assert_eq!(request.url().unwrap().scheme(), "https");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -241,7 +243,7 @@ mod tests {
         let path = "/my-second/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "http");
+        assert_eq!(request.url().unwrap().scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
@@ -256,7 +258,7 @@ mod tests {
         let path = "/my-second/path";
         let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url().scheme(), "http");
+        assert_eq!(request.url().unwrap().scheme(), "http");
 
         let headers = request.headers().unwrap();
         let host = headers.get("Host").unwrap();
