@@ -221,6 +221,7 @@ pub fn authorization_query_params_no_sig(
         }
     }
 
+    signed_headers.sort();
     let signed_headers = signed_headers.join(";");
     let signed_headers = utf8_percent_encode(&signed_headers, FRAGMENT_SLASH);
 
