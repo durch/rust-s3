@@ -46,7 +46,7 @@ async-trait = "0.1"
 attohttpc = { version = "0.24", optional = true, default-features = false }
 aws-creds = { version = "0.35.0", default-features = false }
 # aws-creds = { path = "../aws-creds", default-features = false }
-aws-region = "0.25.1"
+aws-region = "0.25.2"
 # aws-region = {path = "../aws-region"}
 base64 = "0.21"
 cfg-if = "1"
