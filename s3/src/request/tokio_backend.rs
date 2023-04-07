@@ -39,7 +39,12 @@ impl<'a> Request for HyperRequest<'a> {
             Err(e) => return Err(e),
         };
 
+        #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
         let mut tls_connector_builder = native_tls::TlsConnector::builder();
+
+        #[cfg(not(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls")))]
+        let tls_connector_builder = native_tls::TlsConnector::builder();
+
         if cfg!(feature = "no-verify-ssl") {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "use-tokio-native-tls")]
@@ -76,8 +81,7 @@ impl<'a> Request for HyperRequest<'a> {
         let request = {
             let mut request = http::Request::builder()
                 .method(method)
-                .uri(self.url().as_str());
-
+                .uri(self.url()?.as_str());
 
             for (header, value) in headers.iter() {
                 request = request.header(header, value);
@@ -145,7 +149,7 @@ impl<'a> Request for HyperRequest<'a> {
     async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
         let response = self.response().await?;
         let status_code = response.status();
-        let stream = response.into_body().into_stream().map_err(S3Error::Reqwest);
+        let stream = response.into_body().into_stream().map_err(S3Error::Hyper);
 
         Ok(ResponseDataStream {
             bytes: Box::pin(stream),
