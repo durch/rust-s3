@@ -1,7 +1,9 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::str::{self, FromStr};
+use std::{env, fmt};
+
+use crate::error::RegionError;
 
 /// AWS S3 [region identifier](https://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region),
 /// passing in custom values is also possible, in that case it is up to you to pass a valid endpoint,
@@ -252,6 +254,29 @@ impl Region {
                 None => endpoint.to_string(),
             },
             _ => self.endpoint(),
+        }
+    }
+
+    pub fn from_env(region_env: &str, endpoint_env: Option<&str>) -> Result<Region, RegionError> {
+        if let Some(endpoint_env) = endpoint_env {
+            Ok(Region::Custom {
+                region: env::var(region_env)?,
+                endpoint: env::var(endpoint_env)?,
+            })
+        } else {
+            Ok(Region::from_str(&env::var(region_env)?)?)
+        }
+    }
+
+    /// Attempts to create a Region from AWS_REGION and AWS_ENDPOINT environment variables
+    pub fn from_default_env() -> Result<Region, RegionError> {
+        if let Ok(endpoint) = env::var("AWS_ENDPOINT") {
+            Ok(Region::Custom {
+                region: env::var("AWS_REGION")?,
+                endpoint,
+            })
+        } else {
+            Ok(Region::from_str(&env::var("AWS_REGION")?)?)
         }
     }
 }
