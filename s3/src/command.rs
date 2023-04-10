@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::serde_types::CompleteMultipartUploadData;
+use crate::serde_types::{CompleteMultipartUploadData, CorsConfiguration};
 
 use crate::EMPTY_PAYLOAD_SHA;
 use sha2::{Digest, Sha256};
@@ -128,6 +128,9 @@ pub enum Command<'a> {
         config: BucketConfiguration,
     },
     DeleteBucket,
+    PutBucketCors {
+        configuration: CorsConfiguration,
+    },
 }
 
 impl<'a> Command<'a> {
@@ -147,6 +150,7 @@ impl<'a> Command<'a> {
             | Command::PutObjectTagging { .. }
             | Command::PresignPut { .. }
             | Command::UploadPart { .. }
+            | Command::PutBucketCors { .. }
             | Command::CreateBucket { .. } => HttpMethod::Put,
             Command::DeleteObject
             | Command::DeleteObjectTagging

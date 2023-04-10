@@ -318,3 +318,79 @@ pub struct AwsError {
     #[serde(rename = "RequestId")]
     pub request_id: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename = "CORSConfiguration")]
+pub struct CorsConfiguration {
+    #[serde(rename = "CORSRule")]
+    rules: Vec<CorsRule>,
+}
+
+impl CorsConfiguration {
+    pub fn new(rules: Vec<CorsRule>) -> Self {
+        CorsConfiguration { rules }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CorsRule {
+    #[serde(rename = "AllowedHeader")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    allowed_headers: Option<Vec<String>>,
+    #[serde(rename = "AllowedMethod")]
+    allowed_methods: Vec<String>,
+    #[serde(rename = "AllowedOrigin")]
+    allowed_origins: Vec<String>,
+    #[serde(rename = "ExposeHeader")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expose_headers: Option<Vec<String>>,
+    #[serde(rename = "ID")]
+    id: Option<String>,
+    #[serde(rename = "MaxAgeSeconds")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_age_seconds: Option<u32>,
+}
+
+impl CorsRule {
+    pub fn new(
+        allowed_headers: Option<Vec<String>>,
+        allowed_methods: Vec<String>,
+        allowed_origins: Vec<String>,
+        expose_headers: Option<Vec<String>>,
+        id: Option<String>,
+        max_age_seconds: Option<u32>,
+    ) -> Self {
+        Self {
+            allowed_headers,
+            allowed_methods,
+            allowed_origins,
+            expose_headers,
+            id,
+            max_age_seconds,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{CorsConfiguration, CorsRule};
+
+    #[test]
+    fn cors_config_serde() {
+        let rule = CorsRule {
+            allowed_headers: Some(vec!["Authorization".to_string(), "Header2".to_string()]),
+            allowed_methods: vec!["GET".to_string(), "DELETE".to_string()],
+            allowed_origins: vec!["*".to_string()],
+            expose_headers: None,
+            id: Some("lala".to_string()),
+            max_age_seconds: None,
+        };
+
+        let config = CorsConfiguration {
+            rules: vec![rule.clone(), rule],
+        };
+
+        let se = quick_xml::se::to_string(&config).unwrap();
+        assert_eq!(se, r#"<CORSConfiguration><CORSRule><AllowedHeader>Authorization</AllowedHeader><AllowedHeader>Header2</AllowedHeader><AllowedMethod>GET</AllowedMethod><AllowedMethod>DELETE</AllowedMethod><AllowedOrigin>*</AllowedOrigin><ID>lala</ID></CORSRule><CORSRule><AllowedHeader>Authorization</AllowedHeader><AllowedHeader>Header2</AllowedHeader><AllowedMethod>GET</AllowedMethod><AllowedMethod>DELETE</AllowedMethod><AllowedOrigin>*</AllowedOrigin><ID>lala</ID></CORSRule></CORSConfiguration>"#)
+    }
+}

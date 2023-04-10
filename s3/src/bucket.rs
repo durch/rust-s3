@@ -40,7 +40,7 @@ use futures::io::AsyncRead;
 use crate::error::S3Error;
 use crate::request::Request;
 use crate::serde_types::{
-    BucketLocationResult, CompleteMultipartUploadData, HeadObjectResult,
+    BucketLocationResult, CompleteMultipartUploadData, CorsConfiguration, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
 use crate::utils::error_from_response_data;
@@ -617,6 +617,18 @@ impl Bucket {
     pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<ResponseData, S3Error> {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command)?;
+        request.response_data(false).await
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn put_bucket_cors(
+        &self,
+        cors_config: CorsConfiguration,
+    ) -> Result<ResponseData, S3Error> {
+        let command = Command::PutBucketCors {
+            configuration: cors_config,
+        };
+        let request = RequestImpl::new(self, "?cors", command)?;
         request.response_data(false).await
     }
 
@@ -2217,6 +2229,8 @@ mod test {
 
     use crate::creds::Credentials;
     use crate::region::Region;
+    use crate::serde_types::CorsConfiguration;
+    use crate::serde_types::CorsRule;
     use crate::Bucket;
     use crate::BucketConfiguration;
     use crate::Tag;
@@ -3018,5 +3032,29 @@ mod test {
         .with_request_timeout(Duration::from_secs(10));
 
         assert_eq!(bucket.request_timeout(), Some(Duration::from_secs(10)));
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    #[ignore]
+    async fn test_put_bucket_cors() {
+        let bucket = test_aws_bucket();
+        let rule = CorsRule::new(
+            None,
+            vec!["GET".to_string()],
+            vec!["*".to_string()],
+            None,
+            None,
+            None,
+        );
+        let cors_config = CorsConfiguration::new(vec![rule]);
+        let response = bucket.put_bucket_cors(cors_config).await.unwrap();
+        assert_eq!(response.status_code(), 200)
     }
 }
