@@ -4,11 +4,12 @@ use crate::{Bucket, Region};
 /// [AWS Documentation](https://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#CannedACL)
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-enum CannedBucketAcl {
+pub enum CannedBucketAcl {
     Private,
     PublicRead,
     PublicReadWrite,
     AuthenticatedRead,
+    Custom(String),
 }
 
 use http::header::HeaderName;
@@ -22,6 +23,7 @@ impl fmt::Display for CannedBucketAcl {
             CannedBucketAcl::PublicRead => write!(f, "public-read"),
             CannedBucketAcl::PublicReadWrite => write!(f, "public-read-write"),
             CannedBucketAcl::AuthenticatedRead => write!(f, "authenticated-read"),
+            CannedBucketAcl::Custom(policy) => write!(f, "{policy}"),
         }
     }
 }
@@ -29,7 +31,7 @@ impl fmt::Display for CannedBucketAcl {
 /// [AWS Documentation](https://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html)
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-enum BucketAcl {
+pub enum BucketAcl {
     Id { id: String },
     Uri { uri: String },
     Email { email: String },
@@ -71,6 +73,29 @@ fn acl_list(acl: &[BucketAcl]) -> String {
 }
 
 impl BucketConfiguration {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        acl: CannedBucketAcl,
+        object_lock_enabled: bool,
+        grant_full_control: Option<Vec<BucketAcl>>,
+        grant_read: Option<Vec<BucketAcl>>,
+        grant_read_acp: Option<Vec<BucketAcl>>,
+        grant_write: Option<Vec<BucketAcl>>,
+        grant_write_acp: Option<Vec<BucketAcl>>,
+        location_constraint: Option<Region>,
+    ) -> Self {
+        Self {
+            acl,
+            object_lock_enabled,
+            grant_full_control,
+            grant_read,
+            grant_read_acp,
+            grant_write,
+            grant_write_acp,
+            location_constraint,
+        }
+    }
+
     pub fn public() -> Self {
         BucketConfiguration {
             acl: CannedBucketAcl::PublicReadWrite,
