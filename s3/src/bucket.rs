@@ -43,7 +43,7 @@ use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, CorsConfiguration, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
-use crate::utils::error_from_response_data;
+use crate::utils::{error_from_response_data, PutStreamResponse};
 use http::header::HeaderName;
 use http::HeaderMap;
 
@@ -956,7 +956,7 @@ impl Bucket {
         &self,
         reader: &mut R,
         s3_path: impl AsRef<str>,
-    ) -> Result<u16, S3Error> {
+    ) -> Result<PutStreamResponse, S3Error> {
         self._put_object_stream_with_content_type(
             reader,
             s3_path.as_ref(),
@@ -1034,7 +1034,7 @@ impl Bucket {
         reader: &mut R,
         s3_path: impl AsRef<str>,
         content_type: impl AsRef<str>,
-    ) -> Result<u16, S3Error> {
+    ) -> Result<PutStreamResponse, S3Error> {
         self._put_object_stream_with_content_type(reader, s3_path.as_ref(), content_type.as_ref())
             .await
     }
@@ -1073,18 +1073,22 @@ impl Bucket {
         reader: &mut R,
         s3_path: &str,
         content_type: &str,
-    ) -> Result<u16, S3Error> {
+    ) -> Result<PutStreamResponse, S3Error> {
         // If the file is smaller CHUNK_SIZE, just do a regular upload.
         // Otherwise perform a multi-part upload.
         let first_chunk = crate::utils::read_chunk_async(reader).await?;
         if first_chunk.len() < CHUNK_SIZE {
+            let total_size = first_chunk.len();
             let response_data = self
                 .put_object_with_content_type(s3_path, first_chunk.as_slice(), content_type)
                 .await?;
             if response_data.status_code() >= 300 {
                 return Err(error_from_response_data(response_data)?);
             }
-            return Ok(response_data.status_code());
+            return Ok(PutStreamResponse::new(
+                response_data.status_code(),
+                total_size,
+            ));
         }
 
         let msg = self
@@ -1098,12 +1102,14 @@ impl Bucket {
 
         // Collect request handles
         let mut handles = vec![];
+        let mut total_size = 0;
         loop {
             let chunk = if part_number == 0 {
                 first_chunk.clone()
             } else {
                 crate::utils::read_chunk_async(reader).await?
             };
+            total_size += chunk.len();
 
             let done = chunk.len() < CHUNK_SIZE;
 
@@ -1157,7 +1163,10 @@ impl Bucket {
             .complete_multipart_upload(&path, &msg.upload_id, inner_data)
             .await?;
 
-        Ok(response_data.status_code())
+        Ok(PutStreamResponse::new(
+            response_data.status_code(),
+            total_size,
+        ))
     }
 
     #[maybe_async::sync_impl]
@@ -2554,11 +2563,11 @@ mod test {
         file.write_all(&content).await.unwrap();
         let mut reader = File::open(local_path).await.unwrap();
 
-        let code = bucket
+        let response = bucket
             .put_object_stream(&mut reader, remote_path)
             .await
             .unwrap();
-        assert_eq!(code, 200);
+        assert_eq!(response.status_code(), 200);
         let mut writer = Vec::new();
         let code = bucket
             .get_object_to_writer(remote_path, &mut writer)
@@ -2655,11 +2664,11 @@ mod test {
         #[cfg(feature = "with-async-std")]
         let mut reader = async_std::io::Cursor::new(&content);
 
-        let code = bucket
+        let response = bucket
             .put_object_stream(&mut reader, remote_path)
             .await
             .unwrap();
-        assert_eq!(code, 200);
+        assert_eq!(response.status_code(), 200);
         let mut writer = Vec::new();
         let code = bucket
             .get_object_to_writer(remote_path, &mut writer)

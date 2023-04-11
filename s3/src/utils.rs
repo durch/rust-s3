@@ -15,6 +15,27 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 #[cfg(feature = "with-async-std")]
 use futures::io::{AsyncRead, AsyncReadExt};
 
+pub struct PutStreamResponse {
+    status_code: u16,
+    uploaded_bytes: usize,
+}
+
+impl PutStreamResponse {
+    pub fn new(status_code: u16, uploaded_bytes: usize) -> Self {
+        Self {
+            status_code,
+            uploaded_bytes,
+        }
+    }
+    pub fn status_code(&self) -> u16 {
+        self.status_code
+    }
+
+    pub fn uploaded_bytes(&self) -> usize {
+        self.uploaded_bytes
+    }
+}
+
 /// # Example
 /// ```rust,no_run
 /// use s3::utils::etag_for_path;
