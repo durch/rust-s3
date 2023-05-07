@@ -140,12 +140,13 @@ pub trait Request {
     fn command(&self) -> Command;
     fn path(&self) -> String;
 
-    fn signing_key(&self) -> Result<Vec<u8>, S3Error> {
+    async fn signing_key(&self) -> Result<Vec<u8>, S3Error> {
         signing::signing_key(
             &self.datetime(),
             &self
                 .bucket()
-                .secret_key()?
+                .secret_key()
+                .await?
                 .expect("Secret key must be provided to sign headers, found None"),
             &self.bucket().region(),
             "s3",
@@ -193,7 +194,7 @@ pub trait Request {
         self.bucket().host()
     }
 
-    fn presigned(&self) -> Result<String, S3Error> {
+    async fn presigned(&self) -> Result<String, S3Error> {
         let (expiry, custom_headers, custom_queries) = match self.command() {
             Command::PresignGet {
                 expiry_secs,
@@ -209,12 +210,14 @@ pub trait Request {
 
         Ok(format!(
             "{}&X-Amz-Signature={}",
-            self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())?,
-            self.presigned_authorization(custom_headers.as_ref())?
+            self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())
+                .await?,
+            self.presigned_authorization(custom_headers.as_ref())
+                .await?
         ))
     }
 
-    fn presigned_authorization(
+    async fn presigned_authorization(
         &self,
         custom_headers: Option<&HeaderMap>,
     ) -> Result<String, S3Error> {
@@ -226,16 +229,16 @@ pub trait Request {
                 headers.insert(k.clone(), v.clone());
             }
         }
-        let canonical_request = self.presigned_canonical_request(&headers)?;
+        let canonical_request = self.presigned_canonical_request(&headers).await?;
         let string_to_sign = self.string_to_sign(&canonical_request)?;
-        let mut hmac = signing::HmacSha256::new_from_slice(&self.signing_key()?)?;
+        let mut hmac = signing::HmacSha256::new_from_slice(&self.signing_key().await?)?;
         hmac.update(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         // let signed_header = signing::signed_header_string(&headers);
         Ok(signature)
     }
 
-    fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String, S3Error> {
+    async fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String, S3Error> {
         let (expiry, custom_headers, custom_queries) = match self.command() {
             Command::PresignGet {
                 expiry_secs,
@@ -251,29 +254,31 @@ pub trait Request {
 
         signing::canonical_request(
             &self.command().http_verb().to_string(),
-            &self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())?,
+            &self
+                .presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())
+                .await?,
             headers,
             "UNSIGNED-PAYLOAD",
         )
     }
 
-    fn presigned_url_no_sig(
+    async fn presigned_url_no_sig(
         &self,
         expiry: u32,
         custom_headers: Option<&HeaderMap>,
         custom_queries: Option<&HashMap<String, String>>,
     ) -> Result<Url, S3Error> {
         let bucket = self.bucket();
-        let token = if let Some(security_token) = bucket.security_token()? {
+        let token = if let Some(security_token) = bucket.security_token().await? {
             Some(security_token)
         } else {
-            bucket.session_token()?
+            bucket.session_token().await?
         };
         let url = Url::parse(&format!(
             "{}{}{}",
             self.url()?,
             &signing::authorization_query_params_no_sig(
-                &self.bucket().access_key()?.unwrap_or_default(),
+                &self.bucket().access_key().await?.unwrap_or_default(),
                 &self.datetime(),
                 &self.bucket().region(),
                 expiry,
@@ -411,15 +416,19 @@ pub trait Request {
         )
     }
 
-    fn authorization(&self, headers: &HeaderMap) -> Result<String, S3Error> {
+    async fn authorization(&self, headers: &HeaderMap) -> Result<String, S3Error> {
         let canonical_request = self.canonical_request(headers)?;
         let string_to_sign = self.string_to_sign(&canonical_request)?;
-        let mut hmac = signing::HmacSha256::new_from_slice(&self.signing_key()?)?;
+        let mut hmac = signing::HmacSha256::new_from_slice(&self.signing_key().await?)?;
         hmac.update(string_to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         let signed_header = signing::signed_header_string(headers);
         signing::authorization_header(
-            &self.bucket().access_key()?.expect("No access_key provided"),
+            &self
+                .bucket()
+                .access_key()
+                .await?
+                .expect("No access_key provided"),
             &self.datetime(),
             &self.bucket().region(),
             &signed_header,
@@ -427,7 +436,7 @@ pub trait Request {
         )
     }
 
-    fn headers(&self) -> Result<HeaderMap, S3Error> {
+    async fn headers(&self) -> Result<HeaderMap, S3Error> {
         // Generate this once, but it's used in more than one place.
         let sha256 = self.command().sha256();
 
@@ -470,12 +479,12 @@ pub trait Request {
             self.long_date()?.parse()?,
         );
 
-        if let Some(session_token) = self.bucket().session_token()? {
+        if let Some(session_token) = self.bucket().session_token().await? {
             headers.insert(
                 HeaderName::from_static("x-amz-security-token"),
                 session_token.parse()?,
             );
-        } else if let Some(security_token) = self.bucket().security_token()? {
+        } else if let Some(security_token) = self.bucket().security_token().await? {
             headers.insert(
                 HeaderName::from_static("x-amz-security-token"),
                 security_token.parse()?,
@@ -512,8 +521,8 @@ pub trait Request {
         }
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided
-        if self.bucket().secret_key()?.is_some() {
-            let authorization = self.authorization(&headers)?;
+        if self.bucket().secret_key().await?.is_some() {
+            let authorization = self.authorization(&headers).await?;
             headers.insert(AUTHORIZATION, authorization.parse()?);
         }
 

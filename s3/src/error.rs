@@ -45,10 +45,6 @@ pub enum S3Error {
     #[cfg(feature = "sync")]
     #[error("attohttpc: {0}")]
     Atto(#[from] attohttpc::Error),
-    #[error("Could not get Write lock on Credentials")]
-    WLCredentials,
-    #[error("Could not get Read lock on Credentials")]
-    RLCredentials,
     #[error("Time format error: {0}")]
     TimeFormatError(#[from] time::error::Format),
     #[error("fmt error: {0}")]
