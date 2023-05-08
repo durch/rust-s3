@@ -50,7 +50,7 @@ impl<'a> Request for SurfRequest<'a> {
 
     async fn response(&self) -> Result<surf::Response, S3Error> {
         // Build headers
-        let headers = self.headers()?;
+        let headers = self.headers().await?;
 
         let request = match self.command.http_verb() {
             HttpMethod::Get => surf::Request::builder(Method::Get, self.url()?),
@@ -171,12 +171,12 @@ impl<'a> Request for SurfRequest<'a> {
 }
 
 impl<'a> SurfRequest<'a> {
-    pub fn new<'b>(
+    pub async fn new<'b>(
         bucket: &'b Bucket,
         path: &'b str,
         command: Command<'b>,
     ) -> Result<SurfRequest<'b>, S3Error> {
-        bucket.credentials_refresh()?;
+        bucket.credentials_refresh().await?;
         Ok(SurfRequest {
             bucket,
             path,

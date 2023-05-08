@@ -67,6 +67,11 @@ impl Tag {
     }
 }
 
+#[cfg(all(feature = "with-tokio", not(feature = "with-async-std")))]
+type AsyncRwLock<T> = tokio::sync::RwLock<T>;
+#[cfg(all(feature = "with-async-std", not(feature = "with-tokio")))]
+type AsyncRwLock<T> = async_std::sync::RwLock<T>;
+
 /// Instantiate an existing Bucket
 ///
 /// # Example
@@ -85,7 +90,7 @@ impl Tag {
 pub struct Bucket {
     pub name: String,
     pub region: Region,
-    pub credentials: Arc<tokio::sync::RwLock<Credentials>>,
+    pub credentials: Arc<AsyncRwLock<Credentials>>,
     pub extra_headers: HeaderMap,
     pub extra_query: Query,
     pub request_timeout: Option<Duration>,
@@ -425,10 +430,15 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// ```
     pub fn new(name: &str, region: Region, credentials: Credentials) -> Result<Bucket, S3Error> {
+        #[cfg(feature = "with-tokio")]
+        let credentials = Arc::new(tokio::sync::RwLock::new(credentials));
+        #[cfg(feature = "async-std")]
+        let credentials = Arc::new(async_std::sync::RwLock::new(credentials));
+
         Ok(Bucket {
             name: name.into(),
             region,
-            credentials: Arc::new(tokio::sync::RwLock::new(credentials)),
+            credentials,
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
@@ -449,10 +459,15 @@ impl Bucket {
     /// let bucket = Bucket::new_public(bucket_name, region).unwrap();
     /// ```
     pub fn new_public(name: &str, region: Region) -> Result<Bucket, S3Error> {
+        #[cfg(feature = "with-tokio")]
+        let credentials = Arc::new(tokio::sync::RwLock::new(Credentials::anonymous()?));
+        #[cfg(feature = "async-std")]
+        let credentials = Arc::new(async_std::sync::RwLock::new(Credentials::anonymous()?));
+
         Ok(Bucket {
             name: name.into(),
             region,
-            credentials: Arc::new(tokio::sync::RwLock::new(Credentials::anonymous()?)),
+            credentials,
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
@@ -2164,13 +2179,13 @@ impl Bucket {
 
     /// Get a reference to the full [`Credentials`](struct.Credentials.html)
     /// object used by this `Bucket`.
-    pub fn credentials(&self) -> Arc<tokio::sync::RwLock<Credentials>> {
+    pub fn credentials(&self) -> Arc<AsyncRwLock<Credentials>> {
         self.credentials.clone()
     }
 
     /// Change the credentials used by the Bucket.
     pub fn set_credentials(&mut self, credentials: Credentials) {
-        self.credentials = Arc::new(tokio::sync::RwLock::new(credentials));
+        self.credentials = Arc::new(AsyncRwLock::new(credentials));
     }
 
     /// Add an extra header to send with requests to S3.
