@@ -289,6 +289,10 @@ pub trait Request {
     fn url(&self) -> Result<Url, S3Error> {
         let mut url_str = self.bucket().url();
 
+        if let Command::ListBuckets { .. } = self.command() {
+            return Ok(Url::parse(&url_str)?);
+        }
+
         if let Command::CreateBucket { .. } = self.command() {
             return Ok(Url::parse(&url_str)?);
         }
