@@ -19,12 +19,14 @@ pub struct Owner {
     pub id: String,
 }
 
+pub type DateTime = String;
+
 /// An individual object in a `ListBucketResult`
 #[derive(Deserialize, Debug, Clone)]
 pub struct Object {
     #[serde(rename = "LastModified")]
     /// Date and time the object was last modified.
-    pub last_modified: String,
+    pub last_modified: DateTime,
     #[serde(rename = "ETag")]
     /// The entity tag is an MD5 hash of the object. The ETag only reflects changes to the
     /// contents of an object, not its metadata.
@@ -48,7 +50,7 @@ pub struct Object {
 pub struct MultipartUpload {
     #[serde(rename = "Initiated")]
     /// Date and time the multipart upload was initiated
-    pub initiated: String,
+    pub initiated: DateTime,
     #[serde(rename = "StorageClass")]
     /// STANDARD | STANDARD_IA | REDUCED_REDUNDANCY | GLACIER
     pub storage_class: String,
@@ -251,10 +253,10 @@ pub struct HeadObjectResult {
     pub expiration: Option<String>,
     #[serde(rename = "Expires")]
     /// The date and time at which the object is no longer cacheable.
-    pub expires: Option<String>,
+    pub expires: Option<DateTime>,
     #[serde(rename = "LastModified")]
     /// Last modified date of the object
-    pub last_modified: Option<String>,
+    pub last_modified: Option<DateTime>,
     #[serde(rename = "Metadata", default)]
     /// A map of metadata to store with the object in S3.
     pub metadata: Option<::std::collections::HashMap<String, String>>,
