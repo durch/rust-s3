@@ -1,9 +1,5 @@
 // cargo run --example sync --no-default-features --features sync-native-tls
 
-
-
-
-
 #[cfg(feature = "sync")]
 fn main() -> Result<(), S3Error> {
     let bucket = Bucket::new(
