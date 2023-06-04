@@ -3,20 +3,37 @@
 use awscreds::Credentials;
 use awsregion::Region;
 use s3::error::S3Error;
-use s3::Bucket;
+use s3::{Bucket, BucketConfiguration};
 
 #[tokio::main]
 async fn main() -> Result<(), S3Error> {
     // This requires a running minio server at localhost:9000
-    let bucket = Bucket::new(
-        "test-rust-s3",
+
+    let bucket_name = "test-rust-s3";
+    let region =
         Region::Custom {
             region: "eu-central-1".to_owned(),
             endpoint: "http://localhost:9000".to_owned(),
-        },
-        Credentials::default()?,
+        };
+    let credentials = Credentials::default()?;
+
+    let mut bucket = Bucket::new(
+        bucket_name,
+        region.clone(),
+        credentials.clone()
     )?
     .with_path_style();
+
+    if !bucket.exists().await? {
+        bucket = Bucket::create_with_path_style(
+            bucket_name,
+            region,
+            credentials,
+            BucketConfiguration::default()
+        )
+        .await?
+        .bucket;
+    }
 
     let s3_path = "test.file";
     let test = b"I'm going to S3!";
@@ -29,7 +46,7 @@ async fn main() -> Result<(), S3Error> {
     assert_eq!(test, response_data.as_slice());
 
     let response_data = bucket
-        .get_object_range(s3_path, 100, Some(1000))
+        .get_object_range(s3_path, 0, Some(1000))
         .await
         .unwrap();
     assert_eq!(response_data.status_code(), 206);
