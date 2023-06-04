@@ -128,6 +128,7 @@ pub enum Command<'a> {
         config: BucketConfiguration,
     },
     DeleteBucket,
+    ListBuckets,
     PutBucketCors {
         configuration: CorsConfiguration,
     },
@@ -139,6 +140,7 @@ impl<'a> Command<'a> {
             Command::GetObject
             | Command::GetObjectTorrent
             | Command::GetObjectRange { .. }
+            | Command::ListBuckets
             | Command::ListObjects { .. }
             | Command::ListObjectsV2 { .. }
             | Command::GetBucketLocation

@@ -201,3 +201,77 @@ impl CreateBucketResponse {
         self.response_code == 200
     }
 }
+
+pub use list_buckets::*;
+
+mod list_buckets {
+
+    #[derive(Clone, Default, Serialize, Deserialize, Debug)]
+    #[serde(rename_all="PascalCase", rename="ListAllMyBucketsResult")]
+    pub struct ListBucketsResponse {
+        pub owner: BucketOwner,
+        pub buckets: BucketContainer
+    }
+
+    impl ListBucketsResponse {
+        pub fn bucket_names(&self) ->  impl Iterator<Item=String> + '_ {
+            self.buckets.bucket.iter().map(|bucket| bucket.name.clone())
+        }
+    }
+
+    #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
+    pub struct BucketOwner {
+        #[serde(rename="ID")]
+        pub id: String,
+        #[serde(rename="DisplayName")]
+        pub display_name: String
+    }
+
+    #[derive(Serialize, Deserialize, Default, Clone, Debug)]
+    #[serde(rename_all="PascalCase")]
+    pub struct BucketInfo {
+        pub name: String,
+        pub creation_date: crate::serde_types::DateTime
+    }
+
+    #[derive(Serialize, Deserialize, Default, Clone, Debug)]
+    #[serde(rename_all="PascalCase")]
+    pub struct BucketContainer {
+        pub bucket: Vec<BucketInfo>
+    }
+
+    #[test]
+    pub fn parse_list_buckets_response() {
+        let response = r#"
+        <?xml version="1.0" encoding="UTF-8"?>
+            <ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+                <Owner>
+                    <ID>02d6176db174dc93cb1b899f7c6078f08654445fe8cf1b6ce98d8855f66bdbf4</ID>
+                    <DisplayName>minio</DisplayName>
+                </Owner>
+                <Buckets>
+                    <Bucket>
+                        <Name>test-rust-s3</Name>
+                        <CreationDate>2023-06-04T20:13:37.837Z</CreationDate>
+                    </Bucket>
+                    <Bucket>
+                        <Name>test-rust-s3-2</Name>
+                        <CreationDate>2023-06-04T20:17:47.152Z</CreationDate>
+                    </Bucket>
+                </Buckets>
+            </ListAllMyBucketsResult>
+        "#;
+
+        let parsed = quick_xml::de::from_str::<crate::bucket_ops::ListBucketsResponse>(response).unwrap();
+
+        assert_eq!(parsed.owner.display_name, "minio");
+        assert_eq!(parsed.owner.id, "02d6176db174dc93cb1b899f7c6078f08654445fe8cf1b6ce98d8855f66bdbf4");
+        assert_eq!(parsed.buckets.bucket.len(), 2);
+
+        assert_eq!(parsed.buckets.bucket.first().unwrap().name, "test-rust-s3");
+        assert_eq!(parsed.buckets.bucket.first().unwrap().creation_date, "2023-06-04T20:13:37.837Z".parse::<crate::serde_types::DateTime>().unwrap());
+
+        assert_eq!(parsed.buckets.bucket.last().unwrap().name, "test-rust-s3-2");
+        assert_eq!(parsed.buckets.bucket.last().unwrap().creation_date, "2023-06-04T20:17:47.152Z".parse::<crate::serde_types::DateTime>().unwrap());
+    }
+}
