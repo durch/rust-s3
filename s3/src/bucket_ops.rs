@@ -265,8 +265,7 @@ mod list_buckets {
                 </ListAllMyBucketsResult>
             "#;
 
-            let parsed =
-                quick_xml::de::from_str::<super::ListBucketsResponse>(response).unwrap();
+            let parsed = quick_xml::de::from_str::<super::ListBucketsResponse>(response).unwrap();
 
             assert_eq!(parsed.owner.display_name, "minio");
             assert_eq!(
@@ -306,8 +305,7 @@ mod list_buckets {
                 </ListAllMyBucketsResult>
             "#;
 
-            let parsed =
-                quick_xml::de::from_str::<super::ListBucketsResponse>(response).unwrap();
+            let parsed = quick_xml::de::from_str::<super::ListBucketsResponse>(response).unwrap();
 
             assert_eq!(parsed.owner.display_name, "minio");
             assert_eq!(
@@ -317,5 +315,4 @@ mod list_buckets {
             assert_eq!(parsed.buckets.bucket.len(), 0);
         }
     }
-
 }
