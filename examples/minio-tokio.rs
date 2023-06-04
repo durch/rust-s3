@@ -10,26 +10,21 @@ async fn main() -> Result<(), S3Error> {
     // This requires a running minio server at localhost:9000
 
     let bucket_name = "test-rust-s3";
-    let region =
-        Region::Custom {
-            region: "eu-central-1".to_owned(),
-            endpoint: "http://localhost:9000".to_owned(),
-        };
+    let region = Region::Custom {
+        region: "eu-central-1".to_owned(),
+        endpoint: "http://localhost:9000".to_owned(),
+    };
     let credentials = Credentials::default()?;
 
-    let mut bucket = Bucket::new(
-        bucket_name,
-        region.clone(),
-        credentials.clone()
-    )?
-    .with_path_style();
+    let mut bucket =
+        Bucket::new(bucket_name, region.clone(), credentials.clone())?.with_path_style();
 
     if !bucket.exists().await? {
         bucket = Bucket::create_with_path_style(
             bucket_name,
             region,
             credentials,
-            BucketConfiguration::default()
+            BucketConfiguration::default(),
         )
         .await?
         .bucket;
