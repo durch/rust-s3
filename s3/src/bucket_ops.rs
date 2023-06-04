@@ -241,77 +241,81 @@ mod list_buckets {
         pub bucket: Vec<BucketInfo>,
     }
 
-    #[test]
-    pub fn parse_list_buckets_response() {
-        let response = r#"
-        <?xml version="1.0" encoding="UTF-8"?>
-            <ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
-                <Owner>
-                    <ID>02d6176db174dc93cb1b899f7c6078f08654445fe8cf1b6ce98d8855f66bdbf4</ID>
-                    <DisplayName>minio</DisplayName>
-                </Owner>
-                <Buckets>
-                    <Bucket>
-                        <Name>test-rust-s3</Name>
-                        <CreationDate>2023-06-04T20:13:37.837Z</CreationDate>
-                    </Bucket>
-                    <Bucket>
-                        <Name>test-rust-s3-2</Name>
-                        <CreationDate>2023-06-04T20:17:47.152Z</CreationDate>
-                    </Bucket>
-                </Buckets>
-            </ListAllMyBucketsResult>
-        "#;
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        pub fn parse_list_buckets_response() {
+            let response = r#"
+            <?xml version="1.0" encoding="UTF-8"?>
+                <ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+                    <Owner>
+                        <ID>02d6176db174dc93cb1b899f7c6078f08654445fe8cf1b6ce98d8855f66bdbf4</ID>
+                        <DisplayName>minio</DisplayName>
+                    </Owner>
+                    <Buckets>
+                        <Bucket>
+                            <Name>test-rust-s3</Name>
+                            <CreationDate>2023-06-04T20:13:37.837Z</CreationDate>
+                        </Bucket>
+                        <Bucket>
+                            <Name>test-rust-s3-2</Name>
+                            <CreationDate>2023-06-04T20:17:47.152Z</CreationDate>
+                        </Bucket>
+                    </Buckets>
+                </ListAllMyBucketsResult>
+            "#;
 
-        let parsed =
-            quick_xml::de::from_str::<crate::bucket_ops::ListBucketsResponse>(response).unwrap();
+            let parsed =
+                quick_xml::de::from_str::<super::ListBucketsResponse>(response).unwrap();
 
-        assert_eq!(parsed.owner.display_name, "minio");
-        assert_eq!(
-            parsed.owner.id,
-            "02d6176db174dc93cb1b899f7c6078f08654445fe8cf1b6ce98d8855f66bdbf4"
-        );
-        assert_eq!(parsed.buckets.bucket.len(), 2);
+            assert_eq!(parsed.owner.display_name, "minio");
+            assert_eq!(
+                parsed.owner.id,
+                "02d6176db174dc93cb1b899f7c6078f08654445fe8cf1b6ce98d8855f66bdbf4"
+            );
+            assert_eq!(parsed.buckets.bucket.len(), 2);
 
-        assert_eq!(parsed.buckets.bucket.first().unwrap().name, "test-rust-s3");
-        assert_eq!(
-            parsed.buckets.bucket.first().unwrap().creation_date,
-            "2023-06-04T20:13:37.837Z"
-                .parse::<crate::serde_types::DateTime>()
-                .unwrap()
-        );
+            assert_eq!(parsed.buckets.bucket.first().unwrap().name, "test-rust-s3");
+            assert_eq!(
+                parsed.buckets.bucket.first().unwrap().creation_date,
+                "2023-06-04T20:13:37.837Z"
+                    .parse::<crate::serde_types::DateTime>()
+                    .unwrap()
+            );
 
-        assert_eq!(parsed.buckets.bucket.last().unwrap().name, "test-rust-s3-2");
-        assert_eq!(
-            parsed.buckets.bucket.last().unwrap().creation_date,
-            "2023-06-04T20:17:47.152Z"
-                .parse::<crate::serde_types::DateTime>()
-                .unwrap()
-        );
+            assert_eq!(parsed.buckets.bucket.last().unwrap().name, "test-rust-s3-2");
+            assert_eq!(
+                parsed.buckets.bucket.last().unwrap().creation_date,
+                "2023-06-04T20:17:47.152Z"
+                    .parse::<crate::serde_types::DateTime>()
+                    .unwrap()
+            );
+        }
+
+        #[test]
+        pub fn parse_list_buckets_response_when_no_buckets_exist() {
+            let response = r#"
+            <?xml version="1.0" encoding="UTF-8"?>
+                <ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+                    <Owner>
+                        <ID>02d6176db174dc93cb1b899f7c6078f08654445fe8cf1b6ce98d8855f66bdbf4</ID>
+                        <DisplayName>minio</DisplayName>
+                    </Owner>
+                    <Buckets>
+                    </Buckets>
+                </ListAllMyBucketsResult>
+            "#;
+
+            let parsed =
+                quick_xml::de::from_str::<super::ListBucketsResponse>(response).unwrap();
+
+            assert_eq!(parsed.owner.display_name, "minio");
+            assert_eq!(
+                parsed.owner.id,
+                "02d6176db174dc93cb1b899f7c6078f08654445fe8cf1b6ce98d8855f66bdbf4"
+            );
+            assert_eq!(parsed.buckets.bucket.len(), 0);
+        }
     }
 
-    #[test]
-    pub fn parse_list_buckets_response_when_no_buckets_exist() {
-        let response = r#"
-        <?xml version="1.0" encoding="UTF-8"?>
-            <ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
-                <Owner>
-                    <ID>02d6176db174dc93cb1b899f7c6078f08654445fe8cf1b6ce98d8855f66bdbf4</ID>
-                    <DisplayName>minio</DisplayName>
-                </Owner>
-                <Buckets>
-                </Buckets>
-            </ListAllMyBucketsResult>
-        "#;
-
-        let parsed =
-            quick_xml::de::from_str::<crate::bucket_ops::ListBucketsResponse>(response).unwrap();
-
-        assert_eq!(parsed.owner.display_name, "minio");
-        assert_eq!(
-            parsed.owner.id,
-            "02d6176db174dc93cb1b899f7c6078f08654445fe8cf1b6ce98d8855f66bdbf4"
-        );
-        assert_eq!(parsed.buckets.bucket.len(), 0);
-    }
 }
