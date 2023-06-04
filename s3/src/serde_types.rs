@@ -19,7 +19,7 @@ pub struct Owner {
     pub id: String,
 }
 
-pub type DateTime = String;
+pub type DateTime = chrono::DateTime<chrono::Utc>;
 
 /// An individual object in a `ListBucketResult`
 #[derive(Deserialize, Debug, Clone)]
