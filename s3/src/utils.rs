@@ -171,7 +171,7 @@ mod test {
     #[test]
     fn test_etag_large_file() {
         let path = "test_etag";
-        std::fs::remove_file(path).unwrap_or_else(|_| {});
+        std::fs::remove_file(path).unwrap_or({});
         let test: Vec<u8> = object(10_000_000);
 
         let mut file = File::create(path).unwrap();
@@ -179,7 +179,7 @@ mod test {
 
         let etag = etag_for_path(path).unwrap();
 
-        std::fs::remove_file(path).unwrap_or_else(|_| {});
+        std::fs::remove_file(path).unwrap_or({});
 
         assert_eq!(etag, "e438487f09f09c042b2de097765e5ac2-2");
     }
@@ -187,7 +187,7 @@ mod test {
     #[test]
     fn test_etag_small_file() {
         let path = "test_etag";
-        std::fs::remove_file(path).unwrap_or_else(|_| {});
+        std::fs::remove_file(path).unwrap_or({});
         let test: Vec<u8> = object(1000);
 
         let mut file = File::create(path).unwrap();
@@ -195,7 +195,7 @@ mod test {
 
         let etag = etag_for_path(path).unwrap();
 
-        std::fs::remove_file(path).unwrap_or_else(|_| {});
+        std::fs::remove_file(path).unwrap_or({});
 
         assert_eq!(etag, "8122ef1c2b2331f7986349560248cf56");
     }

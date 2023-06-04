@@ -2650,7 +2650,7 @@ mod test {
         init();
         let remote_path = "+stream_test_big";
         let local_path = "+stream_test_big";
-        std::fs::remove_file(remote_path).unwrap_or_else(|_| {});
+        std::fs::remove_file(remote_path).unwrap_or({});
         let content: Vec<u8> = object(20_000_000);
 
         let mut file = File::create(local_path).await.unwrap();
@@ -2686,7 +2686,7 @@ mod test {
 
         let response_data = bucket.delete_object(remote_path).await.unwrap();
         assert_eq!(response_data.status_code(), 204);
-        std::fs::remove_file(local_path).unwrap_or_else(|_| {});
+        std::fs::remove_file(local_path).unwrap_or({});
     }
 
     #[ignore]
