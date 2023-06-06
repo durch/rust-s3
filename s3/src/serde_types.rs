@@ -24,7 +24,10 @@ pub type DateTime = chrono::DateTime<chrono::Utc>;
 /// An individual object in a `ListBucketResult`
 #[derive(Deserialize, Debug, Clone)]
 pub struct Object {
-    #[serde(rename = "LastModified")]
+    #[serde(
+        rename = "LastModified",
+        deserialize_with = "super::deserializer::datetime_deserializer"
+    )]
     /// Date and time the object was last modified.
     pub last_modified: DateTime,
     #[serde(rename = "ETag")]
@@ -48,7 +51,10 @@ pub struct Object {
 /// An individual upload in a `ListMultipartUploadsResult`
 #[derive(Deserialize, Debug, Clone)]
 pub struct MultipartUpload {
-    #[serde(rename = "Initiated")]
+    #[serde(
+        rename = "Initiated",
+        deserialize_with = "super::deserializer::datetime_deserializer"
+    )]
     /// Date and time the multipart upload was initiated
     pub initiated: DateTime,
     #[serde(rename = "StorageClass")]
@@ -251,10 +257,16 @@ pub struct HeadObjectResult {
     /// If the object expiration is configured, the response includes this header. It includes the expiry-date and rule-id key-value pairs providing object expiration information.
     /// The value of the rule-id is URL encoded.
     pub expiration: Option<String>,
-    #[serde(rename = "Expires")]
+    #[serde(
+        rename = "Expires",
+        deserialize_with="super::deserializer::maybe_datetime_deserializer"
+    )]
     /// The date and time at which the object is no longer cacheable.
     pub expires: Option<DateTime>,
-    #[serde(rename = "LastModified")]
+    #[serde(
+        rename = "LastModified", 
+        deserialize_with="super::deserializer::maybe_datetime_deserializer"
+    )]
     /// Last modified date of the object
     pub last_modified: Option<DateTime>,
     #[serde(rename = "Metadata", default)]

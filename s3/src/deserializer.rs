@@ -14,3 +14,30 @@ where
         ))),
     }
 }
+
+pub fn maybe_datetime_deserializer<'de, D>(d: D) -> Result<Option<crate::serde_types::DateTime>, D::Error>
+where
+    D: Deserializer<'de>
+{
+    return match Option::<String>::deserialize(d)? {
+        Some(s) => {
+            chrono::DateTime::parse_from_rfc2822(&s)
+            .map(|parsed| Some(parsed.with_timezone(&chrono::Utc)))
+            .map_err(|err| D::Error::custom(format!("Datetime parse from rfc2822 error: {}", err.to_string())))
+        },
+        None => {
+            Ok(None)
+        }
+    }
+}
+
+pub fn datetime_deserializer<'de, D>(d: D) -> Result<crate::serde_types::DateTime, D::Error>
+where
+    D: Deserializer<'de>
+{
+    let s = String::deserialize(d)?;
+
+    chrono::DateTime::parse_from_rfc2822(&s)
+    .map(|parsed| parsed.with_timezone(&chrono::Utc))
+    .map_err(|err| D::Error::custom(format!("Datetime parse from rfc2822 error: {}", err.to_string())))
+}
