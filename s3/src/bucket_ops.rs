@@ -231,7 +231,7 @@ mod list_buckets {
     #[serde(rename_all = "PascalCase")]
     pub struct BucketInfo {
         pub name: String,
-        pub creation_date: crate::serde_types::DateTime,
+        pub creation_date: String,
     }
 
     #[derive(Deserialize, Default, Clone, Debug)]
@@ -278,16 +278,12 @@ mod list_buckets {
             assert_eq!(
                 parsed.buckets.bucket.first().unwrap().creation_date,
                 "2023-06-04T20:13:37.837Z"
-                    .parse::<crate::serde_types::DateTime>()
-                    .unwrap()
             );
 
             assert_eq!(parsed.buckets.bucket.last().unwrap().name, "test-rust-s3-2");
             assert_eq!(
                 parsed.buckets.bucket.last().unwrap().creation_date,
                 "2023-06-04T20:17:47.152Z"
-                    .parse::<crate::serde_types::DateTime>()
-                    .unwrap()
             );
         }
 

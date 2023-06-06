@@ -19,17 +19,12 @@ pub struct Owner {
     pub id: String,
 }
 
-pub type DateTime = chrono::DateTime<chrono::Utc>;
-
 /// An individual object in a `ListBucketResult`
 #[derive(Deserialize, Debug, Clone)]
 pub struct Object {
-    #[serde(
-        rename = "LastModified",
-        deserialize_with = "super::deserializer::datetime_deserializer"
-    )]
+    #[serde(rename = "LastModified")]
     /// Date and time the object was last modified.
-    pub last_modified: DateTime,
+    pub last_modified: String,
     #[serde(rename = "ETag")]
     /// The entity tag is an MD5 hash of the object. The ETag only reflects changes to the
     /// contents of an object, not its metadata.
@@ -51,12 +46,9 @@ pub struct Object {
 /// An individual upload in a `ListMultipartUploadsResult`
 #[derive(Deserialize, Debug, Clone)]
 pub struct MultipartUpload {
-    #[serde(
-        rename = "Initiated",
-        deserialize_with = "super::deserializer::datetime_deserializer"
-    )]
+    #[serde(rename = "Initiated")]
     /// Date and time the multipart upload was initiated
-    pub initiated: DateTime,
+    pub initiated: String,
     #[serde(rename = "StorageClass")]
     /// STANDARD | STANDARD_IA | REDUCED_REDUNDANCY | GLACIER
     pub storage_class: String,
@@ -257,18 +249,12 @@ pub struct HeadObjectResult {
     /// If the object expiration is configured, the response includes this header. It includes the expiry-date and rule-id key-value pairs providing object expiration information.
     /// The value of the rule-id is URL encoded.
     pub expiration: Option<String>,
-    #[serde(
-        rename = "Expires",
-        deserialize_with = "super::deserializer::maybe_datetime_deserializer"
-    )]
+    #[serde(rename = "Expires")]
     /// The date and time at which the object is no longer cacheable.
-    pub expires: Option<DateTime>,
-    #[serde(
-        rename = "LastModified",
-        deserialize_with = "super::deserializer::maybe_datetime_deserializer"
-    )]
+    pub expires: Option<String>,
+    #[serde(rename = "LastModified")]
     /// Last modified date of the object
-    pub last_modified: Option<DateTime>,
+    pub last_modified: Option<String>,
     #[serde(rename = "Metadata", default)]
     /// A map of metadata to store with the object in S3.
     pub metadata: Option<::std::collections::HashMap<String, String>>,
