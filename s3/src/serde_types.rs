@@ -259,13 +259,13 @@ pub struct HeadObjectResult {
     pub expiration: Option<String>,
     #[serde(
         rename = "Expires",
-        deserialize_with="super::deserializer::maybe_datetime_deserializer"
+        deserialize_with = "super::deserializer::maybe_datetime_deserializer"
     )]
     /// The date and time at which the object is no longer cacheable.
     pub expires: Option<DateTime>,
     #[serde(
-        rename = "LastModified", 
-        deserialize_with="super::deserializer::maybe_datetime_deserializer"
+        rename = "LastModified",
+        deserialize_with = "super::deserializer::maybe_datetime_deserializer"
     )]
     /// Last modified date of the object
     pub last_modified: Option<DateTime>,
