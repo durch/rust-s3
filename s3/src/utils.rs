@@ -111,8 +111,8 @@ impl From<&http::HeaderMap> for HeadObjectResult {
             delete_marker: headers.get_and_convert("x-amz-delete-marker"),
             e_tag: headers.get_string("ETag"),
             expiration: headers.get_string("x-amz-expiration"),
-            expires: headers.get_and_convert("Expires"),
-            last_modified: headers.get_and_convert("Last-Modified"),
+            expires: headers.get_string("Expires"),
+            last_modified: headers.get_string("Last-Modified"),
             ..Default::default()
         };
         let mut values = ::std::collections::HashMap::new();
