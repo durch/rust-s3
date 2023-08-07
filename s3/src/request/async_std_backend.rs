@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use crate::bucket::Bucket;
 use crate::command::Command;
 use crate::error::S3Error;
+use crate::utils::now_utc;
 use time::OffsetDateTime;
 
 use crate::command::HttpMethod;
@@ -181,7 +182,7 @@ impl<'a> SurfRequest<'a> {
             bucket,
             path,
             command,
-            datetime: OffsetDateTime::now_utc(),
+            datetime: now_utc(),
             sync: false,
         })
     }

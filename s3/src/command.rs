@@ -102,10 +102,6 @@ pub enum Command<'a> {
         expiry_secs: u32,
         custom_headers: Option<HeaderMap>,
     },
-    PresignPost {
-        expiry_secs: u32,
-        post_policy: String,
-    },
     PresignDelete {
         expiry_secs: u32,
     },
@@ -161,7 +157,6 @@ impl<'a> Command<'a> {
                 HttpMethod::Post
             }
             Command::HeadObject => HttpMethod::Head,
-            Command::PresignPost { .. } => HttpMethod::Post,
         }
     }
 

@@ -38,12 +38,14 @@ use tokio::io::AsyncRead;
 use futures::io::AsyncRead;
 
 use crate::error::S3Error;
+use crate::post_policy::PresignedPost;
 use crate::request::Request;
 use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, CorsConfiguration, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
 use crate::utils::{error_from_response_data, PutStreamResponse};
+use crate::PostPolicy;
 use http::header::HeaderName;
 use http::HeaderMap;
 
@@ -165,36 +167,24 @@ impl Bucket {
     /// ```no_run
     /// use s3::bucket::Bucket;
     /// use s3::creds::Credentials;
-    /// use http::HeaderMap;
-    /// use http::header::HeaderName;
+    /// use s3::post_policy::*;
+    /// use std::borrow::Cow;
     ///
     /// let bucket_name = "rust-s3-test";
     /// let region = "us-east-1".parse().unwrap();
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
-    /// let post_policy = "eyAiZXhwaXJhdGlvbiI6ICIyMDE1LTEyLTMwVDEyOjAwOjAwLjAwMFoiLA0KICAiY29uZGl0aW9ucyI6IFsNCiAgICB7ImJ1Y2tldCI6ICJzaWd2NGV4YW1wbGVidWNrZXQifSwNCiAgICBbInN0YXJ0cy13aXRoIiwgIiRrZXkiLCAidXNlci91c2VyMS8iXSwNCiAgICB7ImFjbCI6ICJwdWJsaWMtcmVhZCJ9LA0KICAgIHsic3VjY2Vzc19hY3Rpb25fcmVkaXJlY3QiOiAiaHR0cDovL3NpZ3Y0ZXhhbXBsZWJ1Y2tldC5zMy5hbWF6b25hd3MuY29tL3N1Y2Nlc3NmdWxfdXBsb2FkLmh0bWwifSwNCiAgICBbInN0YXJ0cy13aXRoIiwgIiRDb250ZW50LVR5cGUiLCAiaW1hZ2UvIl0sDQogICAgeyJ4LWFtei1tZXRhLXV1aWQiOiAiMTQzNjUxMjM2NTEyNzQifSwNCiAgICB7IngtYW16LXNlcnZlci1zaWRlLWVuY3J5cHRpb24iOiAiQUVTMjU2In0sDQogICAgWyJzdGFydHMtd2l0aCIsICIkeC1hbXotbWV0YS10YWciLCAiIl0sDQoNCiAgICB7IngtYW16LWNyZWRlbnRpYWwiOiAiQUtJQUlPU0ZPRE5ON0VYQU1QTEUvMjAxNTEyMjkvdXMtZWFzdC0xL3MzL2F3czRfcmVxdWVzdCJ9LA0KICAgIHsieC1hbXotYWxnb3JpdGhtIjogIkFXUzQtSE1BQy1TSEEyNTYifSwNCiAgICB7IngtYW16LWRhdGUiOiAiMjAxNTEyMjlUMDAwMDAwWiIgfQ0KICBdDQp9";
+    /// let post_policy = PostPolicy::new(86400).condition(
+    ///     PostPolicyField::Key,
+    ///     PostPolicyValue::StartsWith(Cow::from("user/user1/"))
+    /// ).unwrap();
     ///
-    /// let url = bucket.presign_post("/test.file", 86400, post_policy.to_string()).unwrap();
-    /// println!("Presigned url: {}", url);
+    /// let presigned_post = bucket.presign_post(post_policy).unwrap();
+    /// println!("Presigned url: {}, fields: {:?}", presigned_post.url, presigned_post.fields);
     /// ```
-    pub fn presign_post<S: AsRef<str>>(
-        &self,
-        path: S,
-        expiry_secs: u32,
-        // base64 encoded post policy document -> https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-post-example.html
-        post_policy: String,
-    ) -> Result<String, S3Error> {
-        validate_expiry(expiry_secs)?;
-        let request = RequestImpl::new(
-            self,
-            path.as_ref(),
-            Command::PresignPost {
-                expiry_secs,
-                post_policy,
-            },
-        )?;
-        request.presigned()
+    pub fn presign_post(&self, post_policy: PostPolicy) -> Result<PresignedPost, S3Error> {
+        post_policy.sign(self.clone())
     }
 
     /// Get a presigned url for putting object to a given path
@@ -2237,12 +2227,13 @@ impl Bucket {
 mod test {
 
     use crate::creds::Credentials;
+    use crate::post_policy::{PostPolicyField, PostPolicyValue};
     use crate::region::Region;
     use crate::serde_types::CorsConfiguration;
     use crate::serde_types::CorsRule;
-    use crate::Bucket;
     use crate::BucketConfiguration;
     use crate::Tag;
+    use crate::{Bucket, PostPolicy};
     use http::header::HeaderName;
     use http::HeaderMap;
     use std::env;
@@ -2355,6 +2346,7 @@ mod test {
         .with_path_style()
     }
 
+    #[allow(dead_code)]
     fn test_digital_ocean_bucket() -> Bucket {
         Bucket::new("rust-s3", Region::DoFra1, test_digital_ocean_credentials()).unwrap()
     }
@@ -2895,10 +2887,9 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn test_presign_put() {
         let s3_path = "/test/test.file";
-        let bucket = test_aws_bucket();
+        let bucket = test_minio_bucket();
 
         let mut custom_headers = HeaderMap::new();
         custom_headers.insert(
@@ -2915,20 +2906,39 @@ mod test {
     }
 
     #[test]
-    #[ignore]
+    fn test_presign_post() {
+        use std::borrow::Cow;
+
+        let bucket = test_minio_bucket();
+
+        // Policy from sample
+        let policy = PostPolicy::new(86400)
+            .condition(
+                PostPolicyField::Key,
+                PostPolicyValue::StartsWith(Cow::from("user/user1/")),
+            )
+            .unwrap();
+
+        let data = bucket.presign_post(policy).unwrap();
+
+        assert_eq!(data.url, "http://localhost:9000/rust-s3");
+        assert_eq!(data.fields.len(), 6);
+        assert_eq!(data.dynamic_fields.len(), 1);
+    }
+
+    #[test]
     fn test_presign_get() {
         let s3_path = "/test/test.file";
-        let bucket = test_aws_bucket();
+        let bucket = test_minio_bucket();
 
         let url = bucket.presign_get(s3_path, 86400, None).unwrap();
         assert!(url.contains("/test/test.file?"))
     }
 
     #[test]
-    #[ignore]
     fn test_presign_delete() {
         let s3_path = "/test/test.file";
-        let bucket = test_aws_bucket();
+        let bucket = test_minio_bucket();
 
         let url = bucket.presign_delete(s3_path, 86400).unwrap();
         assert!(url.contains("/test/test.file?"))
