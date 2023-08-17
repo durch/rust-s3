@@ -47,6 +47,11 @@ use crate::utils::{error_from_response_data, PutStreamResponse};
 use http::header::HeaderName;
 use http::HeaderMap;
 
+#[cfg(feature = "with-tokio")]
+use hyper::{Client, client::HttpConnector};
+#[cfg(feature = "with-tokio")]
+use hyper_tls::HttpsConnector;
+
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
 const DEFAULT_REQUEST_TIMEOUT: Option<Duration> = Some(Duration::from_secs(60));
@@ -89,6 +94,8 @@ pub struct Bucket {
     pub extra_headers: HeaderMap,
     pub extra_query: Query,
     pub request_timeout: Option<Duration>,
+    #[cfg(feature = "with-tokio")]
+    pub(crate) client: Client<HttpsConnector<HttpConnector>>,
     path_style: bool,
     listobjects_v2: bool,
 }
@@ -433,6 +440,8 @@ impl Bucket {
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
+            #[cfg(feature = "with-tokio")]
+            client: Self::make_client(DEFAULT_REQUEST_TIMEOUT),
             path_style: false,
             listobjects_v2: true,
         })
@@ -457,6 +466,8 @@ impl Bucket {
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
+            #[cfg(feature = "with-tokio")]
+            client: Self::make_client(DEFAULT_REQUEST_TIMEOUT),
             path_style: false,
             listobjects_v2: true,
         })
@@ -470,6 +481,8 @@ impl Bucket {
             extra_headers: self.extra_headers.clone(),
             extra_query: self.extra_query.clone(),
             request_timeout: self.request_timeout,
+            #[cfg(feature = "with-tokio")]
+            client: self.client.clone(),
             path_style: true,
             listobjects_v2: self.listobjects_v2,
         }
@@ -483,6 +496,8 @@ impl Bucket {
             extra_headers,
             extra_query: self.extra_query.clone(),
             request_timeout: self.request_timeout,
+            #[cfg(feature = "with-tokio")]
+            client: self.client.clone(),
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
         }
@@ -496,6 +511,8 @@ impl Bucket {
             extra_headers: self.extra_headers.clone(),
             extra_query,
             request_timeout: self.request_timeout,
+            #[cfg(feature = "with-tokio")]
+            client: self.client.clone(),
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
         }
@@ -509,6 +526,8 @@ impl Bucket {
             extra_headers: self.extra_headers.clone(),
             extra_query: self.extra_query.clone(),
             request_timeout: Some(request_timeout),
+            #[cfg(feature = "with-tokio")]
+            client: Self::make_client(Some(request_timeout)),
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
         }
@@ -522,6 +541,8 @@ impl Bucket {
             extra_headers: self.extra_headers.clone(),
             extra_query: self.extra_query.clone(),
             request_timeout: self.request_timeout,
+            #[cfg(feature = "with-tokio")]
+            client: self.client.clone(),
             path_style: self.path_style,
             listobjects_v2: false,
         }
@@ -2066,6 +2087,9 @@ impl Bucket {
     /// async code may instead await with a timeout.
     pub fn set_request_timeout(&mut self, timeout: Option<Duration>) {
         self.request_timeout = timeout;
+        if cfg!(feature = "with-tokio") {
+            self.client = Self::make_client(timeout);
+        }
     }
 
     /// Configure bucket to use the older ListObjects API
@@ -2230,6 +2254,17 @@ impl Bucket {
 
     pub fn request_timeout(&self) -> Option<Duration> {
         self.request_timeout
+    }
+
+    #[cfg(feature = "with-tokio")]
+    fn make_client(request_timeout: Option<Duration>) -> Client<HttpsConnector<HttpConnector>> {
+        let mut http_connector = HttpConnector::new();
+        http_connector.set_connect_timeout(request_timeout);
+        http_connector.enforce_http(false);
+        let https_connector = HttpsConnector::new_with_connector(http_connector);
+        // TODO: allow configuration of pool_idle_timeout and pool_max_idle_per_host?
+        // Default values are Some(Duration::from_secs(90) and std::usize::MAX respectively.
+        Client::builder().build(https_connector)
     }
 }
 
