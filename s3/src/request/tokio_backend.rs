@@ -67,9 +67,7 @@ impl<'a> Request for HyperRequest<'a> {
 
         let mut http_connector = HttpConnector::new();
         http_connector.set_connect_timeout(self.bucket.request_timeout);
-        // let https_connector = HttpsConnector::from((http_connector, tls_connector));
-
-        let https_connector = HttpsConnector::new();
+        let https_connector = HttpsConnector::from((http_connector, tls_connector));
 
         let client = Client::builder().build::<_, hyper::Body>(https_connector);
 
