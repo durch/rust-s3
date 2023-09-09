@@ -188,6 +188,7 @@ fn http_get(url: &str) -> attohttpc::Result<attohttpc::Response> {
 }
 
 impl Credentials {
+    #[cfg(feature = "http-credentials")]
     pub fn refresh(&mut self) -> Result<(), CredentialsError> {
         if let Some(expiration) = self.expiration {
             if expiration.0 <= OffsetDateTime::now_utc() {
