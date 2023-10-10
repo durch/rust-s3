@@ -339,14 +339,10 @@ impl Credentials {
                         .json()?
                 }
                 Err(_) => {
-                    if !is_ec2() {
-                        return Err(CredentialsError::NotEc2);
-                    }
-
                     let role = attohttpc::get(
                         "http://169.254.169.254/latest/meta-data/iam/security-credentials",
                     )
-                    .send()?
+                    .send().map_err(|_| CredentialsError::NotEc2)?
                     .text()?;
 
                     attohttpc::get(format!(
@@ -399,20 +395,6 @@ fn from_env_with_default(var: Option<&str>, default: &str) -> Result<String, Cre
     env::var(val)
         .or_else(|_e| env::var(val))
         .map_err(|_| CredentialsError::MissingEnvVar(val.to_string(), default.to_string()))
-}
-
-fn is_ec2() -> bool {
-    if let Ok(uuid) = std::fs::read_to_string("/sys/hypervisor/uuid") {
-        if uuid.starts_with("ec2") {
-            return true;
-        }
-    }
-    if let Ok(vendor) = std::fs::read_to_string("/sys/class/dmi/id/board_vendor") {
-        if vendor.starts_with("Amazon EC2") {
-            return true;
-        }
-    }
-    false
 }
 
 #[derive(Deserialize)]
