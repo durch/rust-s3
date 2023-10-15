@@ -161,7 +161,6 @@ pub trait Request {
             Vec::from(content)
         } else if let Command::CompleteMultipartUpload { data, .. } = &self.command() {
             let body = data.to_string();
-            println!("CompleteMultipartUpload: {}", body);
             body.as_bytes().to_vec()
         } else if let Command::CreateBucket { config } = &self.command() {
             if let Some(payload) = config.location_constraint_payload() {
