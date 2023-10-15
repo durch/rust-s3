@@ -78,7 +78,7 @@ All runtimes support either `native-tls` or `rustls-tls`, there are features for
 
 |          |                                                                                                     |
 |----------|-----------------------------------------------------------------------------------------------------|
-| `POST`   | [presign_put](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_post)      |
+| `POST`   | [presign_post](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_post)     |
 | `PUT`    | [presign_put](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_put)       |
 | `GET`    | [presign_get](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_get)       |
 | `DELETE` | [presign_delete](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.presign_delete) |
@@ -141,4 +141,3 @@ Each `GET` method has a `PUT` companion `sync` and `async` methods are generic o
 [dependencies]
 rust-s3 = "0.33"
 ```
-

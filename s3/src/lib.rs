@@ -10,12 +10,14 @@ pub use awsregion as region;
 pub use bucket::Bucket;
 pub use bucket::Tag;
 pub use bucket_ops::BucketConfiguration;
+pub use post_policy::{PostPolicy, PostPolicyChecksum, PostPolicyField, PostPolicyValue};
 pub use region::Region;
 
 pub mod bucket;
 pub mod bucket_ops;
 pub mod command;
 pub mod deserializer;
+pub mod post_policy;
 pub mod serde_types;
 pub mod signing;
 

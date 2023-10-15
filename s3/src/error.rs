@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum S3Error {
     #[error("Utf8 decoding error: {0}")]
     Utf8(#[from] std::str::Utf8Error),
@@ -53,4 +54,8 @@ pub enum S3Error {
     TimeFormatError(#[from] time::error::Format),
     #[error("fmt error: {0}")]
     FmtError(#[from] std::fmt::Error),
+    #[error("serde error: {0}")]
+    SerdeError(#[from] serde_json::Error),
+    #[error("post policy error: {0}")]
+    PostPolicyError(#[from] crate::post_policy::PostPolicyError),
 }

@@ -178,14 +178,7 @@ pub trait Request {
     }
 
     fn string_to_sign(&self, request: &str) -> Result<String, S3Error> {
-        match self.command() {
-            Command::PresignPost { post_policy, .. } => Ok(post_policy),
-            _ => Ok(signing::string_to_sign(
-                &self.datetime(),
-                &self.bucket().region(),
-                request,
-            )?),
-        }
+        signing::string_to_sign(&self.datetime(), &self.bucket().region(), request)
     }
 
     fn host_header(&self) -> String {

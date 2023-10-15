@@ -1,3 +1,7 @@
+mod time_utils;
+
+pub use time_utils::*;
+
 use std::str::FromStr;
 
 use crate::error::S3Error;
