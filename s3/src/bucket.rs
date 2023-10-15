@@ -311,6 +311,100 @@ impl Bucket {
         })
     }
 
+    /// Get a list of all existing buckets in the region
+    /// that are accessible by the given credentials.
+    /// ```no_run
+    /// use s3::{Bucket, BucketConfiguration};
+    /// use s3::creds::Credentials;
+    /// use s3::region::Region;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let region = Region::Custom {
+    ///   region: "eu-central-1".to_owned(),
+    ///   endpoint: "http://localhost:9000".to_owned()
+    /// };
+    /// let credentials = Credentials::default()?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let response = Bucket::list_buckets(region, credentials).await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let response = Bucket::list_buckets(region, credentials)?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let response = Bucket::list_buckets_blocking(region, credentials)?;
+    ///
+    /// let found_buckets = response.bucket_names().collect::<Vec<String>>();
+    /// println!("found buckets: {:#?}", found_buckets);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn list_buckets(
+        region: Region,
+        credentials: Credentials,
+    ) -> Result<crate::bucket_ops::ListBucketsResponse, S3Error> {
+        let dummy_bucket = Bucket::new("", region, credentials)?.with_path_style();
+        let request = RequestImpl::new(&dummy_bucket, "", Command::ListBuckets)?;
+        let response = request.response_data(false).await?;
+
+        Ok(quick_xml::de::from_str::<
+            crate::bucket_ops::ListBucketsResponse,
+        >(response.as_str()?)?)
+    }
+
+    /// Determine whether the instantiated bucket exists.
+    /// ```no_run
+    /// use s3::{Bucket, BucketConfiguration};
+    /// use s3::creds::Credentials;
+    /// use s3::region::Region;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let bucket_name = "some-bucket-that-is-known-to-exist";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    ///
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let exists = bucket.exists().await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let exists = bucket.exists()?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let exists = bucket.exists_blocking()?;
+    ///
+    /// assert_eq!(exists, true);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn exists(&self) -> Result<bool, S3Error> {
+        let credentials = self
+            .credentials
+            .read()
+            .expect("Read lock to be acquired on Credentials")
+            .clone();
+
+        let response = Self::list_buckets(self.region.clone(), credentials).await?;
+
+        Ok(response
+            .bucket_names()
+            .collect::<std::collections::HashSet<String>>()
+            .contains(&self.name))
+    }
+
     /// Create a new `Bucket` with path style and instantiate it
     ///
     /// ```no_run
@@ -2549,7 +2643,7 @@ mod test {
         init();
         let remote_path = "+stream_test_big";
         let local_path = "+stream_test_big";
-        std::fs::remove_file(remote_path).unwrap_or_else(|_| {});
+        std::fs::remove_file(remote_path).unwrap_or(());
         let content: Vec<u8> = object(20_000_000);
 
         let mut file = File::create(local_path).await.unwrap();
@@ -2585,7 +2679,7 @@ mod test {
 
         let response_data = bucket.delete_object(remote_path).await.unwrap();
         assert_eq!(response_data.status_code(), 204);
-        std::fs::remove_file(local_path).unwrap_or_else(|_| {});
+        std::fs::remove_file(local_path).unwrap_or(());
     }
 
     #[ignore]
