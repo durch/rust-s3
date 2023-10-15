@@ -298,11 +298,7 @@ impl Credentials {
             .or_else(|_| Credentials::from_env())
             .or_else(|_| Credentials::from_profile(profile))
             .or_else(|_| Credentials::from_instance_metadata())
-            .or_else(|_| {
-                panic!(
-                    "Could not get valid credentials from STS, ENV, Profile or Instance metadata"
-                )
-            })
+            .map_err(|_| CredentialsError::NoCredentials)
     }
 
     pub fn from_env_specific(

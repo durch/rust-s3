@@ -44,6 +44,7 @@ use crate::serde_types::{
     BucketLocationResult, CompleteMultipartUploadData, CorsConfiguration, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
+#[allow(unused_imports)]
 use crate::utils::{error_from_response_data, PutStreamResponse};
 use crate::PostPolicy;
 use http::header::HeaderName;

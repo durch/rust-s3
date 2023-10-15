@@ -63,7 +63,7 @@ impl<'a> Request for HyperRequest<'a> {
 
             }
         }
-        let _tls_connector = tokio_native_tls::TlsConnector::from(tls_connector_builder.build()?);
+        let tls_connector = tokio_native_tls::TlsConnector::from(tls_connector_builder.build()?);
 
         let mut http_connector = HttpConnector::new();
         http_connector.set_connect_timeout(self.bucket.request_timeout);

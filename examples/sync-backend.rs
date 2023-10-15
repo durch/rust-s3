@@ -1,7 +1,10 @@
 // cargo run --example sync --no-default-features --features sync-native-tls
 
+#[cfg(feature = "sync")]
 use awscreds::Credentials;
+#[cfg(feature = "sync")]
 use s3::error::S3Error;
+#[cfg(feature = "sync")]
 use s3::Bucket;
 
 #[cfg(feature = "sync")]

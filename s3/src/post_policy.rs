@@ -288,6 +288,7 @@ pub enum PostPolicyField<'a> {
     Custom(Cow<'a, str>),
 }
 
+#[allow(clippy::from_over_into)]
 impl<'a> Into<Cow<'a, str>> for PostPolicyField<'a> {
     fn into(self) -> Cow<'a, str> {
         match self {
@@ -337,6 +338,7 @@ pub enum PostPolicyChecksum {
     SHA256,
 }
 
+#[allow(clippy::from_over_into)]
 impl<'a> Into<Cow<'a, str>> for PostPolicyChecksum {
     fn into(self) -> Cow<'a, str> {
         match self {

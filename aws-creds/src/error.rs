@@ -27,4 +27,6 @@ pub enum CredentialsError {
     Env(#[from] std::env::VarError),
     #[error("Invalid home dir")]
     HomeDir,
+    #[error("Could not get valid credentials from STS, ENV, Profile or Instance metadata")]
+    NoCredentials,
 }
