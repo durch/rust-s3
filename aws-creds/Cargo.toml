@@ -16,7 +16,7 @@ path = "src/lib.rs"
 
 [dependencies]
 thiserror = "1"
-dirs = "5"
+home = "0.5"
 rust-ini = "0.18"
 attohttpc = { version = "0.24", default-features = false, features = [
     "json",
