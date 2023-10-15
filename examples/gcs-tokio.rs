@@ -7,7 +7,6 @@ use s3::Bucket;
 
 #[tokio::main]
 async fn main() -> Result<(), S3Error> {
-    // This requires a running minio server at localhost:9000
     let bucket = Bucket::new(
         "test-rust-s3",
         Region::Custom {
