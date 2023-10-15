@@ -69,10 +69,13 @@ All runtimes support either `native-tls` or `rustls-tls`, there are features for
 
 #### Buckets
 
-|          |                                                                                    |
-|----------|------------------------------------------------------------------------------------|
-| `create` | [async](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.create) |
-| `delete` | [async](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.delete) |
+|          |                                                                                         |
+|----------|-----------------------------------------------------------------------------------------|
+| `create` | [async](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.create)      |
+| `delete` | [async](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.delete)      |
+| `list`   | [async](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.list_buckets)|
+| `exists` | [async](https://docs.rs/rust-s3/latest/s3/bucket/struct.Bucket.html#method.exists)|
+
 
 #### Presign
 
