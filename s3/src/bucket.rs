@@ -1190,7 +1190,7 @@ impl Bucket {
                     // Files is not big enough for multipart upload, going with regular put_object
                     self.abort_upload(&path, upload_id)?;
 
-                    self.put_object(s3_path, chunk.as_slice())?;
+                    return Ok(self.put_object(s3_path, chunk.as_slice())?.status_code());
                 } else {
                     part_number += 1;
                     let part = self.put_multipart_chunk(
