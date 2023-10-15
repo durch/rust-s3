@@ -436,6 +436,18 @@ pub trait Request {
         let mut headers = HeaderMap::new();
 
         for (k, v) in self.bucket().extra_headers.iter() {
+            if k.as_str().starts_with("x-amz-meta-") {
+                // metadata is invalid on any multipart command other than initiate
+                match self.command() {
+                    Command::UploadPart { .. }
+                    | Command::AbortMultipartUpload { .. }
+                    | Command::CompleteMultipartUpload { .. }
+                    | Command::PutObject {
+                        multipart: Some(_), ..
+                    } => continue,
+                    _ => (),
+                }
+            }
             headers.insert(k.clone(), v.clone());
         }
 
