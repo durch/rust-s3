@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.34.0-rc1"
+version = "0.34.0-rc2"
 authors = ["Drazen Urch"]
 description = "Rust library for working with AWS S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -62,7 +62,6 @@ hyper = { version = "0.14", default-features = false, features = [
     "stream",
 ], optional = true }
 hyper-tls = { version = "0.5.0", default-features = false, optional = true }
-hyper-native-tls = { version = "0.3.0", default-features = false, optional = true }
 log = "0.4"
 maybe-async = { version = "0.2" }
 md5 = "0.7"

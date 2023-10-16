@@ -9,6 +9,8 @@ use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
 use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
+#[cfg(feature = "with-tokio")]
+use crate::request::tokio_backend::client;
 use crate::request::ResponseData;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use crate::request::ResponseDataStream;
@@ -94,6 +96,8 @@ pub struct Bucket {
     pub request_timeout: Option<Duration>,
     path_style: bool,
     listobjects_v2: bool,
+    #[cfg(feature = "with-tokio")]
+    http_client: Arc<hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>>,
 }
 
 impl Bucket {
@@ -103,6 +107,13 @@ impl Bucket {
             .try_write()
             .map_err(|_| S3Error::WLCredentials)?
             .refresh()?)
+    }
+
+    #[cfg(feature = "with-tokio")]
+    pub fn http_client(
+        &self,
+    ) -> Arc<hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>> {
+        Arc::clone(&self.http_client)
     }
 }
 
@@ -451,6 +462,7 @@ impl Bucket {
         let request = RequestImpl::new(&bucket, "", command)?;
         let response_data = request.response_data(false).await?;
         let response_text = response_data.to_string()?;
+
         Ok(CreateBucketResponse {
             bucket,
             response_text,
@@ -520,6 +532,8 @@ impl Bucket {
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             path_style: false,
             listobjects_v2: true,
+            #[cfg(feature = "with-tokio")]
+            http_client: Arc::new(client(DEFAULT_REQUEST_TIMEOUT)?),
         })
     }
 
@@ -544,6 +558,8 @@ impl Bucket {
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             path_style: false,
             listobjects_v2: true,
+            #[cfg(feature = "with-tokio")]
+            http_client: Arc::new(client(DEFAULT_REQUEST_TIMEOUT)?),
         })
     }
 
@@ -557,11 +573,13 @@ impl Bucket {
             request_timeout: self.request_timeout,
             path_style: true,
             listobjects_v2: self.listobjects_v2,
+            #[cfg(feature = "with-tokio")]
+            http_client: self.http_client.clone(),
         }
     }
 
-    pub fn with_extra_headers(&self, extra_headers: HeaderMap) -> Bucket {
-        Bucket {
+    pub fn with_extra_headers(&self, extra_headers: HeaderMap) -> Result<Bucket, S3Error> {
+        Ok(Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
@@ -570,11 +588,16 @@ impl Bucket {
             request_timeout: self.request_timeout,
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
-        }
+            #[cfg(feature = "with-tokio")]
+            http_client: self.http_client.clone(),
+        })
     }
 
-    pub fn with_extra_query(&self, extra_query: HashMap<String, String>) -> Bucket {
-        Bucket {
+    pub fn with_extra_query(
+        &self,
+        extra_query: HashMap<String, String>,
+    ) -> Result<Bucket, S3Error> {
+        Ok(Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
@@ -583,11 +606,13 @@ impl Bucket {
             request_timeout: self.request_timeout,
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
-        }
+            #[cfg(feature = "with-tokio")]
+            http_client: self.http_client.clone(),
+        })
     }
 
-    pub fn with_request_timeout(&self, request_timeout: Duration) -> Bucket {
-        Bucket {
+    pub fn with_request_timeout(&self, request_timeout: Duration) -> Result<Bucket, S3Error> {
+        Ok(Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
@@ -596,7 +621,9 @@ impl Bucket {
             request_timeout: Some(request_timeout),
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
-        }
+            #[cfg(feature = "with-tokio")]
+            http_client: Arc::new(client(Some(request_timeout))?),
+        })
     }
 
     pub fn with_listobjects_v1(&self) -> Bucket {
@@ -609,6 +636,8 @@ impl Bucket {
             request_timeout: self.request_timeout,
             path_style: self.path_style,
             listobjects_v2: false,
+            #[cfg(feature = "with-tokio")]
+            http_client: self.http_client.clone(),
         }
     }
 
@@ -2371,7 +2400,14 @@ mod test {
     }
 
     fn test_minio_credentials() -> Credentials {
-        Credentials::new(Some("test"), Some("test1234"), None, None, None).unwrap()
+        Credentials::new(
+            Some(&env::var("MINIO_ACCESS_KEY_ID").unwrap()),
+            Some(&env::var("MINIO_SECRET_ACCESS_KEY").unwrap()),
+            None,
+            None,
+            None,
+        )
+        .unwrap()
     }
 
     fn test_digital_ocean_credentials() -> Credentials {
@@ -2432,7 +2468,7 @@ mod test {
         Bucket::new(
             "rust-s3",
             Region::Custom {
-                region: "eu-central-1".to_owned(),
+                region: "us-east-1".to_owned(),
                 endpoint: "http://localhost:9000".to_owned(),
             },
             test_minio_credentials(),
@@ -3143,7 +3179,8 @@ mod test {
             test_aws_credentials(),
         )
         .unwrap()
-        .with_request_timeout(Duration::from_secs(10));
+        .with_request_timeout(Duration::from_secs(10))
+        .unwrap();
 
         assert_eq!(bucket.request_timeout(), Some(Duration::from_secs(10)));
     }

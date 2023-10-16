@@ -19,6 +19,42 @@ use crate::utils::now_utc;
 
 use tokio_stream::StreamExt;
 
+pub fn client(
+    request_timeout: Option<std::time::Duration>,
+) -> Result<Client<HttpsConnector<HttpConnector>>, S3Error> {
+    #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
+    let mut tls_connector_builder = native_tls::TlsConnector::builder();
+
+    #[cfg(not(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls")))]
+    let tls_connector_builder = native_tls::TlsConnector::builder();
+
+    if cfg!(feature = "no-verify-ssl") {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "use-tokio-native-tls")]
+            {
+                tls_connector_builder.danger_accept_invalid_hostnames(true);
+            }
+
+        }
+
+        cfg_if::cfg_if! {
+            if #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
+            {
+                tls_connector_builder.danger_accept_invalid_certs(true);
+            }
+
+        }
+    }
+    let tls_connector = tokio_native_tls::TlsConnector::from(tls_connector_builder.build()?);
+
+    let mut http_connector = HttpConnector::new();
+    http_connector.set_connect_timeout(request_timeout);
+    http_connector.enforce_http(false);
+    let https_connector = HttpsConnector::from((http_connector, tls_connector));
+
+    Ok(Client::builder().build::<_, hyper::Body>(https_connector))
+}
+
 // Temporary structure for making a request
 pub struct HyperRequest<'a> {
     pub bucket: &'a Bucket,
@@ -40,36 +76,7 @@ impl<'a> Request for HyperRequest<'a> {
             Err(e) => return Err(e),
         };
 
-        #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
-        let mut tls_connector_builder = native_tls::TlsConnector::builder();
-
-        #[cfg(not(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls")))]
-        let tls_connector_builder = native_tls::TlsConnector::builder();
-
-        if cfg!(feature = "no-verify-ssl") {
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "use-tokio-native-tls")]
-                {
-                    tls_connector_builder.danger_accept_invalid_hostnames(true);
-                }
-
-            }
-
-            cfg_if::cfg_if! {
-                if #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
-                {
-                    tls_connector_builder.danger_accept_invalid_certs(true);
-                }
-
-            }
-        }
-        let tls_connector = tokio_native_tls::TlsConnector::from(tls_connector_builder.build()?);
-
-        let mut http_connector = HttpConnector::new();
-        http_connector.set_connect_timeout(self.bucket.request_timeout);
-        let https_connector = HttpsConnector::from((http_connector, tls_connector));
-
-        let client = Client::builder().build::<_, hyper::Body>(https_connector);
+        let client = self.bucket.http_client();
 
         let method = match self.command.http_verb() {
             HttpMethod::Delete => http::Method::DELETE,
