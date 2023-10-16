@@ -29,8 +29,9 @@ impl<'a> PostPolicy<'a> {
     }
 
     /// Build a finalized post policy with credentials
-    fn build(&self, now: &OffsetDateTime, bucket: &Bucket) -> Result<Self, S3Error> {
-        let access_key = bucket.access_key()?.ok_or(S3Error::Credentials(
+    #[maybe_async::maybe_async]
+    async fn build(&self, now: &OffsetDateTime, bucket: &Bucket) -> Result<PostPolicy, S3Error> {
+        let access_key = bucket.access_key().await?.ok_or(S3Error::Credentials(
             CredentialsError::ConfigMissingAccessKeyId,
         ))?;
         let credential = format!(
@@ -58,7 +59,7 @@ impl<'a> PostPolicy<'a> {
                 PostPolicyValue::Exact(Cow::from(now.format(LONG_DATETIME)?)),
             )?;
 
-        if let Some(security_token) = bucket.security_token()? {
+        if let Some(security_token) = bucket.security_token().await? {
             post_policy = post_policy.condition(
                 PostPolicyField::AmzSecurityToken,
                 PostPolicyValue::Exact(Cow::from(security_token)),
@@ -76,18 +77,19 @@ impl<'a> PostPolicy<'a> {
         Ok(general_purpose::STANDARD.encode(data))
     }
 
-    pub fn sign(&self, bucket: Bucket) -> Result<PresignedPost, S3Error> {
+    #[maybe_async::maybe_async]
+    pub async fn sign(&self, bucket: Bucket) -> Result<PresignedPost, S3Error> {
         use hmac::Mac;
 
-        bucket.credentials_refresh()?;
+        bucket.credentials_refresh().await?;
         let now = now_utc();
 
-        let policy = self.build(&now, &bucket)?;
+        let policy = self.build(&now, &bucket).await?;
         let policy_string = policy.policy_string()?;
 
         let signing_key = signing::signing_key(
             &now,
-            &bucket.secret_key()?.ok_or(S3Error::Credentials(
+            &bucket.secret_key().await?.ok_or(S3Error::Credentials(
                 CredentialsError::ConfigMissingSecretKey,
             ))?,
             &bucket.region,
@@ -616,8 +618,8 @@ mod test {
     mod build {
         use super::*;
 
-        #[test]
-        fn adds_credentials() {
+        #[tokio::test]
+        async fn adds_credentials() {
             let policy = PostPolicy::new(86400)
                 .condition(
                     PostPolicyField::Key,
@@ -628,7 +630,7 @@ mod test {
             let bucket = test_bucket();
 
             let _ts = with_timestamp(1_451_347_200);
-            let policy = policy.build(&now_utc(), &bucket).unwrap();
+            let policy = policy.build(&now_utc(), &bucket).await.unwrap();
 
             let data = serde_json::to_value(&policy).unwrap();
 
@@ -644,8 +646,8 @@ mod test {
             );
         }
 
-        #[test]
-        fn with_security_token() {
+        #[tokio::test]
+        async fn with_security_token() {
             let policy = PostPolicy::new(86400)
                 .condition(
                     PostPolicyField::Key,
@@ -656,7 +658,7 @@ mod test {
             let bucket = test_bucket_with_security_token();
 
             let _ts = with_timestamp(1_451_347_200);
-            let policy = policy.build(&now_utc(), &bucket).unwrap();
+            let policy = policy.build(&now_utc(), &bucket).await.unwrap();
 
             let data = serde_json::to_value(&policy).unwrap();
 
@@ -697,8 +699,8 @@ mod test {
     mod sign {
         use super::*;
 
-        #[test]
-        fn returns_full_details() {
+        #[tokio::test]
+        async fn returns_full_details() {
             let policy = PostPolicy::new(86400)
                 .condition(
                     PostPolicyField::Key,
@@ -714,7 +716,7 @@ mod test {
             let bucket = test_bucket();
 
             let _ts = with_timestamp(1_451_347_200);
-            let post = policy.sign(bucket).unwrap();
+            let post = policy.sign(bucket).await.unwrap();
 
             assert_eq!(post.url, "https://rust-s3.s3.amazonaws.com");
             assert_eq!(

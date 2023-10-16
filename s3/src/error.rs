@@ -58,4 +58,8 @@ pub enum S3Error {
     SerdeError(#[from] serde_json::Error),
     #[error("post policy error: {0}")]
     PostPolicyError(#[from] crate::post_policy::PostPolicyError),
+    #[error("Could not get read lock on credentials")]
+    CredentialsReadLock,
+    #[error("Could not get write lock on credentials")]
+    CredentialsWriteLock,
 }
