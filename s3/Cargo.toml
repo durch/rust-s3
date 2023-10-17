@@ -100,6 +100,7 @@ with-tokio = [
     "futures",
 ]
 async-std-native-tls = ["with-async-std", "aws-creds/native-tls"]
+http-credentials = ["aws-creds/http-credentials"]
 with-async-std = ["async-std", "surf", "futures-io", "futures-util", "futures"]
 sync = ["attohttpc", "maybe-async/is_sync"]
 no-verify-ssl = []
