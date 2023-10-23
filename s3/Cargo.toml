@@ -83,7 +83,7 @@ native-tls = { version = "0.2", optional = true }
 tokio-stream = { version = "0.1", optional = true }
 url = "2"
 minidom = { version = "0.15", optional = true }
-bytes = { version = "1" }
+bytes = { version = "1.2" }
 block_on_proc = { version = "0.2", optional = true }
 
 [features]
