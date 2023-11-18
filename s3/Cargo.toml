@@ -88,15 +88,18 @@ block_on_proc = { version = "0.2", optional = true }
 
 [features]
 default = ["tags", "use-tokio-native-tls", "fail-on-err"]
-use-tokio-native-tls = ["with-tokio", "aws-creds/native-tls"]
+use-tokio-native-tls = [
+    "with-tokio",
+    "aws-creds/native-tls",
+    "hyper-tls",
+    "tokio-native-tls",
+    "native-tls",
+]
 with-tokio = [
     "hyper",
-    "hyper-tls",
     "tokio",
     "tokio/fs",
     "tokio-stream",
-    "tokio-native-tls",
-    "native-tls",
     "futures",
 ]
 async-std-native-tls = ["with-async-std", "aws-creds/native-tls"]
