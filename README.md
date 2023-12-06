@@ -51,7 +51,7 @@ There are a lot of various features that enable a wide variety of use cases, ref
 
 + `default` - `tokio` runtime and a `native-tls` implementation
 + `blocking` - generates `*_blocking` variant of all `Bucket` methods, otherwise only `async` versions are available
-+ `fail-on-err` - `panic` on any error
++ `fail-on-err` - return Result::Err for HTTP errors
 + `no-verify-ssl` - disable SSL verification for endpoints, useful for custom regions
 + `never-encode-slash` - never encode slashes in paths
 
