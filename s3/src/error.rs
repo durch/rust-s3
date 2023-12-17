@@ -27,9 +27,12 @@ pub enum S3Error {
     #[cfg(feature = "with-tokio")]
     #[error("hyper: {0}")]
     Hyper(#[from] hyper::Error),
-    #[cfg(feature = "with-tokio")]
+    #[cfg(feature = "use-tokio-native-tls")]
     #[error("native-tls: {0}")]
     NativeTls(#[from] native_tls::Error),
+    #[cfg(feature = "with-tokio-rustls")]
+    #[error("rustls: {0}")]
+    Rustls(#[from] rustls::TLSError),
     #[error("header to string: {0}")]
     HeaderToStr(#[from] http::header::ToStrError),
     #[error("from utf8: {0}")]
