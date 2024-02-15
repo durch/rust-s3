@@ -297,6 +297,7 @@ impl Credentials {
         Credentials::from_sts_env("aws-creds")
             .or_else(|_| Credentials::from_env())
             .or_else(|_| Credentials::from_profile(profile))
+            .or_else(|_| Credentials::from_instance_metadata_v2())
             .or_else(|_| Credentials::from_instance_metadata())
             .map_err(|_| CredentialsError::NoCredentials)
     }
@@ -354,6 +355,45 @@ impl Credentials {
                     .json()?
                 }
             };
+
+        Ok(Credentials {
+            access_key: Some(resp.access_key_id),
+            secret_key: Some(resp.secret_access_key),
+            security_token: Some(resp.token),
+            expiration: Some(resp.expiration),
+            session_token: None,
+        })
+    }
+
+    #[cfg(feature = "http-credentials")]
+    pub fn from_instance_metadata_v2() -> Result<Credentials, CredentialsError> {
+        if !is_ec2() {
+            return Err(CredentialsError::NotEc2);
+        }
+
+        let token = attohttpc::put("http://169.254.169.254/latest/api/token")
+            .header("X-aws-ec2-metadata-token-ttl-seconds", "21600")
+            .send()?;
+        if !token.is_success() {
+            return Err(CredentialsError::UnexpectedStatusCode(
+                token.status().as_u16(),
+            ));
+        }
+        let token = token.text()?;
+
+        let role =
+            attohttpc::get("http://169.254.169.254/latest/meta-data/iam/security-credentials")
+                .header("X-aws-ec2-metadata-token", &token)
+                .send()?
+                .text()?;
+
+        let resp: CredentialsFromInstanceMetadata = attohttpc::get(format!(
+            "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
+            role
+        ))
+        .header("X-aws-ec2-metadata-token", &token)
+        .send()?
+        .json()?;
 
         Ok(Credentials {
             access_key: Some(resp.access_key_id),
