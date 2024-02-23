@@ -174,15 +174,19 @@ pub fn set_request_timeout(timeout: Option<Duration>) -> Option<Duration> {
     }
 }
 
+#[cfg(feature = "http-credentials")]
+fn apply_timeout(builder: attohttpc::RequestBuilder) -> attohttpc::RequestBuilder {
+    let timeout_ms = REQUEST_TIMEOUT_MS.load(Ordering::Relaxed);
+    if timeout_ms > 0 {
+        return builder.timeout(Duration::from_millis(timeout_ms as u64));
+    }
+    builder
+}
+
 /// Sends a GET request to `url` with a request timeout if one was set.
 #[cfg(feature = "http-credentials")]
 fn http_get(url: &str) -> attohttpc::Result<attohttpc::Response> {
-    let mut builder = attohttpc::get(url);
-
-    let timeout_ms = REQUEST_TIMEOUT_MS.load(Ordering::Relaxed);
-    if timeout_ms > 0 {
-        builder = builder.timeout(Duration::from_millis(timeout_ms as u64));
-    }
+    let builder = apply_timeout(attohttpc::get(url));
 
     builder.send()
 }
@@ -297,6 +301,7 @@ impl Credentials {
         Credentials::from_sts_env("aws-creds")
             .or_else(|_| Credentials::from_env())
             .or_else(|_| Credentials::from_profile(profile))
+            .or_else(|_| Credentials::from_instance_metadata_v2())
             .or_else(|_| Credentials::from_instance_metadata())
             .map_err(|_| CredentialsError::NoCredentials)
     }
@@ -331,29 +336,72 @@ impl Credentials {
             match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
                 Ok(credentials_path) => {
                     // We are on ECS
-                    attohttpc::get(format!("http://169.254.170.2{}", credentials_path))
-                        .send()?
-                        .json()?
+                    apply_timeout(attohttpc::get(format!(
+                        "http://169.254.170.2{}",
+                        credentials_path
+                    )))
+                    .send()?
+                    .json()?
                 }
                 Err(_) => {
                     if !is_ec2() {
                         return Err(CredentialsError::NotEc2);
                     }
 
-                    let role = attohttpc::get(
+                    let role = apply_timeout(attohttpc::get(
                         "http://169.254.169.254/latest/meta-data/iam/security-credentials",
-                    )
+                    ))
                     .send()?
                     .text()?;
 
-                    attohttpc::get(format!(
+                    apply_timeout(attohttpc::get(format!(
                         "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
                         role
-                    ))
+                    )))
                     .send()?
                     .json()?
                 }
             };
+
+        Ok(Credentials {
+            access_key: Some(resp.access_key_id),
+            secret_key: Some(resp.secret_access_key),
+            security_token: Some(resp.token),
+            expiration: Some(resp.expiration),
+            session_token: None,
+        })
+    }
+
+    #[cfg(feature = "http-credentials")]
+    pub fn from_instance_metadata_v2() -> Result<Credentials, CredentialsError> {
+        if !is_ec2() {
+            return Err(CredentialsError::NotEc2);
+        }
+
+        let token = apply_timeout(attohttpc::put("http://169.254.169.254/latest/api/token"))
+            .header("X-aws-ec2-metadata-token-ttl-seconds", "21600")
+            .send()?;
+        if !token.is_success() {
+            return Err(CredentialsError::UnexpectedStatusCode(
+                token.status().as_u16(),
+            ));
+        }
+        let token = token.text()?;
+
+        let role = apply_timeout(attohttpc::get(
+            "http://169.254.169.254/latest/meta-data/iam/security-credentials",
+        ))
+        .header("X-aws-ec2-metadata-token", &token)
+        .send()?
+        .text()?;
+
+        let resp: CredentialsFromInstanceMetadata = apply_timeout(attohttpc::get(format!(
+            "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
+            role
+        )))
+        .header("X-aws-ec2-metadata-token", &token)
+        .send()?
+        .json()?;
 
         Ok(Credentials {
             access_key: Some(resp.access_key_id),
