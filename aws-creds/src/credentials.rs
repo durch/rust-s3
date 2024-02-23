@@ -144,7 +144,7 @@ pub struct ResponseMetadata {
 /// The global request timeout in milliseconds. 0 means no timeout.
 ///
 /// Defaults to 30 seconds.
-static REQUEST_TIMEOUT_MS: AtomicU32 = AtomicU32::new(5_000);
+static REQUEST_TIMEOUT_MS: AtomicU32 = AtomicU32::new(30_000);
 
 /// Sets the timeout for all credentials HTTP requests and returns the
 /// old timeout value, if any; this timeout applies after a 30-second
@@ -174,15 +174,19 @@ pub fn set_request_timeout(timeout: Option<Duration>) -> Option<Duration> {
     }
 }
 
+#[cfg(feature = "http-credentials")]
+fn apply_timeout(builder: attohttpc::RequestBuilder) -> attohttpc::RequestBuilder {
+    let timeout_ms = REQUEST_TIMEOUT_MS.load(Ordering::Relaxed);
+    if timeout_ms > 0 {
+        return builder.timeout(Duration::from_millis(timeout_ms as u64));
+    }
+    builder
+}
+
 /// Sends a GET request to `url` with a request timeout if one was set.
 #[cfg(feature = "http-credentials")]
 fn http_get(url: &str) -> attohttpc::Result<attohttpc::Response> {
-    let mut builder = attohttpc::get(url);
-
-    let timeout_ms = REQUEST_TIMEOUT_MS.load(Ordering::Relaxed);
-    if timeout_ms > 0 {
-        builder = builder.timeout(Duration::from_millis(timeout_ms as u64));
-    }
+    let builder = apply_timeout(attohttpc::get(url));
 
     builder.send()
 }
@@ -332,25 +336,28 @@ impl Credentials {
             match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
                 Ok(credentials_path) => {
                     // We are on ECS
-                    attohttpc::get(format!("http://169.254.170.2{}", credentials_path))
-                        .send()?
-                        .json()?
+                    apply_timeout(attohttpc::get(format!(
+                        "http://169.254.170.2{}",
+                        credentials_path
+                    )))
+                    .send()?
+                    .json()?
                 }
                 Err(_) => {
                     if !is_ec2() {
                         return Err(CredentialsError::NotEc2);
                     }
 
-                    let role = attohttpc::get(
+                    let role = apply_timeout(attohttpc::get(
                         "http://169.254.169.254/latest/meta-data/iam/security-credentials",
-                    )
+                    ))
                     .send()?
                     .text()?;
 
-                    attohttpc::get(format!(
+                    apply_timeout(attohttpc::get(format!(
                         "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
                         role
-                    ))
+                    )))
                     .send()?
                     .json()?
                 }
@@ -371,7 +378,7 @@ impl Credentials {
             return Err(CredentialsError::NotEc2);
         }
 
-        let token = attohttpc::put("http://169.254.169.254/latest/api/token")
+        let token = apply_timeout(attohttpc::put("http://169.254.169.254/latest/api/token"))
             .header("X-aws-ec2-metadata-token-ttl-seconds", "21600")
             .send()?;
         if !token.is_success() {
@@ -381,16 +388,17 @@ impl Credentials {
         }
         let token = token.text()?;
 
-        let role =
-            attohttpc::get("http://169.254.169.254/latest/meta-data/iam/security-credentials")
-                .header("X-aws-ec2-metadata-token", &token)
-                .send()?
-                .text()?;
+        let role = apply_timeout(attohttpc::get(
+            "http://169.254.169.254/latest/meta-data/iam/security-credentials",
+        ))
+        .header("X-aws-ec2-metadata-token", &token)
+        .send()?
+        .text()?;
 
-        let resp: CredentialsFromInstanceMetadata = attohttpc::get(format!(
+        let resp: CredentialsFromInstanceMetadata = apply_timeout(attohttpc::get(format!(
             "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
             role
-        ))
+        )))
         .header("X-aws-ec2-metadata-token", &token)
         .send()?
         .json()?;
