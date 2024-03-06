@@ -71,7 +71,7 @@ pub fn etag_for_path(path: impl AsRef<Path>) -> Result<String, S3Error> {
     Ok(etag)
 }
 
-pub fn read_chunk<R: Read>(reader: &mut R) -> Result<Vec<u8>, S3Error> {
+pub fn read_chunk<R: Read + ?Sized>(reader: &mut R) -> Result<Vec<u8>, S3Error> {
     let mut chunk = Vec::with_capacity(CHUNK_SIZE);
     let mut take = reader.take(CHUNK_SIZE as u64);
     take.read_to_end(&mut chunk)?;
@@ -80,7 +80,9 @@ pub fn read_chunk<R: Read>(reader: &mut R) -> Result<Vec<u8>, S3Error> {
 }
 
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-pub async fn read_chunk_async<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>, S3Error> {
+pub async fn read_chunk_async<R: AsyncRead + Unpin + ?Sized>(
+    reader: &mut R,
+) -> Result<Vec<u8>, S3Error> {
     let mut chunk = Vec::with_capacity(CHUNK_SIZE);
     let mut take = reader.take(CHUNK_SIZE as u64);
     take.read_to_end(&mut chunk).await?;
