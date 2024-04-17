@@ -17,12 +17,12 @@ path = "src/lib.rs"
 [dependencies]
 thiserror = "1"
 home = "0.5"
-rust-ini = "0.19"
-attohttpc = { version = "0.26", default-features = false, features = [
+rust-ini = "0.21"
+attohttpc = { version = "0.28", default-features = false, features = [
     "json",
 ], optional = true }
 url = "2"
-quick-xml = { version = "0.30", features = ["serialize"] }
+quick-xml = { version = "0.31", features = ["serialize"] }
 serde = { version = "1", features = ["derive"] }
 time = { version = "^0.3.6", features = ["serde", "serde-well-known"] }
 log = "0.4"
@@ -35,5 +35,5 @@ native-tls-vendored = ["http-credentials", "attohttpc/tls-vendored"]
 rustls-tls = ["http-credentials", "attohttpc/tls-rustls"]
 
 [dev-dependencies]
-env_logger = "0.10"
+env_logger = "0.11"
 serde_json = "1"
