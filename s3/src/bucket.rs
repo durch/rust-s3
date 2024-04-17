@@ -106,7 +106,12 @@ pub struct Bucket {
     path_style: bool,
     listobjects_v2: bool,
     #[cfg(feature = "with-tokio")]
-    http_client: Arc<hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>>,
+    http_client: Arc<
+        hyper_util::client::legacy::Client<
+            hyper_tls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+            http_body_util::combinators::BoxBody<bytes::Bytes, S3Error>,
+        >,
+    >,
 }
 
 impl Bucket {
@@ -126,7 +131,12 @@ impl Bucket {
     #[cfg(feature = "with-tokio")]
     pub fn http_client(
         &self,
-    ) -> Arc<hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>> {
+    ) -> Arc<
+        hyper_util::client::legacy::Client<
+            hyper_tls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+            http_body_util::combinators::BoxBody<bytes::Bytes, S3Error>,
+        >,
+    > {
         Arc::clone(&self.http_client)
     }
 }

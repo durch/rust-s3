@@ -28,6 +28,12 @@ pub enum S3Error {
     #[error("hyper: {0}")]
     Hyper(#[from] hyper::Error),
     #[cfg(feature = "with-tokio")]
+    #[error("hyper-util client: {0}")]
+    HyperUtilClient(#[from] hyper_util::client::legacy::Error),
+    #[cfg(feature = "with-tokio")]
+    #[error("tokio mpsc reciever dropped")]
+    TokioMpscRecieverDropped,
+    #[cfg(feature = "with-tokio")]
     #[error("native-tls: {0}")]
     NativeTls(#[from] native_tls::Error),
     #[error("header to string: {0}")]
