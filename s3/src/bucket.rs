@@ -109,13 +109,23 @@ pub struct Bucket {
     path_style: bool,
     listobjects_v2: bool,
     #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
-    http_client: Arc<hyper::Client<HttpsConnector<hyper::client::HttpConnector>>>,
+    http_client: Arc<
+        hyper_util::client::legacy::Client<
+            hyper_tls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+            http_body_util::combinators::BoxBody<bytes::Bytes, S3Error>,
+        >,
+    >,
     #[cfg(all(
         feature = "with-tokio",
         not(feature = "use-tokio-native-tls"),
         not(feature = "tokio-rustls-tls")
     ))]
-    http_client: Arc<hyper::Client<hyper::client::HttpConnector>>,
+    http_client: Arc<
+        hyper_util::client::legacy::Client<
+            hyper_util::client::legacy::connect::HttpConnector,
+            http_body_util::combinators::BoxBody<bytes::Bytes, S3Error>,
+        >,
+    >,
 }
 
 impl Bucket {
@@ -139,12 +149,26 @@ impl Bucket {
         not(feature = "use-tokio-native-tls"),
         not(feature = "tokio-rustls-tls")
     ))]
-    pub fn http_client(&self) -> Arc<hyper::Client<hyper::client::HttpConnector>> {
+    pub fn http_client(
+        &self,
+    ) -> Arc<
+        hyper_util::client::legacy::Client<
+            hyper_util::client::legacy::connect::HttpConnector,
+            http_body_util::combinators::BoxBody<bytes::Bytes, S3Error>,
+        >,
+    > {
         Arc::clone(&self.http_client)
     }
 
     #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
-    pub fn http_client(&self) -> Arc<hyper::Client<HttpsConnector<hyper::client::HttpConnector>>> {
+    pub fn http_client(
+        &self,
+    ) -> Arc<
+        hyper_util::client::legacy::Client<
+            hyper_tls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+            http_body_util::combinators::BoxBody<bytes::Bytes, S3Error>,
+        >,
+    > {
         Arc::clone(&self.http_client)
     }
 }

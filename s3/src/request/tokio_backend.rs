@@ -2,9 +2,11 @@ extern crate base64;
 extern crate md5;
 
 use bytes::Bytes;
-use futures::TryStreamExt;
-use hyper::client::HttpConnector;
-use hyper::{Body, Client};
+use http_body_util::BodyExt;
+use http_body_util::{combinators::BoxBody, Full};
+use hyper::body::Incoming;
+use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::Client;
 use maybe_async::maybe_async;
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -23,10 +25,10 @@ pub use hyper_rustls::HttpsConnector;
 #[cfg(feature = "use-tokio-native-tls")]
 pub use hyper_tls::HttpsConnector;
 
-#[cfg(feature = "use-tokio-native-tls")]
 pub fn client(
     request_timeout: Option<std::time::Duration>,
-) -> Result<Client<HttpsConnector<HttpConnector>>, S3Error> {
+) -> Result<Client<HttpsConnector<HttpConnector>, BoxBody<Bytes, S3Error>>, S3Error> {
+    #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
     let mut tls_connector_builder = native_tls::TlsConnector::builder();
 
     if cfg!(feature = "no-verify-ssl") {
@@ -41,7 +43,7 @@ pub fn client(
     http_connector.enforce_http(false);
     let https_connector = HttpsConnector::from((http_connector, tls_connector));
 
-    Ok(Client::builder().build::<_, hyper::Body>(https_connector))
+    Ok(Client::builder(TokioExecutor::new()).build::<_, BoxBody<Bytes, S3Error>>(https_connector))
 }
 
 #[cfg(all(
@@ -119,10 +121,10 @@ pub struct HyperRequest<'a> {
 
 #[maybe_async]
 impl<'a> Request for HyperRequest<'a> {
-    type Response = http::Response<Body>;
+    type Response = http::Response<Incoming>;
     type HeaderMap = http::header::HeaderMap;
 
-    async fn response(&self) -> Result<http::Response<Body>, S3Error> {
+    async fn response(&self) -> Result<Self::Response, S3Error> {
         // Build headers
         let headers = match self.headers().await {
             Ok(headers) => headers,
@@ -148,14 +150,20 @@ impl<'a> Request for HyperRequest<'a> {
                 request = request.header(header, value);
             }
 
-            request.body(Body::from(self.request_body()?))?
+            let body = Full::new(Bytes::from(self.request_body()))
+                .map_err(|never| match never {})
+                .boxed();
+
+            request.body(body)?
         };
-        let response = client.request(request).await?;
+        let response = client
+            .request(request)
+            .await
+            .map_err(S3Error::HyperUtilClient)?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             let status = response.status().as_u16();
-            let text =
-                String::from_utf8(hyper::body::to_bytes(response.into_body()).await?.into())?;
+            let text = String::from_utf8(response.into_body().collect().await?.to_bytes().into())?;
             return Err(S3Error::HttpFailWithBody(status, text));
         }
 
@@ -185,7 +193,7 @@ impl<'a> Request for HyperRequest<'a> {
                 Bytes::from("")
             }
         } else {
-            hyper::body::to_bytes(response.into_body()).await?
+            response.into_body().collect().await?.to_bytes()
         };
         Ok(ResponseData::new(body_vec, status_code, response_headers))
     }
@@ -195,25 +203,41 @@ impl<'a> Request for HyperRequest<'a> {
         writer: &mut T,
     ) -> Result<u16, S3Error> {
         use tokio::io::AsyncWriteExt;
-        let response = self.response().await?;
+        let mut response = self.response().await?;
 
-        let status_code = response.status();
-        let mut stream = response.into_body().into_stream();
+        let status_code: http::StatusCode = response.status();
 
-        while let Some(item) = stream.next().await {
-            writer.write_all(&item?).await?;
+        while let Some(item) = response.frame().await {
+            let frame = item?;
+
+            if let Some(chunk) = frame.data_ref() {
+                writer.write_all(chunk).await?;
+            }
         }
 
         Ok(status_code.as_u16())
     }
 
     async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
-        let response = self.response().await?;
+        let mut response = self.response().await?;
         let status_code = response.status();
-        let stream = response.into_body().into_stream().map_err(S3Error::Hyper);
+
+        let (sender, reciever) = tokio::sync::mpsc::channel(100);
+
+        while let Some(item) = response.frame().await {
+            let frame = item?;
+
+            if let Some(chunk) = frame.data_ref() {
+                let bytes = chunk.to_owned();
+
+                if sender.send(Ok::<Bytes, S3Error>(bytes)).await.is_err() {
+                    return Err(S3Error::TokioMpscRecieverDropped);
+                }
+            }
+        }
 
         Ok(ResponseDataStream {
-            bytes: Box::pin(stream),
+            bytes: Box::pin(tokio_stream::wrappers::ReceiverStream::new(reciever)),
             status_code: status_code.as_u16(),
         })
     }
