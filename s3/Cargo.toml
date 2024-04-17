@@ -55,15 +55,18 @@ futures-io = { version = "0.3", optional = true }
 futures-util = { version = "0.3", optional = true, features = ["io"] }
 hex = "0.4"
 hmac = "0.12"
-http = "0.2"
-hyper = { version = "0.14", default-features = false, features = [
+http = "1.1"
+hyper = { version = "1.4", default-features = false, features = [
     "client",
     "http1",
-    "stream",
-    "tcp",
 ], optional = true }
-hyper-tls = { version = "0.5.0", default-features = false, optional = true }
+hyper-tls = { version = "0.6.0", default-features = false, optional = true }
 hyper-rustls = { version = "0.24", default-features = false, optional = true }
+hyper-util = { version = "0.1", default-features = false, optional = true, features = [
+    "http1",
+    "client",
+] }
+http-body-util = { version = "0.1", optional = true }
 rustls = { version = "0.21", optional = true }
 tokio-rustls = { version = "0.24.1", optional = true }
 rustls-native-certs = { version = "0.6.3", optional = true }
@@ -101,7 +104,15 @@ use-tokio-native-tls = [
     "hyper-tls",
     "native-tls",
 ]
-with-tokio = ["hyper", "tokio", "tokio/fs", "tokio-stream", "futures"]
+with-tokio = [
+    "hyper",
+    "hyper-util",
+    "http-body-util",
+    "tokio",
+    "tokio/fs",
+    "tokio-stream",
+    "futures",
+]
 async-std-native-tls = ["with-async-std", "aws-creds/native-tls"]
 http-credentials = ["aws-creds/http-credentials"]
 with-async-std = ["async-std", "surf", "futures-io", "futures-util", "futures"]
