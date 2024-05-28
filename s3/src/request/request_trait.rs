@@ -196,7 +196,8 @@ pub trait Request {
             Command::PresignPut {
                 expiry_secs,
                 custom_headers,
-            } => (expiry_secs, custom_headers, None),
+                custom_queries
+            } => (expiry_secs, custom_headers, custom_queries),
             Command::PresignDelete { expiry_secs } => (expiry_secs, None, None),
             _ => unreachable!(),
         };
@@ -262,7 +263,8 @@ pub trait Request {
             Command::PresignPut {
                 expiry_secs,
                 custom_headers,
-            } => (expiry_secs, custom_headers, None),
+                custom_queries
+            } => (expiry_secs, custom_headers, custom_queries),
             Command::PresignDelete { expiry_secs } => (expiry_secs, None, None),
             _ => unreachable!(),
         };
