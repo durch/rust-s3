@@ -118,17 +118,17 @@ pub trait Request {
     async fn response(&self) -> Result<Self::Response, S3Error>;
     async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error>;
     #[cfg(feature = "with-tokio")]
-    async fn response_data_to_writer<T: tokio::io::AsyncWrite + Send + Unpin>(
+    async fn response_data_to_writer<T: tokio::io::AsyncWrite + Send + Unpin + ?Sized>(
         &self,
         writer: &mut T,
     ) -> Result<u16, S3Error>;
     #[cfg(feature = "with-async-std")]
-    async fn response_data_to_writer<T: futures_io::AsyncWrite + Send + Unpin>(
+    async fn response_data_to_writer<T: futures_io::AsyncWrite + Send + Unpin + ?Sized>(
         &self,
         writer: &mut T,
     ) -> Result<u16, S3Error>;
     #[cfg(feature = "sync")]
-    fn response_data_to_writer<T: std::io::Write + Send>(
+    fn response_data_to_writer<T: std::io::Write + Send + ?Sized>(
         &self,
         writer: &mut T,
     ) -> Result<u16, S3Error>;

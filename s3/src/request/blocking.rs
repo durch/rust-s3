@@ -111,7 +111,7 @@ impl<'a> Request for AttoRequest<'a> {
         Ok(ResponseData::new(body_vec, status_code, response_headers))
     }
 
-    fn response_data_to_writer<T: Write>(&self, writer: &mut T) -> Result<u16, S3Error> {
+    fn response_data_to_writer<T: Write + ?Sized>(&self, writer: &mut T) -> Result<u16, S3Error> {
         let mut response = self.response()?;
 
         let status_code = response.status();

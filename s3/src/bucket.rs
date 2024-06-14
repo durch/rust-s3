@@ -906,13 +906,17 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::async_impl]
-    pub async fn get_object_range_to_writer<T: AsyncWrite + Send + Unpin, S: AsRef<str>>(
+    pub async fn get_object_range_to_writer<T, S>(
         &self,
         path: S,
         start: u64,
         end: Option<u64>,
         writer: &mut T,
-    ) -> Result<u16, S3Error> {
+    ) -> Result<u16, S3Error>
+    where
+        T: AsyncWrite + Send + Unpin + ?Sized,
+        S: AsRef<str>,
+    {
         if let Some(end) = end {
             assert!(start < end);
         }
@@ -923,7 +927,7 @@ impl Bucket {
     }
 
     #[maybe_async::sync_impl]
-    pub async fn get_object_range_to_writer<T: std::io::Write + Send, S: AsRef<str>>(
+    pub async fn get_object_range_to_writer<T: std::io::Write + Send + ?Sized, S: AsRef<str>>(
         &self,
         path: S,
         start: u64,
@@ -977,7 +981,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::async_impl]
-    pub async fn get_object_to_writer<T: AsyncWrite + Send + Unpin, S: AsRef<str>>(
+    pub async fn get_object_to_writer<T: AsyncWrite + Send + Unpin + ?Sized, S: AsRef<str>>(
         &self,
         path: S,
         writer: &mut T,
@@ -988,7 +992,7 @@ impl Bucket {
     }
 
     #[maybe_async::sync_impl]
-    pub fn get_object_to_writer<T: std::io::Write + Send, S: AsRef<str>>(
+    pub fn get_object_to_writer<T: std::io::Write + Send + ?Sized, S: AsRef<str>>(
         &self,
         path: S,
         writer: &mut T,
@@ -1096,7 +1100,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::async_impl]
-    pub async fn put_object_stream<R: AsyncRead + Unpin>(
+    pub async fn put_object_stream<R: AsyncRead + Unpin + ?Sized>(
         &self,
         reader: &mut R,
         s3_path: impl AsRef<str>,
@@ -1212,7 +1216,7 @@ impl Bucket {
     }
 
     #[maybe_async::async_impl]
-    async fn _put_object_stream_with_content_type<R: AsyncRead + Unpin>(
+    async fn _put_object_stream_with_content_type<R: AsyncRead + Unpin + ?Sized>(
         &self,
         reader: &mut R,
         s3_path: &str,
@@ -1314,7 +1318,7 @@ impl Bucket {
     }
 
     #[maybe_async::sync_impl]
-    fn _put_object_stream_with_content_type<R: Read>(
+    fn _put_object_stream_with_content_type<R: Read + ?Sized>(
         &self,
         reader: &mut R,
         s3_path: &str,

@@ -175,7 +175,7 @@ impl<'a> Request for HyperRequest<'a> {
         Ok(ResponseData::new(body_vec, status_code, response_headers))
     }
 
-    async fn response_data_to_writer<T: tokio::io::AsyncWrite + Send + Unpin>(
+    async fn response_data_to_writer<T: tokio::io::AsyncWrite + Send + Unpin + ?Sized>(
         &self,
         writer: &mut T,
     ) -> Result<u16, S3Error> {
