@@ -5,7 +5,6 @@ use bytes::Bytes;
 use futures::TryStreamExt;
 use hyper::client::HttpConnector;
 use hyper::{Body, Client};
-use hyper_tls::HttpsConnector;
 use maybe_async::maybe_async;
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -19,38 +18,77 @@ use crate::utils::now_utc;
 
 use tokio_stream::StreamExt;
 
+#[cfg(feature = "tokio-rustls-tls")]
+pub use hyper_rustls::HttpsConnector;
+#[cfg(feature = "use-tokio-native-tls")]
+pub use hyper_tls::HttpsConnector;
+
+#[cfg(feature = "use-tokio-native-tls")]
 pub fn client(
     request_timeout: Option<std::time::Duration>,
 ) -> Result<Client<HttpsConnector<HttpConnector>>, S3Error> {
-    #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
     let mut tls_connector_builder = native_tls::TlsConnector::builder();
 
-    #[cfg(not(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls")))]
-    let tls_connector_builder = native_tls::TlsConnector::builder();
-
     if cfg!(feature = "no-verify-ssl") {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "use-tokio-native-tls")]
-            {
-                tls_connector_builder.danger_accept_invalid_hostnames(true);
-            }
-
-        }
-
-        cfg_if::cfg_if! {
-            if #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
-            {
-                tls_connector_builder.danger_accept_invalid_certs(true);
-            }
-
-        }
+        tls_connector_builder.danger_accept_invalid_hostnames(true);
+        tls_connector_builder.danger_accept_invalid_certs(true);
     }
+
     let tls_connector = tokio_native_tls::TlsConnector::from(tls_connector_builder.build()?);
 
     let mut http_connector = HttpConnector::new();
     http_connector.set_connect_timeout(request_timeout);
     http_connector.enforce_http(false);
     let https_connector = HttpsConnector::from((http_connector, tls_connector));
+
+    Ok(Client::builder().build::<_, hyper::Body>(https_connector))
+}
+
+#[cfg(all(feature = "tokio-rustls-tls", feature = "no-verify-ssl"))]
+pub struct NoCertificateVerification {}
+#[cfg(all(feature = "tokio-rustls-tls", feature = "no-verify-ssl"))]
+impl rustls::client::ServerCertVerifier for NoCertificateVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::Certificate,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &rustls::ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp: &[u8],
+        _now: std::time::SystemTime,
+    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::ServerCertVerified::assertion())
+    }
+}
+
+#[cfg(feature = "tokio-rustls-tls")]
+pub fn client(
+    request_timeout: Option<std::time::Duration>,
+) -> Result<Client<HttpsConnector<HttpConnector>>, S3Error> {
+    let mut roots = rustls::RootCertStore::empty();
+    rustls_native_certs::load_native_certs()?
+        .into_iter()
+        .for_each(|cert| {
+            roots.add(&rustls::Certificate(cert.0)).unwrap();
+        });
+
+    #[allow(unused_mut)]
+    let mut config = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+
+    #[cfg(feature = "no-verify-ssl")]
+    {
+        let mut dangerous_config = rustls::ClientConfig::dangerous(&mut config);
+        dangerous_config
+            .set_certificate_verifier(std::sync::Arc::new(NoCertificateVerification {}));
+    }
+
+    let mut http_connector = HttpConnector::new();
+    http_connector.set_connect_timeout(request_timeout);
+    http_connector.enforce_http(false);
+    let https_connector = HttpsConnector::from((http_connector, config));
 
     Ok(Client::builder().build::<_, hyper::Body>(https_connector))
 }

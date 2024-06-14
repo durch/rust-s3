@@ -10,7 +10,7 @@ use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
 #[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::client;
+use crate::request::tokio_backend::{client, HttpsConnector};
 use crate::request::ResponseData;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use crate::request::ResponseDataStream;
@@ -106,7 +106,7 @@ pub struct Bucket {
     path_style: bool,
     listobjects_v2: bool,
     #[cfg(feature = "with-tokio")]
-    http_client: Arc<hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>>,
+    http_client: Arc<hyper::Client<HttpsConnector<hyper::client::HttpConnector>>>,
 }
 
 impl Bucket {
@@ -124,9 +124,7 @@ impl Bucket {
     }
 
     #[cfg(feature = "with-tokio")]
-    pub fn http_client(
-        &self,
-    ) -> Arc<hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>> {
+    pub fn http_client(&self) -> Arc<hyper::Client<HttpsConnector<hyper::client::HttpConnector>>> {
         Arc::clone(&self.http_client)
     }
 }
