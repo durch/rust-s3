@@ -101,6 +101,7 @@ pub enum Command<'a> {
     PresignPut {
         expiry_secs: u32,
         custom_headers: Option<HeaderMap>,
+        custom_queries: Option<HashMap<String, String>>,
     },
     PresignDelete {
         expiry_secs: u32,
