@@ -51,7 +51,7 @@ impl<'a> Request for SurfRequest<'a> {
 
     async fn response(&self) -> Result<surf::Response, S3Error> {
         // Build headers
-        let headers = self.headers()?;
+        let headers = self.headers().await?;
 
         let request = match self.command.http_verb() {
             HttpMethod::Get => surf::Request::builder(Method::Get, self.url()?),
@@ -172,12 +172,12 @@ impl<'a> Request for SurfRequest<'a> {
 }
 
 impl<'a> SurfRequest<'a> {
-    pub fn new<'b>(
+    pub async fn new<'b>(
         bucket: &'b Bucket,
         path: &'b str,
         command: Command<'b>,
     ) -> Result<SurfRequest<'b>, S3Error> {
-        bucket.credentials_refresh()?;
+        bucket.credentials_refresh().await?;
         Ok(SurfRequest {
             bucket,
             path,
@@ -205,63 +205,71 @@ mod tests {
         Credentials::new(Some(access_key), Some(secert_key), None, None, None).unwrap()
     }
 
-    #[test]
-    fn url_uses_https_by_default() -> Result<()> {
+    #[async_std::test]
+    async fn url_uses_https_by_default() -> Result<()> {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = SurfRequest::new(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
 
         assert_eq!(request.url()?.scheme(), "https");
 
-        let headers = request.headers().unwrap();
+        let headers = request.headers().await.unwrap();
         let host = headers.get("Host").unwrap();
 
         assert_eq!(*host, "my-first-bucket.custom-region".to_string());
         Ok(())
     }
 
-    #[test]
-    fn url_uses_https_by_default_path_style() -> Result<()> {
+    #[async_std::test]
+    async fn url_uses_https_by_default_path_style() -> Result<()> {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-first/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = SurfRequest::new(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
 
         assert_eq!(request.url().unwrap().scheme(), "https");
 
-        let headers = request.headers().unwrap();
+        let headers = request.headers().await.unwrap();
         let host = headers.get("Host").unwrap();
 
         assert_eq!(*host, "custom-region".to_string());
         Ok(())
     }
 
-    #[test]
-    fn url_uses_scheme_from_custom_region_if_defined() -> Result<()> {
+    #[async_std::test]
+    async fn url_uses_scheme_from_custom_region_if_defined() -> Result<()> {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = SurfRequest::new(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
 
         assert_eq!(request.url().unwrap().scheme(), "http");
 
-        let headers = request.headers().unwrap();
+        let headers = request.headers().await.unwrap();
         let host = headers.get("Host").unwrap();
         assert_eq!(*host, "my-second-bucket.custom-region".to_string());
         Ok(())
     }
 
-    #[test]
-    fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
+    #[async_std::test]
+    async fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-second/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = SurfRequest::new(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
 
         assert_eq!(request.url().unwrap().scheme(), "http");
 
-        let headers = request.headers().unwrap();
+        let headers = request.headers().await.unwrap();
         let host = headers.get("Host").unwrap();
         assert_eq!(*host, "custom-region".to_string());
 

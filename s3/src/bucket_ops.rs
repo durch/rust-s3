@@ -49,7 +49,7 @@ impl fmt::Display for BucketAcl {
 
 #[derive(Clone, Debug)]
 pub struct BucketConfiguration {
-    acl: CannedBucketAcl,
+    acl: Option<CannedBucketAcl>,
     object_lock_enabled: bool,
     grant_full_control: Option<Vec<BucketAcl>>,
     grant_read: Option<Vec<BucketAcl>>,
@@ -75,7 +75,7 @@ fn acl_list(acl: &[BucketAcl]) -> String {
 impl BucketConfiguration {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        acl: CannedBucketAcl,
+        acl: Option<CannedBucketAcl>,
         object_lock_enabled: bool,
         grant_full_control: Option<Vec<BucketAcl>>,
         grant_read: Option<Vec<BucketAcl>>,
@@ -98,7 +98,7 @@ impl BucketConfiguration {
 
     pub fn public() -> Self {
         BucketConfiguration {
-            acl: CannedBucketAcl::PublicReadWrite,
+            acl: None,
             object_lock_enabled: false,
             grant_full_control: None,
             grant_read: None,
@@ -111,7 +111,7 @@ impl BucketConfiguration {
 
     pub fn private() -> Self {
         BucketConfiguration {
-            acl: CannedBucketAcl::Private,
+            acl: Some(CannedBucketAcl::Private),
             object_lock_enabled: false,
             grant_full_control: None,
             grant_read: None,
@@ -145,10 +145,13 @@ impl BucketConfiguration {
     }
 
     pub fn add_headers(&self, headers: &mut HeaderMap) -> Result<(), S3Error> {
-        headers.insert(
-            HeaderName::from_static("x-amz-acl"),
-            self.acl.to_string().parse()?,
-        );
+        if let Some(ref acl) = self.acl {
+            headers.insert(
+                HeaderName::from_static("x-amz-acl"),
+                acl.to_string().parse()?,
+            );
+        }
+
         if self.object_lock_enabled {
             headers.insert(
                 HeaderName::from_static("x-amz-bucket-object-lock-enabled"),
