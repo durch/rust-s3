@@ -227,7 +227,7 @@ mod list_buckets {
         #[serde(rename = "ID")]
         pub id: String,
         #[serde(rename = "DisplayName")]
-        pub display_name: String,
+        pub display_name: Option<String>,
     }
 
     #[derive(Deserialize, Default, Clone, Debug)]
