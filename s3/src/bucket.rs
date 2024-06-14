@@ -257,6 +257,7 @@ impl Bucket {
         path: S,
         expiry_secs: u32,
         custom_headers: Option<HeaderMap>,
+        custom_queries: Option<HashMap<String, String>>
     ) -> Result<String, S3Error> {
         validate_expiry(expiry_secs)?;
         let request = RequestImpl::new(
@@ -265,6 +266,7 @@ impl Bucket {
             Command::PresignPut {
                 expiry_secs,
                 custom_headers,
+                custom_queries
             },
         )
         .await?;
@@ -3064,7 +3066,7 @@ mod test {
         );
 
         let url = bucket
-            .presign_put(s3_path, 86400, Some(custom_headers))
+            .presign_put(s3_path, 86400, Some(custom_headers), None)
             .await
             .unwrap();
 
