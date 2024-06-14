@@ -29,4 +29,6 @@ pub enum CredentialsError {
     HomeDir,
     #[error("Could not get valid credentials from STS, ENV, Profile or Instance metadata")]
     NoCredentials,
+    #[error("unexpected status code: {0}")]
+    UnexpectedStatusCode(u16),
 }
