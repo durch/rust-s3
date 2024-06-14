@@ -270,7 +270,7 @@ mod list_buckets {
 
             let parsed = quick_xml::de::from_str::<super::ListBucketsResponse>(response).unwrap();
 
-            assert_eq!(parsed.owner.display_name, "minio");
+            assert_eq!(parsed.owner.display_name, Some("minio".to_string()));
             assert_eq!(
                 parsed.owner.id,
                 "02d6176db174dc93cb1b899f7c6078f08654445fe8cf1b6ce98d8855f66bdbf4"
@@ -306,7 +306,7 @@ mod list_buckets {
 
             let parsed = quick_xml::de::from_str::<super::ListBucketsResponse>(response).unwrap();
 
-            assert_eq!(parsed.owner.display_name, "minio");
+            assert_eq!(parsed.owner.display_name, Some("minio".to_string()));
             assert_eq!(
                 parsed.owner.id,
                 "02d6176db174dc93cb1b899f7c6078f08654445fe8cf1b6ce98d8855f66bdbf4"
