@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.35.0-beta.1"
+version = "0.35.0-alpha.1"
 authors = ["Drazen Urch"]
 description = "Rust library for working with AWS S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -43,8 +43,10 @@ path = "../examples/gcs-tokio.rs"
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
 attohttpc = { version = "0.28", optional = true, default-features = false }
-aws-creds = { version = "0.36", path = "../aws-creds", default-features = false }
-aws-region = { version = "0.25.4", path = "../aws-region" }
+# aws-creds = { version = "0.36", path = "../aws-creds", default-features = false }
+# aws-region = { version = "0.25.4", path = "../aws-region" }
+aws-region = "0.25"
+aws-creds = { version = "0.37", default-features = false }
 base64 = "0.22"
 cfg-if = "1"
 time = { version = "^0.3.6", features = ["formatting", "macros"] }
@@ -91,21 +93,28 @@ block_on_proc = { version = "0.2", optional = true }
 
 [features]
 default = ["tags", "use-tokio-native-tls", "fail-on-err"]
-use-tokio-native-tls = ["with-tokio", "aws-creds/native-tls", "tokio-native-tls", "hyper-tls", "native-tls"]
-with-tokio = [
-    "hyper",
-    "tokio",
-    "tokio/fs",
-    "tokio-stream",
-    "futures",
+use-tokio-native-tls = [
+    "with-tokio",
+    "aws-creds/native-tls",
+    "tokio-native-tls",
+    "hyper-tls",
+    "native-tls",
 ]
+with-tokio = ["hyper", "tokio", "tokio/fs", "tokio-stream", "futures"]
 async-std-native-tls = ["with-async-std", "aws-creds/native-tls"]
 http-credentials = ["aws-creds/http-credentials"]
 with-async-std = ["async-std", "surf", "futures-io", "futures-util", "futures"]
 sync = ["attohttpc", "maybe-async/is_sync"]
 no-verify-ssl = []
 fail-on-err = []
-tokio-rustls-tls = ["with-tokio", "aws-creds/rustls-tls", "tokio-rustls", "hyper-rustls", "rustls", "rustls-native-certs"]
+tokio-rustls-tls = [
+    "with-tokio",
+    "aws-creds/rustls-tls",
+    "tokio-rustls",
+    "hyper-rustls",
+    "rustls",
+    "rustls-native-certs",
+]
 sync-native-tls = ["sync", "aws-creds/native-tls", "attohttpc/tls"]
 sync-native-tls-vendored = [
     "sync",
