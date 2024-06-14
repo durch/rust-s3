@@ -114,7 +114,7 @@ impl<'a> Request for SurfRequest<'a> {
         ))
     }
 
-    async fn response_data_to_writer<T: AsyncWrite + Send + Unpin>(
+    async fn response_data_to_writer<T: AsyncWrite + Send + Unpin + ?Sized>(
         &self,
         writer: &mut T,
     ) -> Result<u16, S3Error> {
