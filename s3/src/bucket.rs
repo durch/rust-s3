@@ -2025,6 +2025,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
+    #[allow(clippy::assigning_clones)]
     pub async fn list(
         &self,
         prefix: String,
@@ -2109,6 +2110,7 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
+    #[allow(clippy::assigning_clones)]
     pub async fn list_multiparts_uploads(
         &self,
         prefix: Option<&str>,
@@ -2124,6 +2126,7 @@ impl Bucket {
                 .await?;
 
             let is_truncated = list_multiparts_uploads_result.is_truncated;
+
             next_marker = list_multiparts_uploads_result.next_marker.clone();
             results.push(list_multiparts_uploads_result);
 
