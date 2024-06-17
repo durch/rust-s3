@@ -110,11 +110,13 @@ pub struct Bucket {
 
 impl Bucket {
     #[maybe_async::async_impl]
+    /// Credential refreshing is done automatically, but can be manually triggered.
     pub async fn credentials_refresh(&self) -> Result<(), S3Error> {
         Ok(self.credentials.write().await.refresh()?)
     }
 
     #[maybe_async::sync_impl]
+    /// Credential refreshing is done automatically, but can be manually triggered.
     pub fn credentials_refresh(&self) -> Result<(), S3Error> {
         match self.credentials.write() {
             Ok(mut credentials) => Ok(credentials.refresh()?),
@@ -1488,7 +1490,7 @@ impl Bucket {
     #[maybe_async::sync_impl]
     pub fn put_multipart_chunk(
         &self,
-        chunk: Vec<u8>,
+        chunk: &[u8],
         path: &str,
         part_number: u32,
         upload_id: &str,
