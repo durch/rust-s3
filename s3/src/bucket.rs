@@ -780,6 +780,17 @@ impl Bucket {
     }
 
     #[maybe_async::maybe_async]
+    pub async fn get_bucket_lifecycle(
+        &self,
+    ) -> Result<BucketLifecycleConfiguration, S3Error> {
+        let request = RequestImpl::new(self, "?lifecycle", Command::GetBucketLifecycle).await?;
+        let response=request.response_data(false).await?;
+        Ok(quick_xml::de::from_str::<
+            BucketLifecycleConfiguration,
+        >(response.as_str()?)?)
+    }
+
+    #[maybe_async::maybe_async]
     pub async fn put_bucket_lifecycle(
         &self,
         lifecycle_config: BucketLifecycleConfiguration,

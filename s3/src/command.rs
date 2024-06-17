@@ -130,6 +130,7 @@ pub enum Command<'a> {
     PutBucketCors {
         configuration: CorsConfiguration,
     },
+    GetBucketLifecycle,
     PutBucketLifecycle {
         configuration: BucketLifecycleConfiguration,
     },
@@ -146,6 +147,7 @@ impl<'a> Command<'a> {
             | Command::ListObjectsV2 { .. }
             | Command::GetBucketLocation
             | Command::GetObjectTagging
+            | Command::GetBucketLifecycle
             | Command::ListMultipartUploads { .. }
             | Command::PresignGet { .. } => HttpMethod::Get,
             Command::PutObject { .. }
