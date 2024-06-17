@@ -52,8 +52,7 @@ use crate::error::S3Error;
 use crate::post_policy::PresignedPost;
 use crate::request::Request;
 use crate::serde_types::{
-    BucketLocationResult, CompleteMultipartUploadData, CorsConfiguration, HeadObjectResult,
-    InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
+    BucketLifecycleConfiguration, BucketLocationResult, CompleteMultipartUploadData, CorsConfiguration, HeadObjectResult, InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part
 };
 #[allow(unused_imports)]
 use crate::utils::{error_from_response_data, PutStreamResponse};
@@ -775,6 +774,18 @@ impl Bucket {
             configuration: cors_config,
         };
         let request = RequestImpl::new(self, "?cors", command).await?;
+        request.response_data(false).await
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn put_bucket_lifecycle(
+        &self,
+        lifecycle_config: BucketLifecycleConfiguration,
+    ) -> Result<ResponseData, S3Error> {
+        let command = Command::PutBucketLifecycle {
+            configuration: lifecycle_config,
+        };
+        let request = RequestImpl::new(self, "?lifecycle", command).await?;
         request.response_data(false).await
     }
 

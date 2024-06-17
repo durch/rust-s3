@@ -371,8 +371,167 @@ impl CorsRule {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename = "LifecycleConfiguration")]
+pub struct BucketLifecycleConfiguration {
+    #[serde(rename = "Rule")]
+    rules: Vec<LifecycleRule>,
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct LifecycleRule {
+    #[serde(
+        rename = "AbortIncompleteMultipartUpload",
+        skip_serializing_if = "Option::is_none"
+    )]
+    abort_incomplete_multipart_upload: Option<AbortIncompleteMultipartUpload>,
+
+    #[serde(rename = "Expiration", skip_serializing_if = "Option::is_none")]
+    expiration: Option<Expiration>,
+
+    #[serde(rename = "Filter", skip_serializing_if = "Option::is_none")]
+    filter: Option<LifecycleFilter>,
+
+    #[serde(rename = "ID", skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+
+    #[serde(
+        rename = "NoncurrentVersionExpiration",
+        skip_serializing_if = "Option::is_none"
+    )]
+    noncurrent_version_expiration: Option<NoncurrentVersionExpiration>,
+
+    #[serde(
+        rename = "NoncurrentVersionTransition",
+        skip_serializing_if = "Option::is_none"
+    )]
+    noncurrent_version_transition: Option<Vec<NoncurrentVersionTransition>>,
+
+    #[serde(rename = "Status")]
+    /// Valid Values: Enabled | Disabled
+    status: String,
+
+    #[serde(rename = "Transition", skip_serializing_if = "Option::is_none")]
+    transition: Option<Vec<Transition>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct AbortIncompleteMultipartUpload {
+    #[serde(
+        rename = "DaysAfterInitiation",
+        skip_serializing_if = "Option::is_none"
+    )]
+    days_after_initiation: Option<i32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Expiration {
+    /// Indicates at what date the object is to be moved or deleted. The date value must conform to the ISO 8601 format. The time is always midnight UTC.
+    #[serde(rename = "Date", skip_serializing_if = "Option::is_none")]
+    date: Option<String>,
+
+    #[serde(rename = "Days", skip_serializing_if = "Option::is_none")]
+    days: Option<i32>,
+
+    /// Indicates whether Amazon S3 will remove a delete marker with no noncurrent versions. If set to true, the delete marker will be expired; if set to false the policy takes no action. This cannot be specified with Days or Date in a Lifecycle Expiration Policy.
+    #[serde(
+        rename = "ExpiredObjectDeleteMarker",
+        skip_serializing_if = "Option::is_none"
+    )]
+    expired_object_delete_marker: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct LifecycleFilter {
+    #[serde(rename = "And", skip_serializing_if = "Option::is_none")]
+    and: Option<And>,
+
+    #[serde(
+        rename = "ObjectSizeGreaterThan",
+        skip_serializing_if = "Option::is_none"
+    )]
+    object_size_greater_than: Option<i64>,
+
+    #[serde(rename = "ObjectSizeLessThan", skip_serializing_if = "Option::is_none")]
+    object_size_less_than: Option<i64>,
+
+    #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
+    prefix: Option<String>,
+
+    #[serde(rename = "Tag", skip_serializing_if = "Option::is_none")]
+    tag: Option<Tag>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct And {
+    #[serde(
+        rename = "ObjectSizeGreaterThan",
+        skip_serializing_if = "Option::is_none"
+    )]
+    object_size_greater_than: Option<i64>,
+
+    #[serde(rename = "ObjectSizeLessThan", skip_serializing_if = "Option::is_none")]
+    object_size_less_than: Option<i64>,
+
+    #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
+    prefix: Option<String>,
+
+    #[serde(rename = "Tag", skip_serializing_if = "Option::is_none")]
+    tags: Option<Vec<Tag>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Tag {
+    #[serde(rename = "Key")]
+    key: String,
+
+    #[serde(rename = "Value")]
+    value: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct NoncurrentVersionExpiration {
+    #[serde(
+        rename = "NewerNoncurrentVersions",
+        skip_serializing_if = "Option::is_none"
+    )]
+    newer_noncurrent_versions: Option<i32>,
+
+    #[serde(rename = "NoncurrentDays", skip_serializing_if = "Option::is_none")]
+    noncurrent_days: Option<i32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct NoncurrentVersionTransition {
+    #[serde(
+        rename = "NewerNoncurrentVersions",
+        skip_serializing_if = "Option::is_none"
+    )]
+    newer_noncurrent_versions: Option<i32>,
+
+    #[serde(rename = "NoncurrentDays",skip_serializing_if = "Option::is_none")]
+    noncurrent_days: Option<i32>,
+
+    #[serde(rename = "StorageClass",skip_serializing_if = "Option::is_none")]
+    /// Valid Values: GLACIER | STANDARD_IA | ONEZONE_IA | INTELLIGENT_TIERING | DEEP_ARCHIVE | GLACIER_IR
+    storage_class: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Transition {
+    #[serde(rename = "Date", skip_serializing_if = "Option::is_none")]
+    date: Option<String>,
+
+    #[serde(rename = "Days", skip_serializing_if = "Option::is_none")]
+    days: Option<i32>,
+    /// Valid Values: GLACIER | STANDARD_IA | ONEZONE_IA | INTELLIGENT_TIERING | DEEP_ARCHIVE | GLACIER_IR
+    #[serde(rename = "StorageClass")]
+    storage_class: Option<String>,
+}
+
 #[cfg(test)]
 mod test {
+    use crate::serde_types::{AbortIncompleteMultipartUpload, BucketLifecycleConfiguration, Expiration, LifecycleFilter, LifecycleRule, NoncurrentVersionExpiration, NoncurrentVersionTransition, Transition};
+
     use super::{CorsConfiguration, CorsRule};
 
     #[test]
@@ -394,6 +553,30 @@ mod test {
         assert_eq!(
             se,
             r#"<CORSConfiguration><CORSRule><AllowedHeader>Authorization</AllowedHeader><AllowedHeader>Header2</AllowedHeader><AllowedMethod>GET</AllowedMethod><AllowedMethod>DELETE</AllowedMethod><AllowedOrigin>*</AllowedOrigin><ID>lala</ID></CORSRule><CORSRule><AllowedHeader>Authorization</AllowedHeader><AllowedHeader>Header2</AllowedHeader><AllowedMethod>GET</AllowedMethod><AllowedMethod>DELETE</AllowedMethod><AllowedOrigin>*</AllowedOrigin><ID>lala</ID></CORSRule></CORSConfiguration>"#
+        )
+    }
+
+    #[test]
+    fn lifecycle_config_serde() {
+        let rule = LifecycleRule {
+            abort_incomplete_multipart_upload: Some(AbortIncompleteMultipartUpload{ days_after_initiation: Some(30) }),
+            expiration: Some(Expiration{ date: Some("2024-06-017".to_string()), days: Some(30), expired_object_delete_marker: Some(true) }),
+            filter: Some(LifecycleFilter{ and: None, object_size_greater_than: Some(10), object_size_less_than:Some(50), prefix: None, tag: None }),
+            id: Some("lala".to_string()),
+            noncurrent_version_expiration: Some(NoncurrentVersionExpiration{ newer_noncurrent_versions: Some(30), noncurrent_days: Some(30) }),
+            noncurrent_version_transition: Some(vec![NoncurrentVersionTransition{ newer_noncurrent_versions: Some(30), noncurrent_days: Some(30), storage_class: Some("GLACIER".to_string()) }]),
+            status: "Enabled".to_string(),
+            transition: Some(vec![Transition{ date: Some("2024-06-017".to_string()), days: Some(30), storage_class: Some("GLACIER".to_string()) }]),
+        };
+
+        let config = BucketLifecycleConfiguration {
+            rules: vec![rule,],
+        };
+
+        let se = quick_xml::se::to_string(&config).unwrap();
+        assert_eq!(
+            se,
+            r#"<LifecycleConfiguration><Rule><AbortIncompleteMultipartUpload><DaysAfterInitiation>30</DaysAfterInitiation></AbortIncompleteMultipartUpload><Expiration><Date>2024-06-017</Date><Days>30</Days><ExpiredObjectDeleteMarker>true</ExpiredObjectDeleteMarker></Expiration><Filter><ObjectSizeGreaterThan>10</ObjectSizeGreaterThan><ObjectSizeLessThan>50</ObjectSizeLessThan></Filter><ID>lala</ID><NoncurrentVersionExpiration><NewerNoncurrentVersions>30</NewerNoncurrentVersions><NoncurrentDays>30</NoncurrentDays></NoncurrentVersionExpiration><NoncurrentVersionTransition><NewerNoncurrentVersions>30</NewerNoncurrentVersions><NoncurrentDays>30</NoncurrentDays><StorageClass>GLACIER</StorageClass></NoncurrentVersionTransition><Status>Enabled</Status><Transition><Date>2024-06-017</Date><Days>30</Days><StorageClass>GLACIER</StorageClass></Transition></Rule></LifecycleConfiguration>"#
         )
     }
 }

@@ -153,8 +153,8 @@ pub trait Request {
         )
     }
 
-    fn request_body(&self) -> Vec<u8> {
-        if let Command::PutObject { content, .. } = self.command() {
+    fn request_body(&self) -> Result<Vec<u8>, S3Error> {
+        let result = if let Command::PutObject { content, .. } = self.command() {
             Vec::from(content)
         } else if let Command::PutObjectTagging { tags } = self.command() {
             Vec::from(tags)
@@ -169,9 +169,12 @@ pub trait Request {
             } else {
                 Vec::new()
             }
+        } else if let Command::PutBucketLifecycle { configuration } = &self.command() {
+            quick_xml::se::to_string(configuration)?.as_bytes().to_vec()
         } else {
             Vec::new()
-        }
+        };
+        return Ok(result);
     }
 
     fn long_date(&self) -> Result<String, S3Error> {
@@ -464,7 +467,7 @@ pub trait Request {
             &self.command().http_verb().to_string(),
             &self.url()?,
             headers,
-            &self.command().sha256(),
+            &self.command().sha256()?,
         )
     }
 
@@ -492,7 +495,7 @@ pub trait Request {
     #[maybe_async::maybe_async]
     async fn headers(&self) -> Result<HeaderMap, S3Error> {
         // Generate this once, but it's used in more than one place.
-        let sha256 = self.command().sha256();
+        let sha256 = self.command().sha256()?;
 
         // Start with extra_headers, that way our headers replace anything with
         // the same name.

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::serde_types::{CompleteMultipartUploadData, CorsConfiguration};
+use crate::error::S3Error;
+use crate::serde_types::{BucketLifecycleConfiguration, CompleteMultipartUploadData, CorsConfiguration};
 
 use crate::EMPTY_PAYLOAD_SHA;
 use sha2::{Digest, Sha256};
@@ -129,6 +130,9 @@ pub enum Command<'a> {
     PutBucketCors {
         configuration: CorsConfiguration,
     },
+    PutBucketLifecycle {
+        configuration: BucketLifecycleConfiguration,
+    },
 }
 
 impl<'a> Command<'a> {
@@ -150,7 +154,8 @@ impl<'a> Command<'a> {
             | Command::PresignPut { .. }
             | Command::UploadPart { .. }
             | Command::PutBucketCors { .. }
-            | Command::CreateBucket { .. } => HttpMethod::Put,
+            | Command::CreateBucket { .. }
+            | Command::PutBucketLifecycle { .. } => HttpMethod::Put,
             Command::DeleteObject
             | Command::DeleteObjectTagging
             | Command::AbortMultipartUpload { .. }
@@ -190,8 +195,8 @@ impl<'a> Command<'a> {
         }
     }
 
-    pub fn sha256(&self) -> String {
-        match &self {
+    pub fn sha256(&self) -> Result<String, S3Error> {
+        let result = match &self {
             Command::PutObject { content, .. } => {
                 let mut sha = Sha256::default();
                 sha.update(content);
@@ -216,7 +221,13 @@ impl<'a> Command<'a> {
                     EMPTY_PAYLOAD_SHA.into()
                 }
             }
+            Command::PutBucketLifecycle { configuration: config, .. } => {
+                let mut sha = Sha256::default();
+                sha.update(quick_xml::se::to_string(config)?.as_bytes());
+                hex::encode(sha.finalize().as_slice())
+            }
             _ => EMPTY_PAYLOAD_SHA.into(),
-        }
+        };
+        return Ok(result);
     }
 }
