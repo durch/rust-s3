@@ -301,8 +301,8 @@ impl Credentials {
         Credentials::from_sts_env("aws-creds")
             .or_else(|_| Credentials::from_env())
             .or_else(|_| Credentials::from_profile(profile))
-            .or_else(|_| Credentials::from_instance_metadata_v2())
-            .or_else(|_| Credentials::from_instance_metadata())
+            .or_else(|_| Credentials::from_instance_metadata_v2(false))
+            .or_else(|_| Credentials::from_instance_metadata(false))
             .map_err(|_| CredentialsError::NoCredentials)
     }
 
@@ -331,7 +331,7 @@ impl Credentials {
     }
 
     #[cfg(feature = "http-credentials")]
-    pub fn from_instance_metadata() -> Result<Credentials, CredentialsError> {
+    pub fn from_instance_metadata(not_ec2: bool) -> Result<Credentials, CredentialsError> {
         let resp: CredentialsFromInstanceMetadata =
             match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
                 Ok(credentials_path) => {
@@ -344,7 +344,7 @@ impl Credentials {
                     .json()?
                 }
                 Err(_) => {
-                    if !is_ec2() {
+                    if !not_ec2 && !is_ec2() {
                         return Err(CredentialsError::NotEc2);
                     }
 
@@ -373,8 +373,8 @@ impl Credentials {
     }
 
     #[cfg(feature = "http-credentials")]
-    pub fn from_instance_metadata_v2() -> Result<Credentials, CredentialsError> {
-        if !is_ec2() {
+    pub fn from_instance_metadata_v2(not_ec2: bool) -> Result<Credentials, CredentialsError> {
+        if !not_ec2 && !is_ec2() {
             return Err(CredentialsError::NotEc2);
         }
 
