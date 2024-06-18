@@ -534,7 +534,7 @@ pub trait Request {
             _ => {
                 headers.insert(
                     CONTENT_LENGTH,
-                    self.command().content_length().to_string().parse()?,
+                    self.command().content_length()?.to_string().parse()?,
                 );
                 headers.insert(CONTENT_TYPE, self.command().content_type().parse()?);
             }

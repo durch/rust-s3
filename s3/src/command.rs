@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::error::S3Error;
-use crate::serde_types::{BucketLifecycleConfiguration, CompleteMultipartUploadData, CorsConfiguration};
+use crate::serde_types::{
+    BucketLifecycleConfiguration, CompleteMultipartUploadData, CorsConfiguration,
+};
 
 use crate::EMPTY_PAYLOAD_SHA;
 use sha2::{Digest, Sha256};
@@ -134,6 +136,7 @@ pub enum Command<'a> {
     PutBucketLifecycle {
         configuration: BucketLifecycleConfiguration,
     },
+    DeleteBucketLifecycle,
 }
 
 impl<'a> Command<'a> {
@@ -162,7 +165,8 @@ impl<'a> Command<'a> {
             | Command::DeleteObjectTagging
             | Command::AbortMultipartUpload { .. }
             | Command::PresignDelete { .. }
-            | Command::DeleteBucket => HttpMethod::Delete,
+            | Command::DeleteBucket
+            | Command::DeleteBucketLifecycle => HttpMethod::Delete,
             Command::InitiateMultipartUpload { .. } | Command::CompleteMultipartUpload { .. } => {
                 HttpMethod::Post
             }
@@ -170,8 +174,8 @@ impl<'a> Command<'a> {
         }
     }
 
-    pub fn content_length(&self) -> usize {
-        match &self {
+    pub fn content_length(&self) -> Result<usize, S3Error> {
+        let result = match &self {
             Command::CopyObject { from: _ } => 0,
             Command::PutObject { content, .. } => content.len(),
             Command::PutObjectTagging { tags } => tags.len(),
@@ -184,8 +188,12 @@ impl<'a> Command<'a> {
                     0
                 }
             }
+            Command::PutBucketLifecycle { configuration } => {
+                quick_xml::se::to_string(configuration)?.as_bytes().len()
+            }
             _ => 0,
-        }
+        };
+        Ok(result)
     }
 
     pub fn content_type(&self) -> String {
@@ -223,7 +231,10 @@ impl<'a> Command<'a> {
                     EMPTY_PAYLOAD_SHA.into()
                 }
             }
-            Command::PutBucketLifecycle { configuration: config, .. } => {
+            Command::PutBucketLifecycle {
+                configuration: config,
+                ..
+            } => {
                 let mut sha = Sha256::default();
                 sha.update(quick_xml::se::to_string(config)?.as_bytes());
                 hex::encode(sha.finalize().as_slice())
