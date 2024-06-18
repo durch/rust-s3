@@ -378,7 +378,7 @@ pub struct BucketLifecycleConfiguration {
     rules: Vec<LifecycleRule>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct LifecycleRule {
+pub struct LifecycleRule {
     #[serde(
         rename = "AbortIncompleteMultipartUpload",
         skip_serializing_if = "Option::is_none"
@@ -415,7 +415,7 @@ struct LifecycleRule {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct AbortIncompleteMultipartUpload {
+pub struct AbortIncompleteMultipartUpload {
     #[serde(
         rename = "DaysAfterInitiation",
         skip_serializing_if = "Option::is_none"
@@ -424,7 +424,7 @@ struct AbortIncompleteMultipartUpload {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Expiration {
+pub struct Expiration {
     /// Indicates at what date the object is to be moved or deleted. The date value must conform to the ISO 8601 format. The time is always midnight UTC.
     #[serde(rename = "Date", skip_serializing_if = "Option::is_none")]
     date: Option<String>,
@@ -441,7 +441,7 @@ struct Expiration {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct LifecycleFilter {
+pub struct LifecycleFilter {
     #[serde(rename = "And", skip_serializing_if = "Option::is_none")]
     and: Option<And>,
 
@@ -462,7 +462,7 @@ struct LifecycleFilter {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct And {
+pub struct And {
     #[serde(
         rename = "ObjectSizeGreaterThan",
         skip_serializing_if = "Option::is_none"
@@ -480,7 +480,7 @@ struct And {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Tag {
+pub struct Tag {
     #[serde(rename = "Key")]
     key: String,
 
@@ -489,7 +489,7 @@ struct Tag {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct NoncurrentVersionExpiration {
+pub struct NoncurrentVersionExpiration {
     #[serde(
         rename = "NewerNoncurrentVersions",
         skip_serializing_if = "Option::is_none"
@@ -501,23 +501,23 @@ struct NoncurrentVersionExpiration {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct NoncurrentVersionTransition {
+pub struct NoncurrentVersionTransition {
     #[serde(
         rename = "NewerNoncurrentVersions",
         skip_serializing_if = "Option::is_none"
     )]
     newer_noncurrent_versions: Option<i32>,
 
-    #[serde(rename = "NoncurrentDays",skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "NoncurrentDays", skip_serializing_if = "Option::is_none")]
     noncurrent_days: Option<i32>,
 
-    #[serde(rename = "StorageClass",skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "StorageClass", skip_serializing_if = "Option::is_none")]
     /// Valid Values: GLACIER | STANDARD_IA | ONEZONE_IA | INTELLIGENT_TIERING | DEEP_ARCHIVE | GLACIER_IR
     storage_class: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Transition {
+pub struct Transition {
     #[serde(rename = "Date", skip_serializing_if = "Option::is_none")]
     date: Option<String>,
 
@@ -530,7 +530,10 @@ struct Transition {
 
 #[cfg(test)]
 mod test {
-    use crate::serde_types::{AbortIncompleteMultipartUpload, BucketLifecycleConfiguration, Expiration, LifecycleFilter, LifecycleRule, NoncurrentVersionExpiration, NoncurrentVersionTransition, Transition};
+    use crate::serde_types::{
+        AbortIncompleteMultipartUpload, BucketLifecycleConfiguration, Expiration, LifecycleFilter,
+        LifecycleRule, NoncurrentVersionExpiration, NoncurrentVersionTransition, Transition,
+    };
 
     use super::{CorsConfiguration, CorsRule};
 
@@ -559,19 +562,40 @@ mod test {
     #[test]
     fn lifecycle_config_serde() {
         let rule = LifecycleRule {
-            abort_incomplete_multipart_upload: Some(AbortIncompleteMultipartUpload{ days_after_initiation: Some(30) }),
-            expiration: Some(Expiration{ date: Some("2024-06-017".to_string()), days: Some(30), expired_object_delete_marker: Some(true) }),
-            filter: Some(LifecycleFilter{ and: None, object_size_greater_than: Some(10), object_size_less_than:Some(50), prefix: None, tag: None }),
+            abort_incomplete_multipart_upload: Some(AbortIncompleteMultipartUpload {
+                days_after_initiation: Some(30),
+            }),
+            expiration: Some(Expiration {
+                date: Some("2024-06-017".to_string()),
+                days: Some(30),
+                expired_object_delete_marker: Some(true),
+            }),
+            filter: Some(LifecycleFilter {
+                and: None,
+                object_size_greater_than: Some(10),
+                object_size_less_than: Some(50),
+                prefix: None,
+                tag: None,
+            }),
             id: Some("lala".to_string()),
-            noncurrent_version_expiration: Some(NoncurrentVersionExpiration{ newer_noncurrent_versions: Some(30), noncurrent_days: Some(30) }),
-            noncurrent_version_transition: Some(vec![NoncurrentVersionTransition{ newer_noncurrent_versions: Some(30), noncurrent_days: Some(30), storage_class: Some("GLACIER".to_string()) }]),
+            noncurrent_version_expiration: Some(NoncurrentVersionExpiration {
+                newer_noncurrent_versions: Some(30),
+                noncurrent_days: Some(30),
+            }),
+            noncurrent_version_transition: Some(vec![NoncurrentVersionTransition {
+                newer_noncurrent_versions: Some(30),
+                noncurrent_days: Some(30),
+                storage_class: Some("GLACIER".to_string()),
+            }]),
             status: "Enabled".to_string(),
-            transition: Some(vec![Transition{ date: Some("2024-06-017".to_string()), days: Some(30), storage_class: Some("GLACIER".to_string()) }]),
+            transition: Some(vec![Transition {
+                date: Some("2024-06-017".to_string()),
+                days: Some(30),
+                storage_class: Some("GLACIER".to_string()),
+            }]),
         };
 
-        let config = BucketLifecycleConfiguration {
-            rules: vec![rule,],
-        };
+        let config = BucketLifecycleConfiguration { rules: vec![rule] };
 
         let se = quick_xml::se::to_string(&config).unwrap();
         assert_eq!(
