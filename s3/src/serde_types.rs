@@ -377,7 +377,14 @@ pub struct BucketLifecycleConfiguration {
     #[serde(rename = "Rule")]
     rules: Vec<LifecycleRule>,
 }
-#[derive(Serialize, Deserialize, Debug, Clone)]
+
+impl BucketLifecycleConfiguration {
+    pub fn new(rules: Vec<LifecycleRule>) -> Self {
+        BucketLifecycleConfiguration { rules }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct LifecycleRule {
     #[serde(
         rename = "AbortIncompleteMultipartUpload",
@@ -414,6 +421,75 @@ pub struct LifecycleRule {
     transition: Option<Vec<Transition>>,
 }
 
+pub struct LifecycleRuleBuilder {
+    lifecycle_rule: LifecycleRule,
+}
+
+impl LifecycleRule {
+    pub fn builder(status: String) -> LifecycleRuleBuilder {
+        LifecycleRuleBuilder::new(status)
+    }
+}
+
+impl LifecycleRuleBuilder {
+    pub fn new(status: String) -> LifecycleRuleBuilder {
+        LifecycleRuleBuilder {
+            lifecycle_rule: LifecycleRule {
+                status,
+                ..Default::default()
+            },
+        }
+    }
+
+    pub fn abort_incomplete_multipart_upload(
+        mut self,
+        abort_incomplete_multipart_upload: AbortIncompleteMultipartUpload,
+    ) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.abort_incomplete_multipart_upload =
+            Some(abort_incomplete_multipart_upload);
+        self
+    }
+
+    pub fn expiration(mut self, expiration: Expiration) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.expiration = Some(expiration);
+        self
+    }
+
+    pub fn filter(mut self, filter: LifecycleFilter) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.filter = Some(filter);
+        self
+    }
+
+    pub fn id(mut self, id: String) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.id = Some(id);
+        self
+    }
+
+    pub fn noncurrent_version_expiration(
+        mut self,
+        noncurrent_version_expiration: NoncurrentVersionExpiration,
+    ) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.noncurrent_version_expiration = Some(noncurrent_version_expiration);
+        self
+    }
+
+    pub fn noncurrent_version_transition(
+        mut self,
+        noncurrent_version_transition: Vec<NoncurrentVersionTransition>,
+    ) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.noncurrent_version_transition = Some(noncurrent_version_transition);
+        self
+    }
+
+    pub fn transition(mut self, transition: Vec<Transition>) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.transition = Some(transition);
+        self
+    }
+
+    pub fn build(self) -> LifecycleRule {
+        self.lifecycle_rule
+    }
+}
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AbortIncompleteMultipartUpload {
     #[serde(
@@ -421,6 +497,14 @@ pub struct AbortIncompleteMultipartUpload {
         skip_serializing_if = "Option::is_none"
     )]
     days_after_initiation: Option<i32>,
+}
+
+impl AbortIncompleteMultipartUpload {
+    pub fn new(days_after_initiation: Option<i32>) -> Self {
+        Self {
+            days_after_initiation,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -438,6 +522,20 @@ pub struct Expiration {
         skip_serializing_if = "Option::is_none"
     )]
     expired_object_delete_marker: Option<bool>,
+}
+
+impl Expiration {
+    pub fn new(
+        date: Option<String>,
+        days: Option<i32>,
+        expired_object_delete_marker: Option<bool>,
+    ) -> Self {
+        Self {
+            date,
+            days,
+            expired_object_delete_marker,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -460,6 +558,23 @@ pub struct LifecycleFilter {
     #[serde(rename = "Tag", skip_serializing_if = "Option::is_none")]
     tag: Option<Tag>,
 }
+impl LifecycleFilter {
+    pub fn new(
+        and: Option<And>,
+        object_size_greater_than: Option<i64>,
+        object_size_less_than: Option<i64>,
+        prefix: Option<String>,
+        tag: Option<Tag>,
+    ) -> Self {
+        Self {
+            and,
+            object_size_greater_than,
+            object_size_less_than,
+            prefix,
+            tag,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct And {
@@ -479,6 +594,22 @@ pub struct And {
     tags: Option<Vec<Tag>>,
 }
 
+impl And {
+    pub fn new(
+        object_size_greater_than: Option<i64>,
+        object_size_less_than: Option<i64>,
+        prefix: Option<String>,
+        tags: Option<Vec<Tag>>,
+    ) -> Self {
+        Self {
+            object_size_greater_than,
+            object_size_less_than,
+            prefix,
+            tags,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Tag {
     #[serde(rename = "Key")]
@@ -486,6 +617,12 @@ pub struct Tag {
 
     #[serde(rename = "Value")]
     value: String,
+}
+
+impl Tag {
+    pub fn new(key: String, value: String) -> Self {
+        Self { key, value }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -498,6 +635,15 @@ pub struct NoncurrentVersionExpiration {
 
     #[serde(rename = "NoncurrentDays", skip_serializing_if = "Option::is_none")]
     noncurrent_days: Option<i32>,
+}
+
+impl NoncurrentVersionExpiration {
+    pub fn new(newer_noncurrent_versions: Option<i32>, noncurrent_days: Option<i32>) -> Self {
+        NoncurrentVersionExpiration {
+            newer_noncurrent_versions,
+            noncurrent_days,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -516,6 +662,20 @@ pub struct NoncurrentVersionTransition {
     storage_class: Option<String>,
 }
 
+impl NoncurrentVersionTransition {
+    pub fn new(
+        newer_noncurrent_versions: Option<i32>,
+        noncurrent_days: Option<i32>,
+        storage_class: Option<String>,
+    ) -> Self {
+        NoncurrentVersionTransition {
+            newer_noncurrent_versions,
+            noncurrent_days,
+            storage_class,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Transition {
     #[serde(rename = "Date", skip_serializing_if = "Option::is_none")]
@@ -526,6 +686,16 @@ pub struct Transition {
     /// Valid Values: GLACIER | STANDARD_IA | ONEZONE_IA | INTELLIGENT_TIERING | DEEP_ARCHIVE | GLACIER_IR
     #[serde(rename = "StorageClass")]
     storage_class: Option<String>,
+}
+
+impl Transition {
+    pub fn new(date: Option<String>, days: Option<i32>, storage_class: Option<String>) -> Self {
+        Transition {
+            date,
+            days,
+            storage_class,
+        }
+    }
 }
 
 #[cfg(test)]
