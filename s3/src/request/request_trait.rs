@@ -1,6 +1,7 @@
 use base64::engine::general_purpose;
 use base64::Engine;
 use hmac::Mac;
+use quick_xml::se::to_string;
 use std::collections::HashMap;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use std::pin::Pin;
@@ -380,6 +381,11 @@ pub trait Request {
                     url_str.push_str(&multipart.query_string())
                 }
             }
+            Command::GetBucketLifecycle
+            | Command::PutBucketLifecycle { .. }
+            | Command::DeleteBucketLifecycle => {
+                url_str.push_str("?lifecycle");
+            }
             _ => {}
         }
 
@@ -587,6 +593,11 @@ pub trait Request {
             headers.insert(RANGE, range.parse()?);
         } else if let Command::CreateBucket { ref config } = self.command() {
             config.add_headers(&mut headers)?;
+        } else if let Command::PutBucketLifecycle { ref configuration } = self.command() {
+            let digest = md5::compute(to_string(configuration)?.as_bytes());
+            let hash = general_purpose::STANDARD.encode(digest.as_ref());
+            headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
+            headers.remove("x-amz-content-sha256");
         }
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided

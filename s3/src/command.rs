@@ -200,7 +200,9 @@ impl<'a> Command<'a> {
         match self {
             Command::InitiateMultipartUpload { content_type } => content_type.to_string(),
             Command::PutObject { content_type, .. } => content_type.to_string(),
-            Command::CompleteMultipartUpload { .. } => "application/xml".into(),
+            Command::CompleteMultipartUpload { .. } | Command::PutBucketLifecycle { .. } => {
+                "application/xml".into()
+            }
             _ => "text/plain".into(),
         }
     }
@@ -230,14 +232,6 @@ impl<'a> Command<'a> {
                 } else {
                     EMPTY_PAYLOAD_SHA.into()
                 }
-            }
-            Command::PutBucketLifecycle {
-                configuration: config,
-                ..
-            } => {
-                let mut sha = Sha256::default();
-                sha.update(quick_xml::se::to_string(config)?.as_bytes());
-                hex::encode(sha.finalize().as_slice())
             }
             _ => EMPTY_PAYLOAD_SHA.into(),
         };

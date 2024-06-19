@@ -783,7 +783,7 @@ impl Bucket {
 
     #[maybe_async::maybe_async]
     pub async fn get_bucket_lifecycle(&self) -> Result<BucketLifecycleConfiguration, S3Error> {
-        let request = RequestImpl::new(self, "?lifecycle", Command::GetBucketLifecycle).await?;
+        let request = RequestImpl::new(self, "", Command::GetBucketLifecycle).await?;
         let response = request.response_data(false).await?;
         Ok(quick_xml::de::from_str::<BucketLifecycleConfiguration>(
             response.as_str()?,
@@ -798,13 +798,13 @@ impl Bucket {
         let command = Command::PutBucketLifecycle {
             configuration: lifecycle_config,
         };
-        let request = RequestImpl::new(self, "?lifecycle", command).await?;
+        let request = RequestImpl::new(self, "", command).await?;
         request.response_data(false).await
     }
 
     #[maybe_async::maybe_async]
     pub async fn delete_bucket_lifecycle(&self) -> Result<ResponseData, S3Error> {
-        let request = RequestImpl::new(self, "?lifecycle", Command::DeleteBucket).await?;
+        let request = RequestImpl::new(self, "", Command::DeleteBucket).await?;
         request.response_data(false).await
     }
 
