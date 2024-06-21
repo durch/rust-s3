@@ -249,7 +249,7 @@ impl Bucket {
     ///    "custom_value".parse().unwrap(),
     /// );
     ///
-    /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers)).await.unwrap();
+    /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers), None).await.unwrap();
     /// println!("Presigned url: {}", url);
     /// }
     /// ```
