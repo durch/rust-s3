@@ -61,7 +61,7 @@ impl<'a> Request for SurfRequest<'a> {
             HttpMethod::Head => surf::Request::builder(Method::Head, self.url()?),
         };
 
-        let mut request = request.body(self.request_body());
+        let mut request = request.body(self.request_body()?);
 
         for (name, value) in headers.iter() {
             request = request.header(

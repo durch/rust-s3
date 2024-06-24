@@ -133,7 +133,7 @@ impl<'a> Request for HyperRequest<'a> {
                 request = request.header(header, value);
             }
 
-            request.body(Body::from(self.request_body()))?
+            request.body(Body::from(self.request_body()?))?
         };
         let response = client.request(request).await?;
 
