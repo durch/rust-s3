@@ -44,6 +44,21 @@ pub fn client(
     Ok(Client::builder().build::<_, hyper::Body>(https_connector))
 }
 
+#[cfg(all(
+    feature = "with-tokio",
+    not(feature = "use-tokio-native-tls"),
+    not(feature = "tokio-rustls-tls")
+))]
+pub fn client(
+    request_timeout: Option<std::time::Duration>,
+) -> Result<Client<HttpConnector>, S3Error> {
+    let mut http_connector = HttpConnector::new();
+    http_connector.set_connect_timeout(request_timeout);
+    http_connector.enforce_http(false);
+
+    Ok(Client::builder().build::<_, hyper::Body>(http_connector))
+}
+
 #[cfg(all(feature = "tokio-rustls-tls", feature = "no-verify-ssl"))]
 pub struct NoCertificateVerification {}
 #[cfg(all(feature = "tokio-rustls-tls", feature = "no-verify-ssl"))]

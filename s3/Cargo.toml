@@ -92,7 +92,8 @@ bytes = { version = "1.2" }
 block_on_proc = { version = "0.2", optional = true }
 
 [features]
-default = ["tags", "use-tokio-native-tls", "fail-on-err"]
+default = ["tokio-rustls-tls"]
+# default = ["tags", "use-tokio-native-tls", "fail-on-err"]
 use-tokio-native-tls = [
     "with-tokio",
     "aws-creds/native-tls",

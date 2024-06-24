@@ -194,7 +194,7 @@ impl BucketConfiguration {
 
 #[allow(dead_code)]
 pub struct CreateBucketResponse {
-    pub bucket: Bucket,
+    pub bucket: Box<Bucket>,
     pub response_text: String,
     pub response_code: u16,
 }

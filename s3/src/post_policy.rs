@@ -78,7 +78,7 @@ impl<'a> PostPolicy<'a> {
     }
 
     #[maybe_async::maybe_async]
-    pub async fn sign(&self, bucket: Bucket) -> Result<PresignedPost, S3Error> {
+    pub async fn sign(&self, bucket: Box<Bucket>) -> Result<PresignedPost, S3Error> {
         use hmac::Mac;
 
         bucket.credentials_refresh().await?;
@@ -429,7 +429,7 @@ mod test {
 
     use serde_json::json;
 
-    fn test_bucket() -> Bucket {
+    fn test_bucket() -> Box<Bucket> {
         Bucket::new(
             "rust-s3",
             Region::UsEast1,
@@ -445,7 +445,7 @@ mod test {
         .unwrap()
     }
 
-    fn test_bucket_with_security_token() -> Bucket {
+    fn test_bucket_with_security_token() -> Box<Bucket> {
         Bucket::new(
             "rust-s3",
             Region::UsEast1,
