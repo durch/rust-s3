@@ -52,8 +52,9 @@ use crate::error::S3Error;
 use crate::post_policy::PresignedPost;
 use crate::request::Request;
 use crate::serde_types::{
-    BucketLocationResult, CompleteMultipartUploadData, CorsConfiguration, HeadObjectResult,
-    InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
+    BucketLifecycleConfiguration, BucketLocationResult, CompleteMultipartUploadData,
+    CorsConfiguration, HeadObjectResult, InitiateMultipartUploadResponse, ListBucketResult,
+    ListMultipartUploadsResult, Part,
 };
 #[allow(unused_imports)]
 use crate::utils::{error_from_response_data, PutStreamResponse};
@@ -777,6 +778,33 @@ impl Bucket {
             configuration: cors_config,
         };
         let request = RequestImpl::new(self, "?cors", command).await?;
+        request.response_data(false).await
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn get_bucket_lifecycle(&self) -> Result<BucketLifecycleConfiguration, S3Error> {
+        let request = RequestImpl::new(self, "", Command::GetBucketLifecycle).await?;
+        let response = request.response_data(false).await?;
+        Ok(quick_xml::de::from_str::<BucketLifecycleConfiguration>(
+            response.as_str()?,
+        )?)
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn put_bucket_lifecycle(
+        &self,
+        lifecycle_config: BucketLifecycleConfiguration,
+    ) -> Result<ResponseData, S3Error> {
+        let command = Command::PutBucketLifecycle {
+            configuration: lifecycle_config,
+        };
+        let request = RequestImpl::new(self, "", command).await?;
+        request.response_data(false).await
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn delete_bucket_lifecycle(&self) -> Result<ResponseData, S3Error> {
+        let request = RequestImpl::new(self, "", Command::DeleteBucket).await?;
         request.response_data(false).await
     }
 

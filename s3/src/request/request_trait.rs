@@ -1,6 +1,7 @@
 use base64::engine::general_purpose;
 use base64::Engine;
 use hmac::Mac;
+use quick_xml::se::to_string;
 use std::collections::HashMap;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use std::pin::Pin;
@@ -153,8 +154,8 @@ pub trait Request {
         )
     }
 
-    fn request_body(&self) -> Vec<u8> {
-        if let Command::PutObject { content, .. } = self.command() {
+    fn request_body(&self) -> Result<Vec<u8>, S3Error> {
+        let result = if let Command::PutObject { content, .. } = self.command() {
             Vec::from(content)
         } else if let Command::PutObjectTagging { tags } = self.command() {
             Vec::from(tags)
@@ -169,9 +170,12 @@ pub trait Request {
             } else {
                 Vec::new()
             }
+        } else if let Command::PutBucketLifecycle { configuration } = &self.command() {
+            quick_xml::se::to_string(configuration)?.as_bytes().to_vec()
         } else {
             Vec::new()
-        }
+        };
+        Ok(result)
     }
 
     fn long_date(&self) -> Result<String, S3Error> {
@@ -377,6 +381,11 @@ pub trait Request {
                     url_str.push_str(&multipart.query_string())
                 }
             }
+            Command::GetBucketLifecycle
+            | Command::PutBucketLifecycle { .. }
+            | Command::DeleteBucketLifecycle => {
+                url_str.push_str("?lifecycle");
+            }
             _ => {}
         }
 
@@ -464,7 +473,7 @@ pub trait Request {
             &self.command().http_verb().to_string(),
             &self.url()?,
             headers,
-            &self.command().sha256(),
+            &self.command().sha256()?,
         )
     }
 
@@ -492,7 +501,7 @@ pub trait Request {
     #[maybe_async::maybe_async]
     async fn headers(&self) -> Result<HeaderMap, S3Error> {
         // Generate this once, but it's used in more than one place.
-        let sha256 = self.command().sha256();
+        let sha256 = self.command().sha256()?;
 
         // Start with extra_headers, that way our headers replace anything with
         // the same name.
@@ -531,7 +540,7 @@ pub trait Request {
             _ => {
                 headers.insert(
                     CONTENT_LENGTH,
-                    self.command().content_length().to_string().parse()?,
+                    self.command().content_length()?.to_string().parse()?,
                 );
                 headers.insert(CONTENT_TYPE, self.command().content_type().parse()?);
             }
@@ -584,6 +593,11 @@ pub trait Request {
             headers.insert(RANGE, range.parse()?);
         } else if let Command::CreateBucket { ref config } = self.command() {
             config.add_headers(&mut headers)?;
+        } else if let Command::PutBucketLifecycle { ref configuration } = self.command() {
+            let digest = md5::compute(to_string(configuration)?.as_bytes());
+            let hash = general_purpose::STANDARD.encode(digest.as_ref());
+            headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
+            headers.remove("x-amz-content-sha256");
         }
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided

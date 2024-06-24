@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::serde_types::{CompleteMultipartUploadData, CorsConfiguration};
+use crate::error::S3Error;
+use crate::serde_types::{
+    BucketLifecycleConfiguration, CompleteMultipartUploadData, CorsConfiguration,
+};
 
 use crate::EMPTY_PAYLOAD_SHA;
 use sha2::{Digest, Sha256};
@@ -129,6 +132,11 @@ pub enum Command<'a> {
     PutBucketCors {
         configuration: CorsConfiguration,
     },
+    GetBucketLifecycle,
+    PutBucketLifecycle {
+        configuration: BucketLifecycleConfiguration,
+    },
+    DeleteBucketLifecycle,
 }
 
 impl<'a> Command<'a> {
@@ -142,6 +150,7 @@ impl<'a> Command<'a> {
             | Command::ListObjectsV2 { .. }
             | Command::GetBucketLocation
             | Command::GetObjectTagging
+            | Command::GetBucketLifecycle
             | Command::ListMultipartUploads { .. }
             | Command::PresignGet { .. } => HttpMethod::Get,
             Command::PutObject { .. }
@@ -150,12 +159,14 @@ impl<'a> Command<'a> {
             | Command::PresignPut { .. }
             | Command::UploadPart { .. }
             | Command::PutBucketCors { .. }
-            | Command::CreateBucket { .. } => HttpMethod::Put,
+            | Command::CreateBucket { .. }
+            | Command::PutBucketLifecycle { .. } => HttpMethod::Put,
             Command::DeleteObject
             | Command::DeleteObjectTagging
             | Command::AbortMultipartUpload { .. }
             | Command::PresignDelete { .. }
-            | Command::DeleteBucket => HttpMethod::Delete,
+            | Command::DeleteBucket
+            | Command::DeleteBucketLifecycle => HttpMethod::Delete,
             Command::InitiateMultipartUpload { .. } | Command::CompleteMultipartUpload { .. } => {
                 HttpMethod::Post
             }
@@ -163,8 +174,8 @@ impl<'a> Command<'a> {
         }
     }
 
-    pub fn content_length(&self) -> usize {
-        match &self {
+    pub fn content_length(&self) -> Result<usize, S3Error> {
+        let result = match &self {
             Command::CopyObject { from: _ } => 0,
             Command::PutObject { content, .. } => content.len(),
             Command::PutObjectTagging { tags } => tags.len(),
@@ -177,21 +188,27 @@ impl<'a> Command<'a> {
                     0
                 }
             }
+            Command::PutBucketLifecycle { configuration } => {
+                quick_xml::se::to_string(configuration)?.as_bytes().len()
+            }
             _ => 0,
-        }
+        };
+        Ok(result)
     }
 
     pub fn content_type(&self) -> String {
         match self {
             Command::InitiateMultipartUpload { content_type } => content_type.to_string(),
             Command::PutObject { content_type, .. } => content_type.to_string(),
-            Command::CompleteMultipartUpload { .. } => "application/xml".into(),
+            Command::CompleteMultipartUpload { .. } | Command::PutBucketLifecycle { .. } => {
+                "application/xml".into()
+            }
             _ => "text/plain".into(),
         }
     }
 
-    pub fn sha256(&self) -> String {
-        match &self {
+    pub fn sha256(&self) -> Result<String, S3Error> {
+        let result = match &self {
             Command::PutObject { content, .. } => {
                 let mut sha = Sha256::default();
                 sha.update(content);
@@ -217,6 +234,7 @@ impl<'a> Command<'a> {
                 }
             }
             _ => EMPTY_PAYLOAD_SHA.into(),
-        }
+        };
+        Ok(result)
     }
 }
