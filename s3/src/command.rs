@@ -235,6 +235,6 @@ impl<'a> Command<'a> {
             }
             _ => EMPTY_PAYLOAD_SHA.into(),
         };
-        return Ok(result);
+        Ok(result)
     }
 }

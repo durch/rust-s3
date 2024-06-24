@@ -175,7 +175,7 @@ pub trait Request {
         } else {
             Vec::new()
         };
-        return Ok(result);
+        Ok(result)
     }
 
     fn long_date(&self) -> Result<String, S3Error> {
