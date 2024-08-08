@@ -80,6 +80,14 @@ impl ResponseData {
         &self.bytes
     }
 
+    pub fn bytes_mut(&mut self) -> &mut Bytes {
+        &mut self.bytes
+    }
+
+    pub fn into_bytes(self) -> Bytes {
+        self.bytes
+    }
+
     pub fn status_code(&self) -> u16 {
         self.status_code
     }
