@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.35.1"
+version = "0.36.0-alpha.1"
 authors = ["Drazen Urch"]
 description = "Rust library for working with AWS S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -43,10 +43,10 @@ path = "../examples/gcs-tokio.rs"
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
 attohttpc = { version = "0.28", optional = true, default-features = false }
-# aws-creds = { version = "0.36", path = "../aws-creds", default-features = false }
+# aws-creds = { version = "*", path = "../aws-creds", default-features = false }
 # aws-region = { version = "0.25.4", path = "../aws-region" }
 aws-region = "0.25"
-aws-creds = { version = "0.37", default-features = false }
+aws-creds = { version = "0.38", default-features = false }
 base64 = "0.22"
 cfg-if = "1"
 time = { version = "^0.3.6", features = ["formatting", "macros"] }
