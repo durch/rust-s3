@@ -2735,6 +2735,19 @@ mod test {
         streaming_test_put_get_delete_big_object(*test_minio_bucket()).await;
     }
 
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn streaming_big_r2_put_head_get_delete_object() {
+        streaming_test_put_get_delete_big_object(*test_r2_bucket()).await;
+    }
+
     // Test multi-part upload
     #[maybe_async::maybe_async]
     async fn streaming_test_put_get_delete_big_object(bucket: Bucket) {

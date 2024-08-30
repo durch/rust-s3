@@ -30,10 +30,7 @@ async fn main() -> Result<(), S3Error> {
     assert_eq!(response_data.status_code(), 200);
     assert_eq!(test, response_data.as_slice());
 
-    let response_data = bucket
-        .get_object_range(s3_path, 100, Some(1000))
-        .await
-        .unwrap();
+    let response_data = bucket.get_object_range(s3_path, 1, Some(10)).await.unwrap();
     assert_eq!(response_data.status_code(), 206);
     let (head_object_result, code) = bucket.head_object(s3_path).await?;
     assert_eq!(code, 200);
