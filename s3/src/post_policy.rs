@@ -618,7 +618,14 @@ mod test {
     mod build {
         use super::*;
 
-        #[tokio::test]
+        #[maybe_async::test(
+            feature = "sync",
+            async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+            async(
+                all(not(feature = "sync"), feature = "with-async-std"),
+                async_std::test
+            )
+        )]
         async fn adds_credentials() {
             let policy = PostPolicy::new(86400)
                 .condition(
@@ -646,7 +653,14 @@ mod test {
             );
         }
 
-        #[tokio::test]
+        #[maybe_async::test(
+            feature = "sync",
+            async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+            async(
+                all(not(feature = "sync"), feature = "with-async-std"),
+                async_std::test
+            )
+        )]
         async fn with_security_token() {
             let policy = PostPolicy::new(86400)
                 .condition(
@@ -699,7 +713,14 @@ mod test {
     mod sign {
         use super::*;
 
-        #[tokio::test]
+        #[maybe_async::test(
+            feature = "sync",
+            async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+            async(
+                all(not(feature = "sync"), feature = "with-async-std"),
+                async_std::test
+            )
+        )]
         async fn returns_full_details() {
             let policy = PostPolicy::new(86400)
                 .condition(

@@ -30,9 +30,6 @@ pub enum S3Error {
     #[cfg(feature = "use-tokio-native-tls")]
     #[error("native-tls: {0}")]
     NativeTls(#[from] native_tls::Error),
-    #[cfg(feature = "with-tokio-rustls")]
-    #[error("rustls: {0}")]
-    Rustls(#[from] rustls::TLSError),
     #[error("header to string: {0}")]
     HeaderToStr(#[from] http::header::ToStrError),
     #[error("from utf8: {0}")]
@@ -49,6 +46,12 @@ pub enum S3Error {
     #[cfg(feature = "sync")]
     #[error("attohttpc: {0}")]
     Atto(#[from] attohttpc::Error),
+    #[cfg(feature = "sync")]
+    #[error("attohttpc: {0}")]
+    AttoHeader(#[from] attohttpc::header::ToStrError),
+    #[cfg(feature = "sync")]
+    #[error("attohttpc: {0}")]
+    AttoHeaderName(#[from] attohttpc::header::InvalidHeaderName),
     #[error("Could not get Write lock on Credentials")]
     WLCredentials,
     #[error("Could not get Read lock on Credentials")]

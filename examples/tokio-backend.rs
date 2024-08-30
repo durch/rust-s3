@@ -1,9 +1,16 @@
 // cargo run --example tokio
 
+#[cfg(feature = "tokio")]
 use awscreds::Credentials;
+#[cfg(feature = "tokio")]
 use s3::error::S3Error;
+#[cfg(feature = "tokio")]
 use s3::Bucket;
 
+#[cfg(not(feature = "tokio"))]
+fn main() {}
+
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), S3Error> {
     let bucket = Bucket::new(

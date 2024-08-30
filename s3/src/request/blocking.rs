@@ -56,7 +56,7 @@ impl<'a> Request for AttoRequest<'a> {
         let mut session = attohttpc::Session::new();
 
         for (name, value) in headers.iter() {
-            session.header(HeaderName::from_bytes(name.as_ref())?, value);
+            session.header(HeaderName::from_bytes(name.as_ref())?, value.to_str()?);
         }
 
         if let Some(timeout) = self.bucket.request_timeout {
@@ -71,7 +71,7 @@ impl<'a> Request for AttoRequest<'a> {
             HttpMethod::Head => session.head(self.url()?),
         };
 
-        let response = request.bytes(&self.request_body()).send()?;
+        let response = request.bytes(&self.request_body()?).send()?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             let status = response.status().as_u16();
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn url_uses_https_by_default_path_style() -> Result<()> {
         let region = "custom-region".parse()?;
-        let mut bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         bucket.with_path_style();
         let path = "/my-first/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
