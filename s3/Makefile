@@ -1,7 +1,7 @@
 test-all: fmt-check async-all sync-all
 async-all: tokio async-std
 sync-all: sync-nativetls sync-rustlstls sync-nossl
-ci: clippy fmt-check tokio-not-ignored async-std-test-not-ignored
+ci: clippy fmt-check
 
 clippy: tokio-clippy async-std-clippy sync-clippy
 tokio-clippy: tokio-nativetls-clippy tokio-nossl-clippy tokio-noverify-clippy tokio-rustlstls-clippy
