@@ -28,7 +28,6 @@ pub use hyper_tls::HttpsConnector;
 pub fn client(
     request_timeout: Option<std::time::Duration>,
 ) -> Result<Client<HttpsConnector<HttpConnector>, BoxBody<Bytes, S3Error>>, S3Error> {
-    #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
     let mut tls_connector_builder = native_tls::TlsConnector::builder();
 
     if cfg!(feature = "no-verify-ssl") {

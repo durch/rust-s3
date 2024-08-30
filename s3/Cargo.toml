@@ -65,6 +65,7 @@ hyper-rustls = { version = "0.24", default-features = false, optional = true }
 hyper-util = { version = "0.1", default-features = false, optional = true, features = [
     "http1",
     "client",
+    "client-legacy",
 ] }
 http-body-util = { version = "0.1", optional = true }
 rustls = { version = "0.21", optional = true }
