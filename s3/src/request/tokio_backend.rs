@@ -3,10 +3,9 @@ extern crate md5;
 
 use bytes::Bytes;
 use futures::TryStreamExt;
-use hyper::client::HttpConnector;
-use hyper::{Body, Client};
 use maybe_async::maybe_async;
 use std::collections::HashMap;
+use std::str::FromStr as _;
 use time::OffsetDateTime;
 
 use super::request_trait::{Request, ResponseData, ResponseDataStream};
@@ -18,98 +17,30 @@ use crate::utils::now_utc;
 
 use tokio_stream::StreamExt;
 
-#[cfg(feature = "tokio-rustls-tls")]
-pub use hyper_rustls::HttpsConnector;
-#[cfg(feature = "use-tokio-native-tls")]
-pub use hyper_tls::HttpsConnector;
+#[cfg(feature = "with-tokio")]
+pub fn client(request_timeout: Option<std::time::Duration>) -> Result<reqwest::Client, S3Error> {
+    let client = reqwest::Client::builder();
 
-#[cfg(feature = "use-tokio-native-tls")]
-pub fn client(
-    request_timeout: Option<std::time::Duration>,
-) -> Result<Client<HttpsConnector<HttpConnector>>, S3Error> {
-    let mut tls_connector_builder = native_tls::TlsConnector::builder();
+    let client = if let Some(timeout) = request_timeout {
+        client.timeout(timeout)
+    } else {
+        client
+    };
 
-    if cfg!(feature = "no-verify-ssl") {
-        tls_connector_builder.danger_accept_invalid_hostnames(true);
-        tls_connector_builder.danger_accept_invalid_certs(true);
+    cfg_if::cfg_if! {
+        if #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))] {
+            let client = if cfg!(feature = "no-verify-ssl") {
+                client.danger_accept_invalid_certs(true)
+            } else {
+                client
+            };
+        }
     }
 
-    let tls_connector = tokio_native_tls::TlsConnector::from(tls_connector_builder.build()?);
-
-    let mut http_connector = HttpConnector::new();
-    http_connector.set_connect_timeout(request_timeout);
-    http_connector.enforce_http(false);
-    let https_connector = HttpsConnector::from((http_connector, tls_connector));
-
-    Ok(Client::builder().build::<_, hyper::Body>(https_connector))
+    Ok(client.build()?)
 }
-
-#[cfg(all(
-    feature = "with-tokio",
-    not(feature = "use-tokio-native-tls"),
-    not(feature = "tokio-rustls-tls")
-))]
-pub fn client(
-    request_timeout: Option<std::time::Duration>,
-) -> Result<Client<HttpConnector>, S3Error> {
-    let mut http_connector = HttpConnector::new();
-    http_connector.set_connect_timeout(request_timeout);
-    http_connector.enforce_http(false);
-
-    Ok(Client::builder().build::<_, hyper::Body>(http_connector))
-}
-
-#[cfg(all(feature = "tokio-rustls-tls", feature = "no-verify-ssl"))]
-pub struct NoCertificateVerification {}
-#[cfg(all(feature = "tokio-rustls-tls", feature = "no-verify-ssl"))]
-impl rustls::client::ServerCertVerifier for NoCertificateVerification {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::Certificate,
-        _intermediates: &[rustls::Certificate],
-        _server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
-        _ocsp: &[u8],
-        _now: std::time::SystemTime,
-    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::ServerCertVerified::assertion())
-    }
-}
-
-#[cfg(feature = "tokio-rustls-tls")]
-pub fn client(
-    request_timeout: Option<std::time::Duration>,
-) -> Result<Client<HttpsConnector<HttpConnector>>, S3Error> {
-    let mut roots = rustls::RootCertStore::empty();
-    rustls_native_certs::load_native_certs()?
-        .into_iter()
-        .for_each(|cert| {
-            roots.add(&rustls::Certificate(cert.0)).unwrap();
-        });
-
-    #[allow(unused_mut)]
-    let mut config = rustls::ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-
-    #[cfg(feature = "no-verify-ssl")]
-    {
-        let mut dangerous_config = rustls::ClientConfig::dangerous(&mut config);
-        dangerous_config
-            .set_certificate_verifier(std::sync::Arc::new(NoCertificateVerification {}));
-    }
-
-    let mut http_connector = HttpConnector::new();
-    http_connector.set_connect_timeout(request_timeout);
-    http_connector.enforce_http(false);
-    let https_connector = HttpsConnector::from((http_connector, config));
-
-    Ok(Client::builder().build::<_, hyper::Body>(https_connector))
-}
-
 // Temporary structure for making a request
-pub struct HyperRequest<'a> {
+pub struct ReqwestRequest<'a> {
     pub bucket: &'a Bucket,
     pub path: &'a str,
     pub command: Command<'a>,
@@ -118,44 +49,45 @@ pub struct HyperRequest<'a> {
 }
 
 #[maybe_async]
-impl<'a> Request for HyperRequest<'a> {
-    type Response = http::Response<Body>;
-    type HeaderMap = http::header::HeaderMap;
+impl<'a> Request for ReqwestRequest<'a> {
+    type Response = reqwest::Response;
+    type HeaderMap = reqwest::header::HeaderMap;
 
-    async fn response(&self) -> Result<http::Response<Body>, S3Error> {
-        // Build headers
-        let headers = match self.headers().await {
-            Ok(headers) => headers,
-            Err(e) => return Err(e),
-        };
+    async fn response(&self) -> Result<Self::Response, S3Error> {
+        let headers = self
+            .headers()
+            .await?
+            .iter()
+            .map(|(k, v)| {
+                (
+                    reqwest::header::HeaderName::from_str(k.as_str()),
+                    reqwest::header::HeaderValue::from_str(v.to_str().unwrap_or_default()),
+                )
+            })
+            .filter(|(k, v)| k.is_ok() && v.is_ok())
+            .map(|(k, v)| (k.unwrap(), v.unwrap()))
+            .collect();
 
         let client = self.bucket.http_client();
 
         let method = match self.command.http_verb() {
-            HttpMethod::Delete => http::Method::DELETE,
-            HttpMethod::Get => http::Method::GET,
-            HttpMethod::Post => http::Method::POST,
-            HttpMethod::Put => http::Method::PUT,
-            HttpMethod::Head => http::Method::HEAD,
+            HttpMethod::Delete => reqwest::Method::DELETE,
+            HttpMethod::Get => reqwest::Method::GET,
+            HttpMethod::Post => reqwest::Method::POST,
+            HttpMethod::Put => reqwest::Method::PUT,
+            HttpMethod::Head => reqwest::Method::HEAD,
         };
 
-        let request = {
-            let mut request = http::Request::builder()
-                .method(method)
-                .uri(self.url()?.as_str());
+        let request = client
+            .request(method, self.url()?.as_str())
+            .headers(headers)
+            .body(self.request_body()?);
 
-            for (header, value) in headers.iter() {
-                request = request.header(header, value);
-            }
-
-            request.body(Body::from(self.request_body()?))?
-        };
-        let response = client.request(request).await?;
+        let response = client.execute(request.build()?).await?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             let status = response.status().as_u16();
-            let text =
-                String::from_utf8(hyper::body::to_bytes(response.into_body()).await?.into())?;
+            let text = response.text().await?;
             return Err(S3Error::HttpFailWithBody(status, text));
         }
 
@@ -185,7 +117,7 @@ impl<'a> Request for HyperRequest<'a> {
                 Bytes::from("")
             }
         } else {
-            hyper::body::to_bytes(response.into_body()).await?
+            response.bytes().await?
         };
         Ok(ResponseData::new(body_vec, status_code, response_headers))
     }
@@ -198,7 +130,7 @@ impl<'a> Request for HyperRequest<'a> {
         let response = self.response().await?;
 
         let status_code = response.status();
-        let mut stream = response.into_body().into_stream();
+        let mut stream = response.bytes_stream();
 
         while let Some(item) = stream.next().await {
             writer.write_all(&item?).await?;
@@ -210,7 +142,7 @@ impl<'a> Request for HyperRequest<'a> {
     async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
         let response = self.response().await?;
         let status_code = response.status();
-        let stream = response.into_body().into_stream().map_err(S3Error::Hyper);
+        let stream = response.bytes_stream().map_err(S3Error::Reqwest);
 
         Ok(ResponseDataStream {
             bytes: Box::pin(stream),
@@ -242,12 +174,12 @@ impl<'a> Request for HyperRequest<'a> {
     }
 }
 
-impl<'a> HyperRequest<'a> {
+impl<'a> ReqwestRequest<'a> {
     pub async fn new(
         bucket: &'a Bucket,
         path: &'a str,
         command: Command<'a>,
-    ) -> Result<HyperRequest<'a>, S3Error> {
+    ) -> Result<ReqwestRequest<'a>, S3Error> {
         bucket.credentials_refresh().await?;
         Ok(Self {
             bucket,
@@ -263,7 +195,7 @@ impl<'a> HyperRequest<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request::tokio_backend::HyperRequest;
+    use crate::request::tokio_backend::ReqwestRequest;
     use crate::request::Request;
     use awscreds::Credentials;
     use http::header::{HOST, RANGE};
@@ -281,7 +213,7 @@ mod tests {
         let region = "custom-region".parse().unwrap();
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials()).unwrap();
         let path = "/my-first/path";
-        let request = HyperRequest::new(&bucket, path, Command::GetObject)
+        let request = ReqwestRequest::new(&bucket, path, Command::GetObject)
             .await
             .unwrap();
 
@@ -300,7 +232,7 @@ mod tests {
             .unwrap()
             .with_path_style();
         let path = "/my-first/path";
-        let request = HyperRequest::new(&bucket, path, Command::GetObject)
+        let request = ReqwestRequest::new(&bucket, path, Command::GetObject)
             .await
             .unwrap();
 
@@ -317,7 +249,7 @@ mod tests {
         let region = "http://custom-region".parse().unwrap();
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials()).unwrap();
         let path = "/my-second/path";
-        let request = HyperRequest::new(&bucket, path, Command::GetObject)
+        let request = ReqwestRequest::new(&bucket, path, Command::GetObject)
             .await
             .unwrap();
 
@@ -335,7 +267,7 @@ mod tests {
             .unwrap()
             .with_path_style();
         let path = "/my-second/path";
-        let request = HyperRequest::new(&bucket, path, Command::GetObject)
+        let request = ReqwestRequest::new(&bucket, path, Command::GetObject)
             .await
             .unwrap();
 
@@ -354,7 +286,7 @@ mod tests {
             .with_path_style();
         let path = "/my-second/path";
 
-        let request = HyperRequest::new(
+        let request = ReqwestRequest::new(
             &bucket,
             path,
             Command::GetObjectRange {
@@ -368,7 +300,7 @@ mod tests {
         let range = headers.get(RANGE).unwrap();
         assert_eq!(range, "bytes=0-");
 
-        let request = HyperRequest::new(
+        let request = ReqwestRequest::new(
             &bucket,
             path,
             Command::GetObjectRange {

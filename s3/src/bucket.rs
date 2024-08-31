@@ -9,13 +9,11 @@ use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
 use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
-#[cfg(any(feature = "with-tokio", feature = "use-tokio-native-tls"))]
+#[cfg(any(feature = "with-tokio", feature = "tokio-native-tls"))]
 use crate::request::tokio_backend::client;
-#[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
-use crate::request::tokio_backend::HttpsConnector;
-use crate::request::ResponseData;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use crate::request::ResponseDataStream;
+use crate::request::{Request as _, ResponseData};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -33,7 +31,7 @@ pub type Query = HashMap<String, String>;
 #[cfg(feature = "with-async-std")]
 use crate::request::async_std_backend::SurfRequest as RequestImpl;
 #[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::HyperRequest as RequestImpl;
+use crate::request::tokio_backend::ReqwestRequest as RequestImpl;
 
 #[cfg(feature = "with-async-std")]
 use async_std::io::Write as AsyncWrite;
@@ -52,7 +50,6 @@ use async_std::io::Read as AsyncRead;
 
 use crate::error::S3Error;
 use crate::post_policy::PresignedPost;
-use crate::request::Request;
 use crate::serde_types::{
     BucketLifecycleConfiguration, BucketLocationResult, CompleteMultipartUploadData,
     CorsConfiguration, HeadObjectResult, InitiateMultipartUploadResponse, ListBucketResult,
@@ -108,14 +105,14 @@ pub struct Bucket {
     pub request_timeout: Option<Duration>,
     path_style: bool,
     listobjects_v2: bool,
-    #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
-    http_client: Arc<hyper::Client<HttpsConnector<hyper::client::HttpConnector>>>,
+    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    http_client: Arc<reqwest::Client>,
     #[cfg(all(
         feature = "with-tokio",
-        not(feature = "use-tokio-native-tls"),
+        not(feature = "tokio-native-tls"),
         not(feature = "tokio-rustls-tls")
     ))]
-    http_client: Arc<hyper::Client<hyper::client::HttpConnector>>,
+    http_client: Arc<reqwest::Client>,
 }
 
 impl Bucket {
@@ -134,17 +131,8 @@ impl Bucket {
         }
     }
 
-    #[cfg(all(
-        feature = "with-tokio",
-        not(feature = "use-tokio-native-tls"),
-        not(feature = "tokio-rustls-tls")
-    ))]
-    pub fn http_client(&self) -> Arc<hyper::Client<hyper::client::HttpConnector>> {
-        Arc::clone(&self.http_client)
-    }
-
-    #[cfg(any(feature = "use-tokio-native-tls", feature = "tokio-rustls-tls"))]
-    pub fn http_client(&self) -> Arc<hyper::Client<HttpsConnector<hyper::client::HttpConnector>>> {
+    #[cfg(feature = "with-tokio")]
+    pub fn http_client(&self) -> Arc<reqwest::Client> {
         Arc::clone(&self.http_client)
     }
 }
@@ -588,7 +576,7 @@ impl Bucket {
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             path_style: false,
             listobjects_v2: true,
-            #[cfg(any(feature = "use-tokio-native-tls", feature = "with-tokio"))]
+            #[cfg(any(feature = "tokio-native-tls", feature = "with-tokio"))]
             http_client: Arc::new(client(DEFAULT_REQUEST_TIMEOUT)?),
         }))
     }
@@ -614,7 +602,7 @@ impl Bucket {
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             path_style: false,
             listobjects_v2: true,
-            #[cfg(any(feature = "use-tokio-native-tls", feature = "with-tokio"))]
+            #[cfg(any(feature = "tokio-native-tls", feature = "with-tokio"))]
             http_client: Arc::new(client(DEFAULT_REQUEST_TIMEOUT)?),
         })
     }
@@ -629,7 +617,7 @@ impl Bucket {
             request_timeout: self.request_timeout,
             path_style: true,
             listobjects_v2: self.listobjects_v2,
-            #[cfg(any(feature = "use-tokio-native-tls", feature = "with-tokio"))]
+            #[cfg(any(feature = "tokio-native-tls", feature = "with-tokio"))]
             http_client: self.http_client.clone(),
         })
     }
@@ -644,7 +632,7 @@ impl Bucket {
             request_timeout: self.request_timeout,
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
-            #[cfg(any(feature = "use-tokio-native-tls", feature = "with-tokio"))]
+            #[cfg(any(feature = "tokio-native-tls", feature = "with-tokio"))]
             http_client: self.http_client.clone(),
         })
     }
@@ -662,7 +650,7 @@ impl Bucket {
             request_timeout: self.request_timeout,
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
-            #[cfg(any(feature = "use-tokio-native-tls", feature = "with-tokio"))]
+            #[cfg(any(feature = "tokio-native-tls", feature = "with-tokio"))]
             http_client: self.http_client.clone(),
         })
     }
@@ -677,7 +665,7 @@ impl Bucket {
             request_timeout: Some(request_timeout),
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
-            #[cfg(any(feature = "use-tokio-native-tls", feature = "with-tokio"))]
+            #[cfg(any(feature = "tokio-native-tls", feature = "with-tokio"))]
             http_client: Arc::new(client(Some(request_timeout))?),
         }))
     }
@@ -692,7 +680,7 @@ impl Bucket {
             request_timeout: self.request_timeout,
             path_style: self.path_style,
             listobjects_v2: false,
-            #[cfg(any(feature = "use-tokio-native-tls", feature = "with-tokio"))]
+            #[cfg(any(feature = "tokio-native-tls", feature = "with-tokio"))]
             http_client: self.http_client.clone(),
         }
     }

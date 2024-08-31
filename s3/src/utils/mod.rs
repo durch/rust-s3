@@ -108,6 +108,7 @@ impl GetAndConvertHeaders for http::header::HeaderMap {
     }
 }
 
+#[cfg(feature = "with-async-std")]
 impl From<&http::HeaderMap> for HeadObjectResult {
     fn from(headers: &http::HeaderMap) -> Self {
         let mut result = HeadObjectResult {
@@ -155,6 +156,109 @@ impl From<&http::HeaderMap> for HeadObjectResult {
         result.storage_class = headers.get_string("x-amz-storage-class");
         result.version_id = headers.get_string("x-amz-version-id");
         result.website_redirect_location = headers.get_string("x-amz-website-redirect-location");
+        result
+    }
+}
+
+#[cfg(feature = "with-tokio")]
+impl From<&reqwest::header::HeaderMap> for HeadObjectResult {
+    fn from(headers: &reqwest::header::HeaderMap) -> Self {
+        let mut result = HeadObjectResult {
+            accept_ranges: headers
+                .get("accept-ranges")
+                .map(|v| v.to_str().unwrap_or_default().to_string()),
+            cache_control: headers
+                .get("Cache-Control")
+                .map(|v| v.to_str().unwrap_or_default().to_string()),
+            content_disposition: headers
+                .get("Content-Disposition")
+                .map(|v| v.to_str().unwrap_or_default().to_string()),
+            content_encoding: headers
+                .get("Content-Encoding")
+                .map(|v| v.to_str().unwrap_or_default().to_string()),
+            content_language: headers
+                .get("Content-Language")
+                .map(|v| v.to_str().unwrap_or_default().to_string()),
+            content_length: headers
+                .get("Content-Length")
+                .map(|v| v.to_str().unwrap_or_default().parse().unwrap_or_default()),
+            content_type: headers
+                .get("Content-Type")
+                .map(|v| v.to_str().unwrap_or_default().to_string()),
+            delete_marker: headers
+                .get("x-amz-delete-marker")
+                .map(|v| v.to_str().unwrap_or_default().parse().unwrap_or_default()),
+            e_tag: headers
+                .get("ETag")
+                .map(|v| v.to_str().unwrap_or_default().to_string()),
+            expiration: headers
+                .get("x-amz-expiration")
+                .map(|v| v.to_str().unwrap_or_default().to_string()),
+            expires: headers
+                .get("Expires")
+                .map(|v| v.to_str().unwrap_or_default().to_string()),
+            last_modified: headers
+                .get("Last-Modified")
+                .map(|v| v.to_str().unwrap_or_default().to_string()),
+            ..Default::default()
+        };
+        let mut values = ::std::collections::HashMap::new();
+        for (key, value) in headers.iter() {
+            if key.as_str().starts_with("x-amz-meta-") {
+                if let Ok(value) = value.to_str() {
+                    values.insert(
+                        key.as_str()["x-amz-meta-".len()..].to_owned(),
+                        value.to_owned(),
+                    );
+                }
+            }
+        }
+        result.metadata = Some(values);
+        result.missing_meta = headers
+            .get("x-amz-missing-meta")
+            .map(|v| v.to_str().unwrap_or_default().parse().unwrap_or_default());
+        result.object_lock_legal_hold_status = headers
+            .get("x-amz-object-lock-legal-hold")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
+        result.object_lock_mode = headers
+            .get("x-amz-object-lock-mode")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
+        result.object_lock_retain_until_date = headers
+            .get("x-amz-object-lock-retain-until-date")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
+        result.parts_count = headers
+            .get("x-amz-mp-parts-count")
+            .map(|v| v.to_str().unwrap_or_default().parse().unwrap_or_default());
+        result.replication_status = headers
+            .get("x-amz-replication-status")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
+        result.request_charged = headers
+            .get("x-amz-request-charged")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
+        result.restore = headers
+            .get("x-amz-restore")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
+        result.sse_customer_algorithm = headers
+            .get("x-amz-server-side-encryption-customer-algorithm")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
+        result.sse_customer_key_md5 = headers
+            .get("x-amz-server-side-encryption-customer-key-MD5")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
+        result.ssekms_key_id = headers
+            .get("x-amz-server-side-encryption-aws-kms-key-id")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
+        result.server_side_encryption = headers
+            .get("x-amz-server-side-encryption")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
+        result.storage_class = headers
+            .get("x-amz-storage-class")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
+        result.version_id = headers
+            .get("x-amz-version-id")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
+        result.website_redirect_location = headers
+            .get("x-amz-website-redirect-location")
+            .map(|v| v.to_str().unwrap_or_default().to_string());
         result
     }
 }
