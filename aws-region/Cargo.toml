@@ -8,7 +8,7 @@ readme = "README.md"
 keywords = ["Amazon", "AWS", "S3", "R2", "Minio"]
 license = "MIT"
 documentation = "https://docs.rs/aws-region/latest/awsregion/"
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "awsregion"

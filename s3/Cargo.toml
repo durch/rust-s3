@@ -8,7 +8,7 @@ readme = "README.md"
 keywords = ["S3", "Wasabi", "Minio", "GCP", "R2"]
 license = "MIT"
 documentation = "https://docs.rs/rust-s3/latest/s3/"
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "s3"

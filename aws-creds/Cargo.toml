@@ -8,7 +8,7 @@ readme = "README.md"
 keywords = ["AWS", "S3", "Wasabi", "Minio", "R2"]
 license = "MIT"
 documentation = "https://docs.rs/aws-creds/latest/awscreds/"
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "awscreds"

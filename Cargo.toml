@@ -4,3 +4,5 @@ members = [
     "aws-region",
     "aws-creds"
 ]
+
+resolver = "2"
