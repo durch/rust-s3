@@ -929,6 +929,65 @@ impl Bucket {
         request.response_data(false).await
     }
 
+    /// Checks if an object exists at the specified S3 path.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let exists = bucket.object_exists("/test.file").await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let exists = bucket.object_exists("/test.file")?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let exists = bucket.object_exists_blocking("/test.file")?;
+    ///
+    /// if exists {
+    ///     println!("Object exists.");
+    /// } else {
+    ///     println!("Object does not exist.");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// This function will return an `Err` if the request to the S3 service fails or if there is an unexpected error.
+    /// It will return `Ok(false)` if the object does not exist (i.e., the server returns a 404 status code).
+    #[maybe_async::maybe_async]
+    pub async fn object_exists<S: AsRef<str>>(&self, path: S) -> Result<bool, S3Error> {
+        let command = Command::HeadObject;
+        let request = RequestImpl::new(self, path.as_ref(), command).await?;
+        let response_data = match request.response_data(false).await {
+            Ok(response_data) => response_data,
+            Err(S3Error::HttpFailWithBody(status_code, error)) => {
+                if status_code == 404 {
+                    return Ok(false);
+                }
+                return Err(S3Error::HttpFailWithBody(status_code, error));
+            }
+            Err(e) => return Err(e),
+        };
+        Ok(response_data.status_code() != 404)
+    }
+
     #[maybe_async::maybe_async]
     pub async fn put_bucket_cors(
         &self,
@@ -2721,6 +2780,7 @@ mod test {
     #[maybe_async::maybe_async]
     async fn put_head_get_delete_object(bucket: Bucket, head: bool) {
         let s3_path = "/+test.file";
+        let non_existant_path = "/+non_existant.file";
         let test: Vec<u8> = object(3072);
 
         let response_data = bucket.put_object(s3_path, &test).await.unwrap();
@@ -2728,6 +2788,12 @@ mod test {
         let response_data = bucket.get_object(s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
         assert_eq!(test, response_data.as_slice());
+
+        let exists = bucket.object_exists(s3_path).await.unwrap();
+        assert!(exists);
+
+        let not_exists = bucket.object_exists(non_existant_path).await.unwrap();
+        assert!(!not_exists);
 
         let response_data = bucket
             .get_object_range(s3_path, 100, Some(1000))
