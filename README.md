@@ -8,11 +8,11 @@
 
 Rust library for working with Amazon S3 or arbitrary S3 compatible APIs, fully compatible with **async/await** and `futures ^0.3`. All `async` features can be turned off and sync only implementations can be used.
 
-### Support further maintenance and development
+### :raised_hands: Support further maintenance and development
 
 As many have noted my attention to the this library oscialtes, the best way to ensure I keep maintaining and adding features to it is to donate som BTC, or become a sponsor. Thank you for the support!
 
-+ BTC - `bc1q7ukqe09zplg2sltgfrkukghpelfaz7qja8pw6u`
+**:moneybag: BTC :point_right: bc1q7ukqe09zplg2sltgfrkukghpelfaz7qja8pw6u**
 
 ### Intro
 

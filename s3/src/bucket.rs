@@ -94,7 +94,7 @@ use crate::serde_types::{
 };
 #[allow(unused_imports)]
 use crate::utils::{error_from_response_data, PutStreamResponse};
-use crate::PostPolicy;
+use crate::{init_once, PostPolicy};
 use http::header::HeaderName;
 use http::HeaderMap;
 
@@ -600,6 +600,9 @@ impl Bucket {
         region: Region,
         credentials: Credentials,
     ) -> Result<Box<Bucket>, S3Error> {
+        #[cfg(not(feature = "disable-call-for-funding"))]
+        init_once();
+
         #[cfg(feature = "with-tokio")]
         let options = ClientOptions::default();
 
