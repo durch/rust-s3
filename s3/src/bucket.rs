@@ -1,3 +1,38 @@
+//! # Rust S3 Bucket Operations
+//!
+//! This module provides functionality for interacting with S3 buckets and objects,
+//! including creating, listing, uploading, downloading, and deleting objects. It supports
+//! various features such as asynchronous and blocking operations, multipart uploads,
+//! presigned URLs, and tagging objects.
+//!
+//! ## Features
+//!
+//! The module supports the following features:
+//!
+//! - **blocking**: Enables blocking (synchronous) operations using the `block_on` macro.
+//! - **tags**: Adds support for managing S3 object tags.
+//! - **with-tokio**: Enables asynchronous operations using the Tokio runtime.
+//! - **with-async-std**: Enables asynchronous operations using the async-std runtime.
+//! - **sync**: Enables synchronous (blocking) operations using standard Rust synchronization primitives.
+//!
+//! ## Constants
+//!
+//! - `CHUNK_SIZE`: Defines the chunk size for multipart uploads (8 MiB).
+//! - `DEFAULT_REQUEST_TIMEOUT`: The default request timeout (60 seconds).
+//!
+//! ## Types
+//!
+//! - `Query`: A type alias for `HashMap<String, String>`, representing query parameters for requests.
+//!
+//! ## Structs
+//!
+//! - `Bucket`: Represents an S3 bucket, providing methods to interact with the bucket and its contents.
+//! - `Tag`: Represents a key-value pair used for tagging S3 objects.
+//!
+//! ## Errors
+//!
+//! - `S3Error`: Represents various errors that can occur during S3 operations.
+
 #[cfg(feature = "blocking")]
 use block_on_proc::block_on;
 #[cfg(feature = "tags")]

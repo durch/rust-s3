@@ -1,3 +1,41 @@
+//! This module provides utilities for configuring and managing Amazon S3 buckets, focusing on access control, bucket configuration, and handling responses from the S3 service.
+//! It includes structures for defining bucket access policies (both canned and custom), configuring various bucket properties, and parsing responses from S3 API calls like `ListBuckets`.
+//!
+//! ## Key Components
+//!
+//! - **CannedBucketAcl Enum**
+//!   - Represents standard predefined Amazon S3 access control lists (ACLs) for buckets.
+//!   - Variants include:
+//!     - `Private`: Only the owner has full control.
+//!     - `PublicRead`: Anyone can read objects in the bucket.
+//!     - `PublicReadWrite`: Anyone can read and write objects in the bucket.
+//!     - `AuthenticatedRead`: Only authenticated AWS users can read objects.
+//!     - `Custom(String)`: A custom ACL specified as a string.
+//!   - The `fmt::Display` trait is implemented to easily convert ACL variants into their corresponding string representations for HTTP headers.
+//!
+//! - **BucketAcl Enum**
+//!   - Represents more granular access controls using different types of identifiers:
+//!     - `Id`: A unique user ID.
+//!     - `Uri`: A URI specifying the group granted access.
+//!     - `Email`: An email address specifying the user granted access.
+//!   - The `fmt::Display` implementation allows these ACLs to be formatted as strings suitable for use in HTTP headers.
+//!
+//! - **BucketConfiguration Struct**
+//!   - Encapsulates the configuration for an S3 bucket, including:
+//!     - Optional ACL (`CannedBucketAcl`)
+//!     - Object lock settings
+//!     - Permissions for full control, read, write, and their respective ACLs.
+//!     - The region in which the bucket is located.
+//!   - Provides methods for setting default configurations, setting the region, and adding relevant headers to HTTP requests.
+//!
+//! - **CreateBucketResponse Struct**
+//!   - Represents the response from a bucket creation request, including the bucket reference and HTTP response details.
+//!   - Includes a method `success` to check if the bucket creation was successful (i.e., HTTP status code 200).
+//!
+//! - **ListBucketsResponse Struct**
+//!   - This structure is used to parse and hold the response from the `ListBuckets` API call.
+//!   - Provides methods for retrieving the list of bucket names from the response.
+
 use crate::error::S3Error;
 use crate::{Bucket, Region};
 

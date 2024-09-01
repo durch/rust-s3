@@ -1,6 +1,33 @@
 //! Implementation of [AWS V4 Signing][link]
 //!
 //! [link]: https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html
+//! //! This module implements AWS Signature Version 4 signing, which is used to authenticate requests to Amazon S3 and other AWS services. AWS Signature V4 is a process for adding authentication information to AWS requests. The module provides functions to generate canonical requests, sign them using HMAC-SHA256, and construct the necessary headers or query parameters to authorize requests.
+//!
+//! ## Key Functions
+//!
+//! - **uri_encode**: Encodes a URI according to AWS-specific rules, handling characters that must be percent-encoded.
+//!
+//! - **canonical_uri_string**: Generates a canonical URI string from a given URL, decoding and re-encoding the URL path as required by AWS.
+//!
+//! - **canonical_query_string**: Creates a canonical query string from the query parameters in a URL, ensuring they are sorted and encoded correctly.
+//!
+//! - **canonical_header_string**: Constructs a canonical header string from provided HTTP headers, ensuring they are sorted and formatted as required by AWS.
+//!
+//! - **signed_header_string**: Generates a string of signed headers from the provided headers, which is required for creating the authorization header.
+//!
+//! - **canonical_request**: Assembles the complete canonical request, which is a combination of the HTTP method, URI, query string, headers, and payload hash. This is the core of the AWS signing process.
+//!
+//! - **scope_string**: Generates the AWS scope string, which is used in the signing process to specify the AWS region, service, and request type.
+//!
+//! - **string_to_sign**: Constructs the string to sign, which is a key component in the AWS V4 signing process. This string is hashed and signed with the AWS secret key.
+//!
+//! - **signing_key**: Derives the AWS signing key using the secret key, date, region, and service name. This key is used to sign the string-to-sign.
+//!
+//! - **authorization_header**: Generates the Authorization header value, which includes the credential scope, signed headers, and the request signature. This header must be included in the signed AWS requests.
+//!
+//! - **authorization_query_params_no_sig**: Constructs query parameters for presigned URLs, excluding the final signature. This is used when creating presigned URLs for temporary access to S3 objects.
+//!
+//! - **flatten_queries**: Flattens a map of query parameters into a single query string, ensuring proper encoding.
 
 use std::collections::HashMap;
 use std::str;

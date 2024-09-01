@@ -1,3 +1,31 @@
+//! This module provides functionality for creating and managing S3 POST policies, which are used to generate presigned URLs for securely uploading files to S3 with specific conditions and metadata. It handles the generation of necessary conditions, expiration policies, and signing of the POST policy.
+//!
+//! ## Key Components
+//!
+//! - **PostPolicy Struct**
+//!   - Represents a POST policy that specifies conditions and expiration for an S3 upload.
+//!   - Can be constructed with an expiration time and modified by adding conditions for fields like `key`, `acl`, and more.
+//!   - Supports building a policy with AWS credentials and signing it to generate a `PresignedPost` object.
+//!
+//! - **PostPolicyField Enum**
+//!   - Enumerates various fields that can be included in a POST policy, such as `key`, `acl`, `content-length-range`, and AWS-specific fields like `x-amz-meta-*`.
+//!   - Allows for the addition of custom fields not predefined in the enum.
+//!
+//! - **PostPolicyValue Enum**
+//!   - Represents the value type associated with a `PostPolicyField`, including exact matches, start-with conditions, ranges, and wildcard matches.
+//!
+//! - **PostPolicyExpiration Enum**
+//!   - Defines the expiration of the POST policy, either as a duration from the current time or a specific timestamp.
+//!
+//! - **PresignedPost Struct**
+//!   - Contains the URL and fields necessary for making a POST request to S3, generated after signing a `PostPolicy`.
+//!   - Includes dynamic fields for conditions that vary at upload time, such as the key or content length.
+//!
+//! ## Error Handling
+//!
+//! - **PostPolicyError Enum**
+//!   - Contains error variants that can occur when constructing a POST policy, particularly when there is a mismatch between the expected and provided condition types.
+
 use crate::error::S3Error;
 use crate::utils::now_utc;
 use crate::{signing, Bucket, LONG_DATETIME};

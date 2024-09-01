@@ -1,3 +1,24 @@
+//! This module defines and manages various commands used for interacting with Amazon S3, encapsulating common operations such as creating buckets, uploading objects, and managing multipart uploads.
+//! It also provides utilities for calculating necessary metadata (like content length and SHA-256 hashes) required for secure and efficient communication with the S3 service.
+//!
+//! ## Key Components
+//!
+//! - **HttpMethod Enum**
+//!   - Represents HTTP methods used in S3 operations, including `GET`, `PUT`, `DELETE`, `POST`, and `HEAD`.
+//!   - Implements `fmt::Display` for easy conversion to string representations suitable for HTTP requests.
+//!
+//! - **Multipart Struct**
+//!   - Represents a part of a multipart upload, containing the part number and the associated upload ID.
+//!   - Provides methods for constructing a new multipart part and generating a query string for the S3 API.
+//!
+//! - **Command Enum**
+//!   - The core of this module, encapsulating various S3 operations, such as:
+//!     - Object management (`GetObject`, `PutObject`, `DeleteObject`, etc.)
+//!     - Bucket management (`CreateBucket`, `DeleteBucket`, etc.)
+//!     - Multipart upload management (`InitiateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload`, etc.)
+//!   - For each command, you can determine the associated HTTP method using `http_verb()` and calculate the content length or content type using `content_length()` and `content_type()` respectively.
+//!   - The `sha256()` method computes the SHA-256 hash of the request payload, a critical part of S3's security features.
+//!
 use std::collections::HashMap;
 
 use crate::error::S3Error;
