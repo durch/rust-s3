@@ -83,7 +83,7 @@ impl<'a> Request for AttoRequest<'a> {
     }
 
     fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
-        let response = self.response()?;
+        let response = crate::retry! {self.response()}?;
         let status_code = response.status().as_u16();
 
         let response_headers = response
@@ -112,7 +112,7 @@ impl<'a> Request for AttoRequest<'a> {
     }
 
     fn response_data_to_writer<T: Write + ?Sized>(&self, writer: &mut T) -> Result<u16, S3Error> {
-        let mut response = self.response()?;
+        let mut response = crate::retry! {self.response()}?;
 
         let status_code = response.status();
         io::copy(&mut response, writer)?;
@@ -121,7 +121,7 @@ impl<'a> Request for AttoRequest<'a> {
     }
 
     fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error> {
-        let response = self.response()?;
+        let response = crate::retry! {self.response()}?;
         let status_code = response.status().as_u16();
         let headers = response.headers().clone();
         Ok((headers, status_code))

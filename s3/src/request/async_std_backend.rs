@@ -85,7 +85,7 @@ impl<'a> Request for SurfRequest<'a> {
     }
 
     async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
-        let mut response = self.response().await?;
+        let mut response = crate::retry! {self.response().await}?;
         let status_code = response.status();
 
         let response_headers = response
@@ -120,7 +120,7 @@ impl<'a> Request for SurfRequest<'a> {
     ) -> Result<u16, S3Error> {
         let mut buffer = Vec::new();
 
-        let response = self.response().await?;
+        let response = crate::retry! {self.response().await}?;
 
         let status_code = response.status();
 
@@ -135,7 +135,7 @@ impl<'a> Request for SurfRequest<'a> {
 
     async fn response_header(&self) -> Result<(HeaderMap, u16), S3Error> {
         let mut header_map = HeaderMap::new();
-        let response = self.response().await?;
+        let response = crate::retry! {self.response().await}?;
         let status_code = response.status();
 
         for (name, value) in response.iter() {
@@ -150,7 +150,7 @@ impl<'a> Request for SurfRequest<'a> {
     }
 
     async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
-        let mut response = self.response().await?;
+        let mut response = crate::retry! {self.response().await}?;
         let status_code = response.status();
 
         let body = response

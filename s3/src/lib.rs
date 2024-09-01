@@ -5,6 +5,7 @@
 extern crate serde_derive;
 
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU8;
 
 pub use awscreds as creds;
 pub use awsregion as region;
@@ -34,6 +35,48 @@ const EMPTY_PAYLOAD_SHA: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934
 
 #[cfg(not(feature = "disable-call-for-funding"))]
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+static RETRIES: AtomicU8 = AtomicU8::new(1);
+
+/// Sets the number of retries for operations that may fail and need to be retried.
+///
+/// This function stores the specified number of retries in an atomic variable,
+/// which can be safely shared across threads. This is used by the retry! macro to automatically retry all requests.
+///
+/// # Arguments
+///
+/// * `retries` - The number of retries to set.
+///
+/// # Example
+///
+/// ```rust
+/// use s3::set_retries;
+///
+/// set_retries(3);
+/// ```
+pub fn set_retries(retries: u8) {
+    RETRIES.store(retries, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Retrieves the current number of retries set for operations.
+///
+/// This function loads the value of the atomic variable storing the number of retries,
+/// which can be safely accessed across threads.
+///
+/// # Returns
+///
+/// The number of retries currently set, as a `u64`.
+///
+/// # Example
+///
+/// ```rust
+///  use s3::get_retries;
+///
+/// let retries = get_retries();
+/// ```
+pub fn get_retries() -> u64 {
+    RETRIES.load(std::sync::atomic::Ordering::Relaxed) as u64
+}
 
 #[cfg(not(feature = "disable-call-for-funding"))]
 #[inline(always)]

@@ -374,6 +374,59 @@ pub(crate) fn error_from_response_data(response_data: ResponseData) -> Result<S3
     ))
 }
 
+/// Retries a given expression a specified number of times with exponential backoff.
+///
+/// This macro attempts to execute the provided expression up to `N` times, where `N`
+/// is the value set by `set_retries`. If the expression returns `Ok`, it returns the value.
+/// If the expression returns `Err`, it logs a warning and retries after a delay that increases
+/// exponentially with each retry.
+///
+/// The delay between retries is calculated as `1 * retry_cnt.pow(2)` seconds, where `retry_cnt`
+/// is the current retry attempt.
+///
+/// This macro supports both asynchronous and synchronous contexts:
+/// - For `tokio` users, it uses `tokio::time::sleep`.
+/// - For `async-std` users, it uses `async_std::task::sleep`.
+/// - For synchronous contexts, it uses `std::thread::sleep`.
+///
+/// # Features
+///
+/// - `with-tokio`: Uses `tokio::time::sleep` for async retries.
+/// - `with-async-std`: Uses `async_std::task::sleep` for async retries.
+/// - `sync`: Uses `std::thread::sleep` for sync retries.
+///
+/// # Errors
+///
+/// If all retry attempts fail, the last error is returned.
+#[macro_export]
+macro_rules! retry {
+    ($e:expr) => {{
+        let mut retry_cnt: u64 = 0;
+        let max_retries = $crate::get_retries();
+
+        loop {
+            match $e {
+                Ok(v) => break Ok(v),
+                Err(e) => {
+                    log::warn!("Retrying {e}");
+                    if retry_cnt >= max_retries {
+                        break Err(e);
+                    }
+                    retry_cnt += 1;
+                    let delay = std::time::Duration::from_secs(1 * retry_cnt.pow(2));
+                    #[cfg(feature = "with-tokio")]
+                    tokio::time::sleep(delay).await;
+                    #[cfg(feature = "with-async-std")]
+                    async_std::task::sleep(delay).await;
+                    #[cfg(feature = "sync")]
+                    std::thread::sleep(delay);
+                    continue;
+                }
+            }
+        }
+    }};
+}
+
 #[cfg(test)]
 mod test {
     use crate::utils::etag_for_path;
