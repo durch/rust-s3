@@ -71,7 +71,7 @@ sha2 = "0.10"
 surf = { version = "2", optional = true, default-features = false, features = [
     "h1-client-rustls",
 ] }
-thiserror = "1"
+thiserror = { version = "1", default-features = false }
 time = { version = "^0.3.6", features = [
     "formatting",
     "macros",
