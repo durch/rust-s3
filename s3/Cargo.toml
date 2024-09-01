@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.36.0-alpha.2"
+version = "0.36.0-alpha.3"
 authors = ["Drazen Urch"]
 description = "Rust library for working with AWS S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -51,9 +51,7 @@ base64 = "0.22"
 block_on_proc = { version = "0.2", optional = true }
 bytes = { version = "1.2" }
 cfg-if = "1"
-futures = { version = "0.3", optional = true }
-futures-io = { version = "0.3", optional = true }
-futures-util = { version = "0.3", optional = true, features = ["io"] }
+futures = { version = "0.3", optional = true, default-features = false }
 hex = "0.4"
 hmac = "0.12"
 http = "1"
@@ -63,15 +61,24 @@ md5 = "0.7"
 minidom = { version = "0.16", optional = true }
 percent-encoding = "2"
 quick-xml = { version = "0.36", features = ["serialize"] }
-reqwest = { version = "0.12", optional = true, features = ["stream",], default-features = false }
+reqwest = { version = "0.12", optional = true, features = [
+    "stream",
+], default-features = false }
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
 sha2 = "0.10"
-surf = { version = "2", optional = true, default-features = false, features = ["h1-client-rustls",] }
+surf = { version = "2", optional = true, default-features = false, features = [
+    "h1-client-rustls",
+] }
 thiserror = "1"
-time = { version = "^0.3.6", features = ["formatting", "macros"], default-features = false}
-tokio = { version = "1", features = ["io-util",], optional = true, default-features = false }
+time = { version = "^0.3.6", features = [
+    "formatting",
+    "macros",
+], default-features = false }
+tokio = { version = "1", features = [
+    "io-util",
+], optional = true, default-features = false }
 tokio-native-tls = { version = "0.3", optional = true }
 tokio-rustls = { version = "0.26", optional = true }
 tokio-stream = { version = "0.1", optional = true }
@@ -81,12 +88,11 @@ url = "2"
 default = ["tags", "tokio-native-tls", "fail-on-err"]
 
 sync = ["attohttpc", "maybe-async/is_sync"]
-with-async-std = ["async-std", "surf", "futures-io", "futures-util", "futures"]
+with-async-std = ["async-std", "surf", "futures"]
 with-tokio = ["reqwest", "tokio", "tokio/fs", "tokio-stream", "futures"]
 
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]
 fail-on-err = []
-no-verify-ssl = []
 tags = ["minidom"]
 
 http-credentials = ["aws-creds/http-credentials"]

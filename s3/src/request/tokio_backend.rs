@@ -17,23 +17,41 @@ use crate::utils::now_utc;
 
 use tokio_stream::StreamExt;
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ClientOptions {
+    pub request_timeout: Option<std::time::Duration>,
+    pub proxy: Option<reqwest::Proxy>,
+    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    pub accept_invalid_certs: bool,
+    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    pub accept_invalid_hostnames: bool,
+}
+
 #[cfg(feature = "with-tokio")]
-pub fn client(request_timeout: Option<std::time::Duration>) -> Result<reqwest::Client, S3Error> {
+pub(crate) fn client(options: &ClientOptions) -> Result<reqwest::Client, S3Error> {
     let client = reqwest::Client::builder();
 
-    let client = if let Some(timeout) = request_timeout {
+    let client = if let Some(timeout) = options.request_timeout {
         client.timeout(timeout)
+    } else {
+        client
+    };
+
+    let client = if let Some(ref proxy) = options.proxy {
+        client.proxy(proxy.clone())
     } else {
         client
     };
 
     cfg_if::cfg_if! {
         if #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))] {
-            let client = if cfg!(feature = "no-verify-ssl") {
-                client.danger_accept_invalid_certs(true)
-            } else {
-                client
-            };
+            let client = client.danger_accept_invalid_certs(options.accept_invalid_certs);
+        }
+    }
+
+    cfg_if::cfg_if! {
+        if #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))] {
+            let client = client.danger_accept_invalid_hostnames(options.accept_invalid_hostnames);
         }
     }
 

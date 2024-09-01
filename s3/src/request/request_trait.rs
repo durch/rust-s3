@@ -22,7 +22,7 @@ use http::HeaderMap;
 use std::fmt::Write as _;
 
 #[cfg(feature = "with-async-std")]
-use futures_util::Stream;
+use async_std::stream::Stream;
 
 #[cfg(feature = "with-tokio")]
 use tokio_stream::Stream;
@@ -132,7 +132,7 @@ pub trait Request {
         writer: &mut T,
     ) -> Result<u16, S3Error>;
     #[cfg(feature = "with-async-std")]
-    async fn response_data_to_writer<T: futures_io::AsyncWrite + Send + Unpin + ?Sized>(
+    async fn response_data_to_writer<T: async_std::io::Write + Send + Unpin + ?Sized>(
         &self,
         writer: &mut T,
     ) -> Result<u16, S3Error>;

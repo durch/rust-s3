@@ -4,12 +4,12 @@ sync-all: sync-nativetls sync-rustlstls sync-nossl
 ci: clippy fmt-check
 
 clippy: tokio-clippy async-std-clippy sync-clippy
-tokio-clippy: tokio-nativetls-clippy tokio-nossl-clippy tokio-noverify-clippy tokio-rustlstls-clippy
+tokio-clippy: tokio-nativetls-clippy tokio-nossl-clippy tokio-rustlstls-clippy
 sync-clippy: sync-nativetls-clippy sync-nossl-clippy sync-rustlstls-clippy
 
 # tokio
-tokio: tokio-nativetls tokio-nossl tokio-noverify tokio-rustlstls
-tokio-not-ignored: tokio-nativetls-test-not-ignored tokio-nossl-test-not-ignored tokio-noverify-test-not-ignored tokio-rustlstls-test-not-ignored
+tokio: tokio-nativetls tokio-nossl tokio-rustlstls
+tokio-not-ignored: tokio-nativetls-test-not-ignored tokio-nossl-test-not-ignored-not-ignored tokio-rustlstls-test-not-ignored
 
 tokio-nativetls: tokio-nativetls-clippy tokio-nativetls-test tokio-nativetls-blocking-test-ignored
 tokio-nativetls-clippy:
@@ -27,12 +27,6 @@ tokio-nossl-clippy:
 	cargo clippy --no-default-features --features with-tokio --features aws-creds/http-credentials -- -D warnings
 tokio-nossl-test-not-ignored:
 	cargo test --no-default-features --features with-tokio --features aws-creds/http-credentials
-
-tokio-noverify: tokio-noverify-test-not-ignored tokio-noverify-clippy
-tokio-noverify-clippy:
-	cargo clippy --no-default-features --features with-tokio --features no-verify-ssl --features aws-creds/http-credentials -- -D warnings
-tokio-noverify-test-not-ignored:
-	cargo test --no-default-features --features with-tokio --features no-verify-ssl --features aws-creds/http-credentials
 
 tokio-rustlstls: tokio-rustlstls-test-not-ignored tokio-rustlstls-test-ignored tokio-rustlstls-clippy
 tokio-rustlstls-clippy:
