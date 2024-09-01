@@ -37,16 +37,41 @@ tokio-rustlstls-test-ignored:
 	cargo test --no-default-features --features with-tokio --features tokio-rustls-tls --features aws-creds/http-credentials -- --ignored
 
 # async-std
-async-std: async-std-clippy async-std-test async-std-clippy
+async-std: async-std-clippy async-std-test async-std-clippy async-std-native-tls async-std-rustls-tls
 async-std-clippy:
-	cargo clippy --no-default-features --features with-async-std --features aws-creds/http-credentials -- -D warnings
+	cargo clippy --no-default-features --features with-async-std-hyper --features aws-creds/http-credentials -- -D warnings
 async-std-test: async-std-test-not-ignored async-std-test-ignored async-std-test-blocking-ignored
 async-std-test-not-ignored:
-	cargo test --no-default-features --features with-async-std --features aws-creds/http-credentials
+	cargo test --no-default-features --features with-async-std-hyper --features aws-creds/http-credentials
 async-std-test-ignored:
-	cargo test --no-default-features --features with-async-std --features aws-creds/http-credentials -- --ignored
+	cargo test --no-default-features --features with-async-std-hyper --features aws-creds/http-credentials -- --ignored
 async-std-test-blocking-ignored:
-	cargo test --no-default-features --features with-async-std --features blocking --features aws-creds/http-credentials -- --ignored
+	cargo test --no-default-features --features with-async-std-hyper --features blocking --features aws-creds/http-credentials -- --ignored
+
+async-std-native-tls: async-std-clippy-native-tls async-std-test-native-tls async-std-clippy-native-tls
+async-std-clippy-native-tls:
+	cargo clippy --no-default-features --features async-std-native-tls --features aws-creds/http-credentials -- -D warnings
+async-std-test-native-tls: async-std-test-not-ignored async-std-test-ignored async-std-test-blocking-ignored
+async-std-test-not-ignored-native-tls:
+	cargo test --no-default-features --features async-std-native-tls --features aws-creds/http-credentials
+async-std-test-ignored-native-tls:
+	cargo test --no-default-features --features async-std-native-tls --features aws-creds/http-credentials -- --ignored
+async-std-test-blocking-ignored-native-tls:
+	cargo test --no-default-features --features async-std-native-tls --features blocking --features aws-creds/http-credentials -- --ignored
+
+async-std-rustls-tls: async-std-clippy-rustls-tls async-std-test-rustls-tls async-std-clippy-rustls-tls
+async-std-clippy-rustls-tls:
+	cargo clippy --no-default-features --features async-std-rustls-tls --features aws-creds/http-credentials -- -D warnings
+async-std-test-rustls-tls: async-std-test-not-ignored async-std-test-ignored async-std-test-blocking-ignored
+async-std-test-not-ignored-rustls-tls:
+	cargo test --no-default-features --features async-std-rustls-tls --features aws-creds/http-credentials
+async-std-test-ignored-rustls-tls:
+	cargo test --no-default-features --features async-std-rustls-tls --features aws-creds/http-credentials -- --ignored
+async-std-test-blocking-ignored-rustls-tls:
+	cargo test --no-default-features --features async-std-rustls-tls --features blocking --features aws-creds/http-credentials -- --ignored
+
+
+
 
 # sync
 sync-nativetls: sync-nativetls-clippy sync-nativetls-test
