@@ -50,9 +50,7 @@ static RETRIES: AtomicU8 = AtomicU8::new(1);
 /// # Example
 ///
 /// ```rust
-/// use s3::set_retries;
-///
-/// set_retries(3);
+/// s3::set_retries(3);
 /// ```
 pub fn set_retries(retries: u8) {
     RETRIES.store(retries, std::sync::atomic::Ordering::SeqCst);
@@ -70,12 +68,10 @@ pub fn set_retries(retries: u8) {
 /// # Example
 ///
 /// ```rust
-///  use s3::get_retries;
-///
-/// let retries = get_retries();
+/// let retries = s3::get_retries();
 /// ```
-pub fn get_retries() -> u64 {
-    RETRIES.load(std::sync::atomic::Ordering::Relaxed) as u64
+pub fn get_retries() -> u8 {
+    RETRIES.load(std::sync::atomic::Ordering::Relaxed) as u8
 }
 
 #[cfg(not(feature = "disable-call-for-funding"))]

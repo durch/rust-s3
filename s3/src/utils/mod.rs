@@ -402,7 +402,7 @@ pub(crate) fn error_from_response_data(response_data: ResponseData) -> Result<S3
 macro_rules! retry {
     ($e:expr) => {{
         let mut retry_cnt: u64 = 0;
-        let max_retries = $crate::get_retries();
+        let max_retries = $crate::get_retries() as u64;
 
         loop {
             match $e {
