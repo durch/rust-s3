@@ -102,7 +102,9 @@ impl<'a> Request for ReqwestRequest<'a> {
             .headers(headers)
             .body(self.request_body()?);
 
-        let response = client.execute(request.build()?).await?;
+        let request = request.build()?;
+
+        let response = client.execute(request).await?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             let status = response.status().as_u16();

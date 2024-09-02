@@ -76,20 +76,24 @@ pub fn get_retries() -> u8 {
 #[cfg(not(feature = "disable-call-for-funding"))]
 #[inline(always)]
 pub(crate) fn init_once() {
-    use ansi_term::Colour::{Blue, Yellow};
+    use ansi_term::{
+        Colour::{Blue, Yellow},
+        Style,
+    };
 
     if !INITIALIZED.load(std::sync::atomic::Ordering::Relaxed) {
         INITIALIZED.store(true, std::sync::atomic::Ordering::SeqCst);
         eprintln!(
-            "            {0}------------------------------------------------------------------------------------------------{0}\n
-              Support {1} crate development by donating {2} to {3} \n
-                                               {0}--- {4} ---{0}  \n
-            {0}------------------------------------------------------------------------------------------------{0}",
+            "            {0}---------------------------------------------------------------------------------{0}\n
+              Support {1} crate -> {5} {2} to {3} \n
+                                       {0}--- {4} ---{0}  \n
+            {0}---------------------------------------------------------------------------------{0}",
              Yellow.bold().paint("<>"),
         Yellow.bold().paint("rust-s3"),
         Yellow.bold().paint("BTC"),
         Yellow.bold().paint("bc1q7ukqe09zplg2sltgfrkukghpelfaz7qja8pw6u"),
-        Blue.bold().paint("Thank you!"),
+        Blue.bold().paint("Thank You!"),
+        Style::new().bold().underline().paint("donate"),
     );
     }
 }

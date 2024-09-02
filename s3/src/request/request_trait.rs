@@ -178,8 +178,11 @@ pub trait Request {
             } else {
                 Vec::new()
             }
-        } else if let Command::PutBucketLifecycle { configuration } = &self.command() {
+        } else if let Command::PutBucketLifecycle { configuration, .. } = &self.command() {
             quick_xml::se::to_string(configuration)?.as_bytes().to_vec()
+        } else if let Command::PutBucketCors { configuration, .. } = &self.command() {
+            let cors = configuration.to_string();
+            cors.as_bytes().to_vec()
         } else {
             Vec::new()
         };
@@ -395,6 +398,11 @@ pub trait Request {
             | Command::DeleteBucketLifecycle => {
                 url_str.push_str("?lifecycle");
             }
+            Command::GetBucketCors { .. }
+            | Command::PutBucketCors { .. }
+            | Command::DeleteBucketCors { .. } => {
+                url_str.push_str("?cors");
+            }
             _ => {}
         }
 
@@ -607,6 +615,36 @@ pub trait Request {
             let hash = general_purpose::STANDARD.encode(digest.as_ref());
             headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
             headers.remove("x-amz-content-sha256");
+        } else if let Command::PutBucketCors {
+            expected_bucket_owner,
+            configuration,
+            ..
+        } = self.command()
+        {
+            let digest = md5::compute(configuration.to_string().as_bytes());
+            let hash = general_purpose::STANDARD.encode(digest.as_ref());
+            headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
+
+            headers.insert(
+                HeaderName::from_static("x-amz-expected-bucket-owner"),
+                expected_bucket_owner.parse()?,
+            );
+        } else if let Command::GetBucketCors {
+            expected_bucket_owner,
+        } = self.command()
+        {
+            headers.insert(
+                HeaderName::from_static("x-amz-expected-bucket-owner"),
+                expected_bucket_owner.parse()?,
+            );
+        } else if let Command::DeleteBucketCors {
+            expected_bucket_owner,
+        } = self.command()
+        {
+            headers.insert(
+                HeaderName::from_static("x-amz-expected-bucket-owner"),
+                expected_bucket_owner.parse()?,
+            );
         }
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided

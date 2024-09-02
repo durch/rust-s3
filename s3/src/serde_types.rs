@@ -63,7 +63,7 @@ pub struct MultipartUpload {
     pub id: String,
 }
 
-use std::fmt;
+use std::fmt::{self};
 
 impl fmt::Display for CompleteMultipartUploadData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -319,7 +319,7 @@ pub struct AwsError {
     pub request_id: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename = "CORSConfiguration")]
 pub struct CorsConfiguration {
     #[serde(rename = "CORSRule")]
@@ -332,7 +332,21 @@ impl CorsConfiguration {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+impl fmt::Display for CorsConfiguration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let cors = quick_xml::se::to_string(&self).map_err(|_| fmt::Error)?;
+        let preamble = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
+        let cors = format!("{}{}", preamble, cors);
+        let cors = cors.replace(
+            "<CORSConfiguration>",
+            "<CORSConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">",
+        );
+
+        write!(f, "{}", cors)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct CorsRule {
     #[serde(rename = "AllowedHeader")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -344,6 +358,7 @@ pub struct CorsRule {
     #[serde(rename = "ExposeHeader")]
     #[serde(skip_serializing_if = "Option::is_none")]
     expose_headers: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "ID")]
     id: Option<String>,
     #[serde(rename = "MaxAgeSeconds")]

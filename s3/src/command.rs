@@ -150,8 +150,15 @@ pub enum Command<'a> {
     },
     DeleteBucket,
     ListBuckets,
+    GetBucketCors {
+        expected_bucket_owner: String,
+    },
     PutBucketCors {
+        expected_bucket_owner: String,
         configuration: CorsConfiguration,
+    },
+    DeleteBucketCors {
+        expected_bucket_owner: String,
     },
     GetBucketLifecycle,
     PutBucketLifecycle {
@@ -165,6 +172,7 @@ impl<'a> Command<'a> {
         match *self {
             Command::GetObject
             | Command::GetObjectTorrent
+            | Command::GetBucketCors { .. }
             | Command::GetObjectRange { .. }
             | Command::ListBuckets
             | Command::ListObjects { .. }
@@ -187,6 +195,7 @@ impl<'a> Command<'a> {
             | Command::AbortMultipartUpload { .. }
             | Command::PresignDelete { .. }
             | Command::DeleteBucket
+            | Command::DeleteBucketCors { .. }
             | Command::DeleteBucketLifecycle => HttpMethod::Delete,
             Command::InitiateMultipartUpload { .. } | Command::CompleteMultipartUpload { .. } => {
                 HttpMethod::Post
@@ -212,7 +221,31 @@ impl<'a> Command<'a> {
             Command::PutBucketLifecycle { configuration } => {
                 quick_xml::se::to_string(configuration)?.as_bytes().len()
             }
-            _ => 0,
+            Command::PutBucketCors { configuration, .. } => {
+                configuration.to_string().as_bytes().len()
+            }
+            Command::HeadObject => 0,
+            Command::DeleteObject => 0,
+            Command::DeleteObjectTagging => 0,
+            Command::GetObject => 0,
+            Command::GetObjectTorrent => 0,
+            Command::GetObjectRange { .. } => 0,
+            Command::GetObjectTagging => 0,
+            Command::ListMultipartUploads { .. } => 0,
+            Command::ListObjects { .. } => 0,
+            Command::ListObjectsV2 { .. } => 0,
+            Command::GetBucketLocation => 0,
+            Command::PresignGet { .. } => 0,
+            Command::PresignPut { .. } => 0,
+            Command::PresignDelete { .. } => 0,
+            Command::InitiateMultipartUpload { .. } => 0,
+            Command::AbortMultipartUpload { .. } => 0,
+            Command::DeleteBucket => 0,
+            Command::ListBuckets => 0,
+            Command::GetBucketCors { .. } => 0,
+            Command::DeleteBucketCors { .. } => 0,
+            Command::GetBucketLifecycle => 0,
+            Command::DeleteBucketLifecycle { .. } => 0,
         };
         Ok(result)
     }
@@ -221,10 +254,34 @@ impl<'a> Command<'a> {
         match self {
             Command::InitiateMultipartUpload { content_type } => content_type.to_string(),
             Command::PutObject { content_type, .. } => content_type.to_string(),
-            Command::CompleteMultipartUpload { .. } | Command::PutBucketLifecycle { .. } => {
-                "application/xml".into()
-            }
-            _ => "text/plain".into(),
+            Command::CompleteMultipartUpload { .. }
+            | Command::PutBucketLifecycle { .. }
+            | Command::PutBucketCors { .. } => "application/xml".into(),
+            Command::HeadObject => "text/plain".into(),
+            Command::DeleteObject => "text/plain".into(),
+            Command::DeleteObjectTagging => "text/plain".into(),
+            Command::GetObject => "text/plain".into(),
+            Command::GetObjectTorrent => "text/plain".into(),
+            Command::GetObjectRange { .. } => "text/plain".into(),
+            Command::GetObjectTagging => "text/plain".into(),
+            Command::ListMultipartUploads { .. } => "text/plain".into(),
+            Command::ListObjects { .. } => "text/plain".into(),
+            Command::ListObjectsV2 { .. } => "text/plain".into(),
+            Command::GetBucketLocation => "text/plain".into(),
+            Command::PresignGet { .. } => "text/plain".into(),
+            Command::PresignPut { .. } => "text/plain".into(),
+            Command::PresignDelete { .. } => "text/plain".into(),
+            Command::AbortMultipartUpload { .. } => "text/plain".into(),
+            Command::DeleteBucket => "text/plain".into(),
+            Command::ListBuckets => "text/plain".into(),
+            Command::GetBucketCors { .. } => "text/plain".into(),
+            Command::DeleteBucketCors { .. } => "text/plain".into(),
+            Command::GetBucketLifecycle => "text/plain".into(),
+            Command::DeleteBucketLifecycle { .. } => "text/plain".into(),
+            Command::CopyObject { .. } => "text/plain".into(),
+            Command::PutObjectTagging { .. } => "text/plain".into(),
+            Command::UploadPart { .. } => "text/plain".into(),
+            Command::CreateBucket { .. } => "text/plain".into(),
         }
     }
 
@@ -254,7 +311,40 @@ impl<'a> Command<'a> {
                     EMPTY_PAYLOAD_SHA.into()
                 }
             }
-            _ => EMPTY_PAYLOAD_SHA.into(),
+            Command::PutBucketLifecycle { configuration } => {
+                let mut sha = Sha256::default();
+                sha.update(quick_xml::se::to_string(configuration)?.as_bytes());
+                hex::encode(sha.finalize().as_slice())
+            }
+            Command::PutBucketCors { configuration, .. } => {
+                let mut sha = Sha256::default();
+                sha.update(configuration.to_string().as_bytes());
+                hex::encode(sha.finalize().as_slice())
+            }
+            Command::HeadObject => EMPTY_PAYLOAD_SHA.into(),
+            Command::DeleteObject => EMPTY_PAYLOAD_SHA.into(),
+            Command::DeleteObjectTagging => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetObject => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetObjectTorrent => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetObjectRange { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetObjectTagging => EMPTY_PAYLOAD_SHA.into(),
+            Command::ListMultipartUploads { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::ListObjects { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::ListObjectsV2 { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetBucketLocation => EMPTY_PAYLOAD_SHA.into(),
+            Command::PresignGet { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::PresignPut { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::PresignDelete { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::AbortMultipartUpload { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::DeleteBucket => EMPTY_PAYLOAD_SHA.into(),
+            Command::ListBuckets => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetBucketCors { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::DeleteBucketCors { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetBucketLifecycle => EMPTY_PAYLOAD_SHA.into(),
+            Command::DeleteBucketLifecycle { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::CopyObject { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::UploadPart { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::InitiateMultipartUpload { .. } => EMPTY_PAYLOAD_SHA.into(),
         };
         Ok(result)
     }

@@ -991,12 +991,41 @@ impl Bucket {
     #[maybe_async::maybe_async]
     pub async fn put_bucket_cors(
         &self,
-        cors_config: CorsConfiguration,
+        expected_bucket_owner: &str,
+        cors_config: &CorsConfiguration,
     ) -> Result<ResponseData, S3Error> {
         let command = Command::PutBucketCors {
-            configuration: cors_config,
+            expected_bucket_owner: expected_bucket_owner.to_string(),
+            configuration: cors_config.clone(),
         };
-        let request = RequestImpl::new(self, "?cors", command).await?;
+        let request = RequestImpl::new(self, "", command).await?;
+        request.response_data(false).await
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn get_bucket_cors(
+        &self,
+        expected_bucket_owner: &str,
+    ) -> Result<CorsConfiguration, S3Error> {
+        let command = Command::GetBucketCors {
+            expected_bucket_owner: expected_bucket_owner.to_string(),
+        };
+        let request = RequestImpl::new(self, "", command).await?;
+        let response = request.response_data(false).await?;
+        Ok(quick_xml::de::from_str::<CorsConfiguration>(
+            response.as_str()?,
+        )?)
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn delete_bucket_cors(
+        &self,
+        expected_bucket_owner: &str,
+    ) -> Result<ResponseData, S3Error> {
+        let command = Command::DeleteBucketCors {
+            expected_bucket_owner: expected_bucket_owner.to_string(),
+        };
+        let request = RequestImpl::new(self, "", command).await?;
         request.response_data(false).await
     }
 
@@ -2802,8 +2831,8 @@ mod test {
         assert_eq!(response_data.status_code(), 206);
         assert_eq!(test[100..1001].to_vec(), response_data.as_slice());
         if head {
-            let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
-            println!("{:?}", head_object_result);
+            let (_head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+            // println!("{:?}", head_object_result);
             assert_eq!(code, 200);
         }
 
@@ -3529,7 +3558,7 @@ mod test {
         )
     )]
     #[ignore]
-    async fn test_put_bucket_cors() {
+    async fn test_bucket_cors() {
         let bucket = test_aws_bucket();
         let rule = CorsRule::new(
             None,
@@ -3539,8 +3568,18 @@ mod test {
             None,
             None,
         );
+        let expected_bucket_owner = "904662384344";
         let cors_config = CorsConfiguration::new(vec![rule]);
-        let response = bucket.put_bucket_cors(cors_config).await.unwrap();
-        assert_eq!(response.status_code(), 200)
+        let response = bucket
+            .put_bucket_cors(expected_bucket_owner, &cors_config)
+            .await
+            .unwrap();
+        assert_eq!(response.status_code(), 200);
+
+        let cors_response = bucket.get_bucket_cors(expected_bucket_owner).await.unwrap();
+        assert_eq!(cors_response, cors_config);
+
+        let response = bucket.delete_bucket_cors(expected_bucket_owner).await.unwrap();
+        assert_eq!(response.status_code(), 204);
     }
 }
