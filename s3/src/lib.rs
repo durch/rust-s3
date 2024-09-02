@@ -13,7 +13,6 @@ pub use awsregion as region;
 pub use bucket::Bucket;
 pub use bucket::Tag;
 pub use bucket_ops::BucketConfiguration;
-use log::info;
 pub use post_policy::{PostPolicy, PostPolicyChecksum, PostPolicyField, PostPolicyValue};
 pub use region::Region;
 
@@ -71,16 +70,33 @@ pub fn set_retries(retries: u8) {
 /// let retries = s3::get_retries();
 /// ```
 pub fn get_retries() -> u8 {
-    RETRIES.load(std::sync::atomic::Ordering::Relaxed) as u8
+    RETRIES.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[cfg(not(feature = "disable-call-for-funding"))]
 #[inline(always)]
 pub(crate) fn init_once() {
+    use ansi_term::Colour::{Blue, Yellow};
+
     if !INITIALIZED.load(std::sync::atomic::Ordering::Relaxed) {
         INITIALIZED.store(true, std::sync::atomic::Ordering::SeqCst);
-        info!(
-            "###############################################################################################################\nSupport further `rust-s3` development by donating BTC to bc1q7ukqe09zplg2sltgfrkukghpelfaz7qja8pw6u. Thank you!\n###############################################################################################################"
-        );
+        eprintln!(
+            "            {0}------------------------------------------------------------------------------------------------{0}\n
+              Support {1} crate development by donating {2} to {3} \n
+                                               {0}--- {4} ---{0}  \n
+            {0}------------------------------------------------------------------------------------------------{0}",
+             Yellow.bold().paint("<>"),
+        Yellow.bold().paint("rust-s3"),
+        Yellow.bold().paint("BTC"),
+        Yellow.bold().paint("bc1q7ukqe09zplg2sltgfrkukghpelfaz7qja8pw6u"),
+        Blue.bold().paint("Thank you!"),
+    );
+    }
+}
+
+mod test {
+    #[test]
+    fn test_funding_call() {
+        crate::init_once()
     }
 }

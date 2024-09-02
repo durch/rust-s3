@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.36.0-alpha.5"
+version = "0.36.0-beta.1"
 authors = ["Drazen Urch"]
 description = "Rust library for working with AWS S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -40,6 +40,7 @@ path = "../examples/gcs-tokio.rs"
 
 
 [dependencies]
+ansi_term = { version = "0.12" }
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
 attohttpc = { version = "0.28", optional = true, default-features = false }
