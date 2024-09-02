@@ -403,7 +403,31 @@ pub trait Request {
             | Command::DeleteBucketCors { .. } => {
                 url_str.push_str("?cors");
             }
-            _ => {}
+            Command::GetObjectAttributes { version_id, .. } => {
+                if let Some(version_id) = version_id {
+                    url_str.push_str(&format!("?attributes&versionId={}", version_id));
+                } else {
+                    url_str.push_str("?attributes&versionId=null");
+                }
+            }
+            Command::HeadObject => {}
+            Command::DeleteObject => {}
+            Command::DeleteObjectTagging => {}
+            Command::GetObject => {}
+            Command::GetObjectRange { .. } => {}
+            Command::GetObjectTagging => {}
+            Command::ListObjects { .. } => {}
+            Command::ListObjectsV2 { .. } => {}
+            Command::GetBucketLocation => {}
+            Command::PresignGet { .. } => {}
+            Command::PresignPut { .. } => {}
+            Command::PresignDelete { .. } => {}
+            Command::DeleteBucket => {}
+            Command::ListBuckets => {}
+            Command::CopyObject { .. } => {}
+            Command::PutObjectTagging { .. } => {}
+            Command::UploadPart { .. } => {}
+            Command::CreateBucket { .. } => {}
         }
 
         let mut url = Url::parse(&url_str)?;
@@ -644,6 +668,19 @@ pub trait Request {
             headers.insert(
                 HeaderName::from_static("x-amz-expected-bucket-owner"),
                 expected_bucket_owner.parse()?,
+            );
+        } else if let Command::GetObjectAttributes {
+            expected_bucket_owner,
+            ..
+        } = self.command()
+        {
+            headers.insert(
+                HeaderName::from_static("x-amz-expected-bucket-owner"),
+                expected_bucket_owner.parse()?,
+            );
+            headers.insert(
+                HeaderName::from_static("x-amz-object-attributes"),
+                "ETag".parse()?,
             );
         }
 

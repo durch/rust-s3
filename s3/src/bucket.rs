@@ -89,8 +89,8 @@ use crate::error::S3Error;
 use crate::post_policy::PresignedPost;
 use crate::serde_types::{
     BucketLifecycleConfiguration, BucketLocationResult, CompleteMultipartUploadData,
-    CorsConfiguration, HeadObjectResult, InitiateMultipartUploadResponse, ListBucketResult,
-    ListMultipartUploadsResult, Part,
+    CorsConfiguration, GetObjectAttributesOutput, HeadObjectResult,
+    InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
 #[allow(unused_imports)]
 use crate::utils::{error_from_response_data, PutStreamResponse};
@@ -927,6 +927,26 @@ impl Bucket {
         let command = Command::GetObject;
         let request = RequestImpl::new(self, path.as_ref(), command).await?;
         request.response_data(false).await
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn get_object_attributes<S: AsRef<str>>(
+        &self,
+        path: S,
+        expected_bucket_owner: &str,
+        version_id: Option<String>,
+    ) -> Result<GetObjectAttributesOutput, S3Error> {
+        let command = Command::GetObjectAttributes {
+            expected_bucket_owner: expected_bucket_owner.to_string(),
+            version_id,
+        };
+        let request = RequestImpl::new(self, path.as_ref(), command).await?;
+
+        let response = request.response_data(false).await?;
+
+        Ok(quick_xml::de::from_str::<GetObjectAttributesOutput>(
+            response.as_str()?,
+        )?)
     }
 
     /// Checks if an object exists at the specified S3 path.
@@ -2814,6 +2834,12 @@ mod test {
 
         let response_data = bucket.put_object(s3_path, &test).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
+
+        // let attributes = bucket
+        //     .get_object_attributes(s3_path, "904662384344", None)
+        //     .await
+        //     .unwrap();
+
         let response_data = bucket.get_object(s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
         assert_eq!(test, response_data.as_slice());
@@ -3579,7 +3605,10 @@ mod test {
         let cors_response = bucket.get_bucket_cors(expected_bucket_owner).await.unwrap();
         assert_eq!(cors_response, cors_config);
 
-        let response = bucket.delete_bucket_cors(expected_bucket_owner).await.unwrap();
+        let response = bucket
+            .delete_bucket_cors(expected_bucket_owner)
+            .await
+            .unwrap();
         assert_eq!(response.status_code(), 204);
     }
 }

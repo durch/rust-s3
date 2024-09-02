@@ -19,6 +19,91 @@ pub struct Owner {
     pub id: String,
 }
 
+// <GetObjectAttributesOutput>
+//    <ETag>string</ETag>
+//    <Checksum>
+//       <ChecksumCRC32>string</ChecksumCRC32>
+//       <ChecksumCRC32C>string</ChecksumCRC32C>
+//       <ChecksumSHA1>string</ChecksumSHA1>
+//       <ChecksumSHA256>string</ChecksumSHA256>
+//    </Checksum>
+//    <ObjectParts>
+//       <IsTruncated>boolean</IsTruncated>
+//       <MaxParts>integer</MaxParts>
+//       <NextPartNumberMarker>integer</NextPartNumberMarker>
+//       <PartNumberMarker>integer</PartNumberMarker>
+//       <Part>
+//          <ChecksumCRC32>string</ChecksumCRC32>
+//          <ChecksumCRC32C>string</ChecksumCRC32C>
+//          <ChecksumSHA1>string</ChecksumSHA1>
+//          <ChecksumSHA256>string</ChecksumSHA256>
+//          <PartNumber>integer</PartNumber>
+//          <Size>long</Size>
+//       </Part>
+//       ...
+//       <PartsCount>integer</PartsCount>
+//    </ObjectParts>
+//    <StorageClass>string</StorageClass>
+//    <ObjectSize>long</ObjectSize>
+// </GetObjectAttributesOutput>
+#[derive(Deserialize, Debug)]
+pub struct GetObjectAttributesOutput {
+    #[serde(rename = "ETag")]
+    pub etag: String,
+    #[serde(rename = "Checksum")]
+    pub checksum: Checksum,
+    #[serde(rename = "ObjectParts")]
+    pub object_parts: ObjectParts,
+    #[serde(rename = "StorageClass")]
+    pub storage_class: String,
+    #[serde(rename = "ObjectSize")]
+    pub object_size: u64,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Checksum {
+    #[serde(rename = "ChecksumCRC32")]
+    pub checksum_crc32: String,
+    #[serde(rename = "ChecksumCRC32C")]
+    pub checksum_crc32c: String,
+    #[serde(rename = "ChecksumSHA1")]
+    pub checksum_sha1: String,
+    #[serde(rename = "ChecksumSHA256")]
+    pub checksum_sha256: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ObjectParts {
+    #[serde(rename = "IsTruncated")]
+    pub is_truncated: bool,
+    #[serde(rename = "MaxParts")]
+    pub max_parts: i32,
+    #[serde(rename = "NextPartNumberMarker")]
+    pub next_part_number_marker: i32,
+    #[serde(rename = "PartNumberMarker")]
+    pub part_number_marker: i32,
+    #[serde(rename = "Part")]
+    pub part: Vec<AttributesPart>,
+    #[serde(rename = "PartsCount")]
+    pub parts_count: u64,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AttributesPart {
+    #[serde(rename = "ChecksumCRC32")]
+    pub checksum_crc32: String,
+    #[serde(rename = "ChecksumCRC32C")]
+    pub checksum_crc32c: String,
+    #[serde(rename = "ChecksumSHA1")]
+    pub checksum_sha1: String,
+    #[serde(rename = "ChecksumSHA256")]
+    pub checksum_sha256: String,
+    #[serde(rename = "PartNumber")]
+    pub part_number: i32,
+    #[serde(rename = "Size")]
+    pub size: u64,
+}
+
 /// An individual object in a `ListBucketResult`
 #[derive(Deserialize, Debug, Clone)]
 pub struct Object {

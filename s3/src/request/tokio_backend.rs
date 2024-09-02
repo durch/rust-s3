@@ -104,6 +104,8 @@ impl<'a> Request for ReqwestRequest<'a> {
 
         let request = request.build()?;
 
+        // println!("Request: {:?}", request);
+
         let response = client.execute(request).await?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {

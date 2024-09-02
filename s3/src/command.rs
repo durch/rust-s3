@@ -165,6 +165,10 @@ pub enum Command<'a> {
         configuration: BucketLifecycleConfiguration,
     },
     DeleteBucketLifecycle,
+    GetObjectAttributes {
+        expected_bucket_owner: String,
+        version_id: Option<String>,
+    },
 }
 
 impl<'a> Command<'a> {
@@ -201,6 +205,7 @@ impl<'a> Command<'a> {
                 HttpMethod::Post
             }
             Command::HeadObject => HttpMethod::Head,
+            Command::GetObjectAttributes { .. } => HttpMethod::Get,
         }
     }
 
@@ -246,6 +251,7 @@ impl<'a> Command<'a> {
             Command::DeleteBucketCors { .. } => 0,
             Command::GetBucketLifecycle => 0,
             Command::DeleteBucketLifecycle { .. } => 0,
+            Command::GetObjectAttributes { .. } => 0,
         };
         Ok(result)
     }
@@ -282,6 +288,7 @@ impl<'a> Command<'a> {
             Command::PutObjectTagging { .. } => "text/plain".into(),
             Command::UploadPart { .. } => "text/plain".into(),
             Command::CreateBucket { .. } => "text/plain".into(),
+            Command::GetObjectAttributes { .. } => "text/plain".into(),
         }
     }
 
@@ -345,6 +352,7 @@ impl<'a> Command<'a> {
             Command::CopyObject { .. } => EMPTY_PAYLOAD_SHA.into(),
             Command::UploadPart { .. } => EMPTY_PAYLOAD_SHA.into(),
             Command::InitiateMultipartUpload { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetObjectAttributes { .. } => EMPTY_PAYLOAD_SHA.into(),
         };
         Ok(result)
     }
