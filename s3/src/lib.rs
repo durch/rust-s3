@@ -4,7 +4,6 @@
 #[macro_use]
 extern crate serde_derive;
 
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU8;
 
 pub use awscreds as creds;
@@ -31,9 +30,6 @@ pub mod utils;
 const LONG_DATETIME: &[time::format_description::FormatItem<'static>] =
     time::macros::format_description!("[year][month][day]T[hour][minute][second]Z");
 const EMPTY_PAYLOAD_SHA: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-
-#[cfg(not(feature = "disable-call-for-funding"))]
-static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 static RETRIES: AtomicU8 = AtomicU8::new(1);
 
@@ -71,36 +67,4 @@ pub fn set_retries(retries: u8) {
 /// ```
 pub fn get_retries() -> u8 {
     RETRIES.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-#[cfg(not(feature = "disable-call-for-funding"))]
-#[inline(always)]
-pub(crate) fn init_once() {
-    use ansi_term::{
-        Colour::{Blue, Yellow},
-        Style,
-    };
-
-    if !INITIALIZED.load(std::sync::atomic::Ordering::Relaxed) {
-        INITIALIZED.store(true, std::sync::atomic::Ordering::SeqCst);
-        eprintln!(
-            "            {0}---------------------------------------------------------------------------------{0}\n
-              Support {1} crate -> {5} {2} to {3} \n
-                                       {0}--- {4} ---{0}  \n
-            {0}---------------------------------------------------------------------------------{0}",
-             Yellow.bold().paint("<>"),
-        Yellow.bold().paint("rust-s3"),
-        Yellow.bold().paint("BTC"),
-        Yellow.bold().paint("bc1q7ukqe09zplg2sltgfrkukghpelfaz7qja8pw6u"),
-        Blue.bold().paint("Thank You!"),
-        Style::new().bold().underline().paint("donate"),
-    );
-    }
-}
-
-mod test {
-    #[test]
-    fn test_funding_call() {
-        crate::init_once()
-    }
 }
