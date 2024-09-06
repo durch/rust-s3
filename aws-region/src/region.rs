@@ -88,6 +88,24 @@ pub enum Region {
     /// Digital Ocean fra1
     DoFra1,
     /// Yandex Object Storage
+    OvhGra,
+    /// gra
+    OvhRbx,
+    /// rbx
+    OvhSbg,
+    /// sbg
+    OvhDe,
+    /// de
+    OvhUk,
+    /// uk
+    OvhWaw,
+    /// waw
+    OvhBhs,
+    /// bhs
+    OvhCaEastTor,
+    /// ca-east-tor
+    OvhSgp,
+    /// sgp
     Yandex,
     /// Wasabi us-east-1
     WaUsEast1,
@@ -171,6 +189,15 @@ impl fmt::Display for Region {
             WaApNortheast2 => write!(f, "ap-northeast-2"),
             WaApSoutheast1 => write!(f, "ap-southeast-1"),
             WaApSoutheast2 => write!(f, "ap-southeast-2"),
+            OvhGra => write!(f, "gra"),
+            OvhRbx => write!(f, "rbx"),
+            OvhSbg => write!(f, "sbg"),
+            OvhDe => write!(f, "de"),
+            OvhUk => write!(f, "uk"),
+            OvhWaw => write!(f, "waw"),
+            OvhBhs => write!(f, "bhs"),
+            OvhCaEastTor => write!(f, "ca-east-tor"),
+            OvhSgp => write!(f, "sgp"),
             R2 { .. } => write!(f, "auto"),
             Custom { ref region, .. } => write!(f, "{}", region),
         }
@@ -282,6 +309,15 @@ impl Region {
             WaApNortheast2 => String::from("s3.ap-northeast-2.wasabisys.com"),
             WaApSoutheast1 => String::from("s3.ap-southeast-1.wasabisys.com"),
             WaApSoutheast2 => String::from("s3.ap-southeast-2.wasabisys.com"),
+            OvhGra => String::from("s3.gra.io.cloud.ovh.net"),
+            OvhRbx => String::from("s3.rbx.io.cloud.ovh.net"),
+            OvhSbg => String::from("s3.sbg.io.cloud.ovh.net"),
+            OvhDe => String::from("s3.de.io.cloud.ovh.net"),
+            OvhUk => String::from("s3.uk.io.cloud.ovh.net"),
+            OvhWaw => String::from("s3.waw.io.cloud.ovh.net"),
+            OvhBhs => String::from("s3.bhs.io.cloud.ovh.net"),
+            OvhCaEastTor => String::from("s3.ca-east-tor.io.cloud.ovh.net"),
+            OvhSgp => String::from("s3.sgp.io.cloud.ovh.net"),
             R2 { ref account_id } => format!("{}.r2.cloudflarestorage.com", account_id),
             Custom { ref endpoint, .. } => endpoint.to_string(),
         }
