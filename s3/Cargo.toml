@@ -46,7 +46,7 @@ attohttpc = { version = "0.28", optional = true, default-features = false }
 # aws-creds = { version = "*", path = "../aws-creds", default-features = false }
 aws-creds = { version = "0.38", default-features = false }
 # aws-region = { version = "*", path = "../aws-region" }
-aws-region = "0.26"
+aws-region = "0.27"
 base64 = "0.22"
 block_on_proc = { version = "0.2", optional = true }
 bytes = { version = "1.2" }
