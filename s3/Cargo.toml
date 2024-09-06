@@ -40,7 +40,6 @@ path = "../examples/gcs-tokio.rs"
 
 
 [dependencies]
-ansi_term = { version = "0.12" }
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
 attohttpc = { version = "0.28", optional = true, default-features = false }
