@@ -600,7 +600,6 @@ impl Bucket {
         region: Region,
         credentials: Credentials,
     ) -> Result<Box<Bucket>, S3Error> {
-
         #[cfg(feature = "with-tokio")]
         let options = ClientOptions::default();
 
