@@ -68,7 +68,7 @@ pub struct ReqwestRequest<'a> {
 }
 
 #[maybe_async]
-impl<'a> Request for ReqwestRequest<'a> {
+impl Request for ReqwestRequest<'_> {
     type Response = reqwest::Response;
     type HeaderMap = reqwest::header::HeaderMap;
 

@@ -2876,7 +2876,7 @@ mod test {
     )]
     async fn test_tagging_aws() {
         let bucket = test_aws_bucket();
-        let _target_tags = vec![
+        let _target_tags = [
             Tag {
                 key: "Tag1".to_string(),
                 value: "Value1".to_string(),
@@ -2917,7 +2917,7 @@ mod test {
     )]
     async fn test_tagging_minio() {
         let bucket = test_minio_bucket();
-        let _target_tags = vec![
+        let _target_tags = [
             Tag {
                 key: "Tag1".to_string(),
                 value: "Value1".to_string(),
