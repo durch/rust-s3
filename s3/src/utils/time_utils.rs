@@ -17,13 +17,16 @@ pub fn now_utc() -> OffsetDateTime {
 }
 
 #[cfg(test)]
+pub use mocked_time::*;
+
+#[cfg(test)]
 mod mocked_time {
     use super::*;
 
     use std::cell::Cell;
 
     thread_local! {
-            static TIMESTAMP: Cell<u64> = Cell::new(0);
+        static TIMESTAMP: Cell<u64> = const { Cell::new(0) };
     }
 
     pub fn current_time() -> Result<u64, SystemTimeError> {
@@ -157,5 +160,3 @@ mod mocked_time {
         }
     }
 }
-#[cfg(test)]
-pub use mocked_time::*;

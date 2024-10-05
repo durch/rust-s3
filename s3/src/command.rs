@@ -171,7 +171,7 @@ pub enum Command<'a> {
     },
 }
 
-impl<'a> Command<'a> {
+impl Command<'_> {
     pub fn http_verb(&self) -> HttpMethod {
         match *self {
             Command::GetObject
