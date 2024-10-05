@@ -1575,7 +1575,7 @@ impl Bucket {
         }
 
         // Wait for all chunks to finish (or fail)
-        let responses = futures::future::join_all(handles).await;
+        let responses = futures_util::future::join_all(handles).await;
 
         for response in responses {
             let response_data = response?;
@@ -3015,7 +3015,7 @@ mod test {
         #[cfg(feature = "with-async-std")]
         use async_std::stream::StreamExt;
         #[cfg(feature = "with-tokio")]
-        use futures::StreamExt;
+        use futures_util::stream::StreamExt;
         #[cfg(not(any(feature = "with-tokio", feature = "with-async-std")))]
         use std::fs::File;
         #[cfg(not(any(feature = "with-tokio", feature = "with-async-std")))]
