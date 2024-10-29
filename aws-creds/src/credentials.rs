@@ -407,10 +407,8 @@ impl Credentials {
         })
     }
 
-    pub fn from_profile(section: Option<&str>) -> Result<Credentials, CredentialsError> {
-        let home_dir = home::home_dir().ok_or(CredentialsError::HomeDir)?;
-        let profile = format!("{}/.aws/credentials", home_dir.display());
-        let conf = Ini::load_from_file(profile)?;
+    pub fn from_credentials_file(file: &str, section: Option<&str>) -> Result<Credentials, CredentialsError> {
+        let conf = Ini::load_from_file(file)?;
         let section = section.unwrap_or("default");
         let data = conf
             .section(Some(section))
@@ -431,6 +429,12 @@ impl Credentials {
             expiration: None,
         };
         Ok(credentials)
+    }
+
+    pub fn from_profile(section: Option<&str>) -> Result<Credentials, CredentialsError> {
+        let home_dir = home::home_dir().ok_or(CredentialsError::HomeDir)?;
+        let profile = format!("{}/.aws/credentials", home_dir.display());
+        Credentials::from_credentials_file(&profile, section)
     }
 }
 
