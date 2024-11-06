@@ -1573,7 +1573,7 @@ impl Bucket {
             }
 
             parts.push(Part {
-                etag: response.as_str()?,
+                etag: response.to_string()?,
                 part_number,
             });
         }
