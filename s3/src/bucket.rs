@@ -1546,7 +1546,7 @@ impl Bucket {
 
         // Read chunks one by one making multi part request for each and gathering responses
         let mut chunk = first_chunk;
-        let part_number = 0;
+        let mut part_number = 0;
         let mut parts = vec![];
         while !chunk.is_empty() {
             total_size += chunk.len();
