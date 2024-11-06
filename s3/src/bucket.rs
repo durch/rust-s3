@@ -1566,11 +1566,10 @@ impl Bucket {
             chunk = next_chunk;
 
             // Analyze the response to fast fail bad upload
-            let response_data = response?;
-            if !(200..300).contains(&response_data.status_code()) {
+            if !(200..300).contains(&response.status_code()) {
                 // if chunk upload failed - abort the upload
                 self.abort_upload(&path, upload_id).await?;
-                return Err(error_from_response_data(response_data)?);
+                return Err(error_from_response_data(response)?);
             }
 
             parts.push(Part {
