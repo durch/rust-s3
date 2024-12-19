@@ -135,6 +135,8 @@ pub enum Region {
     WaApSoutheast2,
     /// Cloudflare R2
     R2 { account_id: String },
+    /// Cloudflare R2 EU jurisdiction
+    R2Eu { account_id: String },
     /// Custom region
     Custom { region: String, endpoint: String },
 }
@@ -195,6 +197,7 @@ impl fmt::Display for Region {
             OvhCaEastTor => write!(f, "ca-east-tor"),
             OvhSgp => write!(f, "sgp"),
             R2 { .. } => write!(f, "auto"),
+            R2Eu { .. } => write!(f, "auto"),
             Custom { ref region, .. } => write!(f, "{}", region),
         }
     }
@@ -315,6 +318,7 @@ impl Region {
             OvhCaEastTor => String::from("s3.ca-east-tor.io.cloud.ovh.net"),
             OvhSgp => String::from("s3.sgp.io.cloud.ovh.net"),
             R2 { ref account_id } => format!("{}.r2.cloudflarestorage.com", account_id),
+            R2Eu { ref account_id } => format!("{}.eu.r2.cloudflarestorage.com", account_id),
             Custom { ref endpoint, .. } => endpoint.to_string(),
         }
     }
