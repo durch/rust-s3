@@ -133,14 +133,10 @@ pub enum Region {
     WaApSoutheast1,
     /// Wasabi ap-southeast-2
     WaApSoutheast2,
+    /// Cloudflare R2
+    R2 { account_id: String },
     /// Custom region
-    R2 {
-        account_id: String,
-    },
-    Custom {
-        region: String,
-        endpoint: String,
-    },
+    Custom { region: String, endpoint: String },
 }
 
 impl fmt::Display for Region {
