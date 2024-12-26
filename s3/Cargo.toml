@@ -86,7 +86,7 @@ default = ["fail-on-err", "tags", "tokio-native-tls"]
 sync = ["attohttpc", "maybe-async/is_sync"]
 with-async-std-hyper = ["with-async-std", "surf/hyper-client"]
 with-async-std = ["async-std", "futures"]
-with-tokio = ["futures", "reqwest", "tokio", "tokio/fs", "tokio-stream"]
+with-tokio = ["futures/alloc", "reqwest", "tokio", "tokio/fs", "tokio-stream"]
 
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]
 fail-on-err = []

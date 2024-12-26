@@ -119,6 +119,29 @@ impl fmt::Display for ResponseData {
     }
 }
 
+#[cfg(feature = "with-tokio")]
+impl tokio::io::AsyncRead for ResponseDataStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use futures::StreamExt;
+        let bytes = self.get_mut().bytes();
+        match bytes.poll_next_unpin(cx) {
+            std::task::Poll::Ready(Some(Ok(chunk))) => {
+                buf.put_slice(&chunk); // Put the chunk into the buffer
+                std::task::Poll::Ready(Ok(()))
+            }
+            std::task::Poll::Ready(Some(Err(error))) => {
+                std::task::Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, error)))
+            }
+            std::task::Poll::Ready(None) => std::task::Poll::Ready(Ok(())),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
 #[maybe_async::maybe_async]
 pub trait Request {
     type Response;
