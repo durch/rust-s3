@@ -528,8 +528,6 @@ impl Bucket {
         credentials: Credentials,
         config: BucketConfiguration,
     ) -> Result<CreateBucketResponse, S3Error> {
-        let mut config = config;
-        config.set_region(region.clone());
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new(name, region, credentials)?.with_path_style();
         let request = RequestImpl::new(&bucket, "", command).await?;
