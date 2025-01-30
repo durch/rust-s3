@@ -1224,7 +1224,7 @@ impl Bucket {
     }
 
     #[maybe_async::sync_impl]
-    pub async fn get_object_range_to_writer<T: std::io::Write + Send + ?Sized, S: AsRef<str>>(
+    pub fn get_object_range_to_writer<T: std::io::Write + Send + ?Sized, S: AsRef<str>>(
         &self,
         path: S,
         start: u64,
