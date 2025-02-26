@@ -166,11 +166,11 @@ impl fmt::Display for CompleteMultipartUploadData {
 
 impl CompleteMultipartUploadData {
     pub fn len(&self) -> usize {
-        self.to_string().as_bytes().len()
+        self.to_string().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.to_string().as_bytes().len() == 0
+        self.to_string().len() == 0
     }
 }
 
@@ -235,7 +235,7 @@ pub struct ListBucketResult {
     ///  Specifies whether (true) or not (false) all of the results were returned.
     ///  If the number of results exceeds that specified by MaxKeys, all of the results
     ///  might not be returned.
-
+    ///
     /// When the response is truncated (that is, the IsTruncated element value in the response
     /// is true), you can use the key name in in 'next_continuation_token' as a marker in the
     /// subsequent request to get next set of objects. Amazon S3 lists objects in UTF-8 character

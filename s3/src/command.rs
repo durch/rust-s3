@@ -171,7 +171,7 @@ pub enum Command<'a> {
     },
 }
 
-impl<'a> Command<'a> {
+impl Command<'_> {
     pub fn http_verb(&self) -> HttpMethod {
         match *self {
             Command::GetObject
@@ -224,11 +224,9 @@ impl<'a> Command<'a> {
                 }
             }
             Command::PutBucketLifecycle { configuration } => {
-                quick_xml::se::to_string(configuration)?.as_bytes().len()
+                quick_xml::se::to_string(configuration)?.len()
             }
-            Command::PutBucketCors { configuration, .. } => {
-                configuration.to_string().as_bytes().len()
-            }
+            Command::PutBucketCors { configuration, .. } => configuration.to_string().len(),
             Command::HeadObject => 0,
             Command::DeleteObject => 0,
             Command::DeleteObjectTagging => 0,

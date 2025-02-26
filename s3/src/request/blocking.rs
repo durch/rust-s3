@@ -26,7 +26,7 @@ pub struct AttoRequest<'a> {
     pub sync: bool,
 }
 
-impl<'a> Request for AttoRequest<'a> {
+impl Request for AttoRequest<'_> {
     type Response = attohttpc::Response;
     type HeaderMap = attohttpc::header::HeaderMap;
 
@@ -48,10 +48,7 @@ impl<'a> Request for AttoRequest<'a> {
 
     fn response(&self) -> Result<Self::Response, S3Error> {
         // Build headers
-        let headers = match self.headers() {
-            Ok(headers) => headers,
-            Err(e) => return Err(e),
-        };
+        let headers = self.headers()?;
 
         let mut session = attohttpc::Session::new();
 
@@ -128,7 +125,7 @@ impl<'a> Request for AttoRequest<'a> {
     }
 }
 
-impl<'a> AttoRequest<'a> {
+impl AttoRequest<'_> {
     pub fn new<'b>(
         bucket: &'b Bucket,
         path: &'b str,

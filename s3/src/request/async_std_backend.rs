@@ -29,7 +29,7 @@ pub struct SurfRequest<'a> {
 }
 
 #[maybe_async]
-impl<'a> Request for SurfRequest<'a> {
+impl Request for SurfRequest<'_> {
     type Response = surf::Response;
     type HeaderMap = HeaderMap;
 
@@ -171,7 +171,7 @@ impl<'a> Request for SurfRequest<'a> {
     }
 }
 
-impl<'a> SurfRequest<'a> {
+impl SurfRequest<'_> {
     pub async fn new<'b>(
         bucket: &'b Bucket,
         path: &'b str,
