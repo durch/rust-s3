@@ -15,5 +15,5 @@ name = "awsregion"
 path = "src/lib.rs"
 
 [dependencies]
-thiserror = "1"
+thiserror = "2"
 serde = { version = "1", features = ["derive"], optional = true }

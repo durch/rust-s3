@@ -15,14 +15,14 @@ name = "awscreds"
 path = "src/lib.rs"
 
 [dependencies]
-thiserror = "1"
+thiserror = "2"
 home = "0.5"
 rust-ini = "0.21"
-attohttpc = { version = "0.28", default-features = false, features = [
+attohttpc = { version = "0.29", default-features = false, features = [
     "json",
 ], optional = true }
 url = "2"
-quick-xml = { version = "0.32", features = ["serialize"] }
+quick-xml = { version = "0.37", features = ["serialize"] }
 serde = { version = "1", features = ["derive"] }
 time = { version = "^0.3.6", features = ["serde", "serde-well-known"] }
 log = "0.4"
