@@ -2,7 +2,7 @@ use async_std::io::Write as AsyncWrite;
 use async_std::io::{ReadExt, WriteExt};
 use async_std::stream::StreamExt;
 use bytes::Bytes;
-use futures::FutureExt;
+use futures_util::FutureExt;
 use std::collections::HashMap;
 
 use crate::bucket::Bucket;
