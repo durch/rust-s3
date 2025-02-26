@@ -36,7 +36,9 @@ pub enum S3Error {
     #[error("from utf8: {0}")]
     FromUtf8(#[from] std::string::FromUtf8Error),
     #[error("serde xml: {0}")]
-    SerdeXml(#[from] quick_xml::de::DeError),
+    SerdeDeXml(#[from] quick_xml::de::DeError),
+    #[error("serde xml: {0}")]
+    SerdeSeXml(#[from] quick_xml::se::SeError),
     #[error("invalid header value: {0}")]
     InvalidHeaderValue(#[from] http::header::InvalidHeaderValue),
     #[cfg(feature = "with-async-std")]
