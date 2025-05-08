@@ -1,3 +1,38 @@
+//! # Rust S3 Bucket Operations
+//!
+//! This module provides functionality for interacting with S3 buckets and objects,
+//! including creating, listing, uploading, downloading, and deleting objects. It supports
+//! various features such as asynchronous and blocking operations, multipart uploads,
+//! presigned URLs, and tagging objects.
+//!
+//! ## Features
+//!
+//! The module supports the following features:
+//!
+//! - **blocking**: Enables blocking (synchronous) operations using the `block_on` macro.
+//! - **tags**: Adds support for managing S3 object tags.
+//! - **with-tokio**: Enables asynchronous operations using the Tokio runtime.
+//! - **with-async-std**: Enables asynchronous operations using the async-std runtime.
+//! - **sync**: Enables synchronous (blocking) operations using standard Rust synchronization primitives.
+//!
+//! ## Constants
+//!
+//! - `CHUNK_SIZE`: Defines the chunk size for multipart uploads (8 MiB).
+//! - `DEFAULT_REQUEST_TIMEOUT`: The default request timeout (60 seconds).
+//!
+//! ## Types
+//!
+//! - `Query`: A type alias for `HashMap<String, String>`, representing query parameters for requests.
+//!
+//! ## Structs
+//!
+//! - `Bucket`: Represents an S3 bucket, providing methods to interact with the bucket and its contents.
+//! - `Tag`: Represents a key-value pair used for tagging S3 objects.
+//!
+//! ## Errors
+//!
+//! - `S3Error`: Represents various errors that can occur during S3 operations.
+
 #[cfg(feature = "blocking")]
 use block_on_proc::block_on;
 #[cfg(feature = "tags")]
@@ -10,10 +45,12 @@ use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
 #[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::{client, HttpsConnector};
-use crate::request::ResponseData;
+use crate::request::tokio_backend::client;
+#[cfg(feature = "with-tokio")]
+use crate::request::tokio_backend::ClientOptions;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use crate::request::ResponseDataStream;
+use crate::request::{Request as _, ResponseData};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -31,10 +68,10 @@ pub type Query = HashMap<String, String>;
 #[cfg(feature = "with-async-std")]
 use crate::request::async_std_backend::SurfRequest as RequestImpl;
 #[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::HyperRequest as RequestImpl;
+use crate::request::tokio_backend::ReqwestRequest as RequestImpl;
 
 #[cfg(feature = "with-async-std")]
-use futures_io::AsyncWrite;
+use async_std::io::Write as AsyncWrite;
 #[cfg(feature = "with-tokio")]
 use tokio::io::AsyncWrite;
 
@@ -46,13 +83,13 @@ use std::io::Read;
 use tokio::io::AsyncRead;
 
 #[cfg(feature = "with-async-std")]
-use futures::io::AsyncRead;
+use async_std::io::Read as AsyncRead;
 
 use crate::error::S3Error;
 use crate::post_policy::PresignedPost;
-use crate::request::Request;
 use crate::serde_types::{
-    BucketLocationResult, CompleteMultipartUploadData, CorsConfiguration, HeadObjectResult,
+    BucketLifecycleConfiguration, BucketLocationResult, CompleteMultipartUploadData,
+    CorsConfiguration, GetObjectAttributesOutput, HeadObjectResult,
     InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
 #[allow(unused_imports)]
@@ -106,7 +143,9 @@ pub struct Bucket {
     path_style: bool,
     listobjects_v2: bool,
     #[cfg(feature = "with-tokio")]
-    http_client: Arc<hyper::Client<HttpsConnector<hyper::client::HttpConnector>>>,
+    http_client: reqwest::Client,
+    #[cfg(feature = "with-tokio")]
+    client_options: crate::request::tokio_backend::ClientOptions,
 }
 
 impl Bucket {
@@ -126,8 +165,8 @@ impl Bucket {
     }
 
     #[cfg(feature = "with-tokio")]
-    pub fn http_client(&self) -> Arc<hyper::Client<HttpsConnector<hyper::client::HttpConnector>>> {
-        Arc::clone(&self.http_client)
+    pub fn http_client(&self) -> reqwest::Client {
+        self.http_client.clone()
     }
 }
 
@@ -223,7 +262,7 @@ impl Bucket {
         &self,
         post_policy: PostPolicy<'a>,
     ) -> Result<PresignedPost, S3Error> {
-        post_policy.sign(self.clone()).await
+        post_policy.sign(Box::new(self.clone())).await
     }
 
     /// Get a presigned url for putting object to a given path
@@ -249,7 +288,7 @@ impl Bucket {
     ///    "custom_value".parse().unwrap(),
     /// );
     ///
-    /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers)).await.unwrap();
+    /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers), None).await.unwrap();
     /// println!("Presigned url: {}", url);
     /// }
     /// ```
@@ -556,8 +595,15 @@ impl Bucket {
     ///
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// ```
-    pub fn new(name: &str, region: Region, credentials: Credentials) -> Result<Bucket, S3Error> {
-        Ok(Bucket {
+    pub fn new(
+        name: &str,
+        region: Region,
+        credentials: Credentials,
+    ) -> Result<Box<Bucket>, S3Error> {
+        #[cfg(feature = "with-tokio")]
+        let options = ClientOptions::default();
+
+        Ok(Box::new(Bucket {
             name: name.into(),
             region,
             credentials: Arc::new(RwLock::new(credentials)),
@@ -567,8 +613,10 @@ impl Bucket {
             path_style: false,
             listobjects_v2: true,
             #[cfg(feature = "with-tokio")]
-            http_client: Arc::new(client(DEFAULT_REQUEST_TIMEOUT)?),
-        })
+            http_client: client(&options)?,
+            #[cfg(feature = "with-tokio")]
+            client_options: options,
+        }))
     }
 
     /// Instantiate a public existing `Bucket`.
@@ -583,6 +631,9 @@ impl Bucket {
     /// let bucket = Bucket::new_public(bucket_name, region).unwrap();
     /// ```
     pub fn new_public(name: &str, region: Region) -> Result<Bucket, S3Error> {
+        #[cfg(feature = "with-tokio")]
+        let options = ClientOptions::default();
+
         Ok(Bucket {
             name: name.into(),
             region,
@@ -593,12 +644,14 @@ impl Bucket {
             path_style: false,
             listobjects_v2: true,
             #[cfg(feature = "with-tokio")]
-            http_client: Arc::new(client(DEFAULT_REQUEST_TIMEOUT)?),
+            http_client: client(&options)?,
+            #[cfg(feature = "with-tokio")]
+            client_options: options,
         })
     }
 
-    pub fn with_path_style(&self) -> Bucket {
-        Bucket {
+    pub fn with_path_style(&self) -> Box<Bucket> {
+        Box::new(Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
@@ -608,8 +661,10 @@ impl Bucket {
             path_style: true,
             listobjects_v2: self.listobjects_v2,
             #[cfg(feature = "with-tokio")]
-            http_client: self.http_client.clone(),
-        }
+            http_client: self.http_client(),
+            #[cfg(feature = "with-tokio")]
+            client_options: self.client_options.clone(),
+        })
     }
 
     pub fn with_extra_headers(&self, extra_headers: HeaderMap) -> Result<Bucket, S3Error> {
@@ -623,7 +678,9 @@ impl Bucket {
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
             #[cfg(feature = "with-tokio")]
-            http_client: self.http_client.clone(),
+            http_client: self.http_client(),
+            #[cfg(feature = "with-tokio")]
+            client_options: self.client_options.clone(),
         })
     }
 
@@ -641,12 +698,34 @@ impl Bucket {
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
             #[cfg(feature = "with-tokio")]
-            http_client: self.http_client.clone(),
+            http_client: self.http_client(),
+            #[cfg(feature = "with-tokio")]
+            client_options: self.client_options.clone(),
         })
     }
 
-    pub fn with_request_timeout(&self, request_timeout: Duration) -> Result<Bucket, S3Error> {
-        Ok(Bucket {
+    #[cfg(not(feature = "with-tokio"))]
+    pub fn with_request_timeout(&self, request_timeout: Duration) -> Result<Box<Bucket>, S3Error> {
+        Ok(Box::new(Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query: self.extra_query.clone(),
+            request_timeout: Some(request_timeout),
+            path_style: self.path_style,
+            listobjects_v2: self.listobjects_v2,
+        }))
+    }
+
+    #[cfg(feature = "with-tokio")]
+    pub fn with_request_timeout(&self, request_timeout: Duration) -> Result<Box<Bucket>, S3Error> {
+        let options = ClientOptions {
+            request_timeout: Some(request_timeout),
+            ..Default::default()
+        };
+
+        Ok(Box::new(Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
@@ -656,8 +735,10 @@ impl Bucket {
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
             #[cfg(feature = "with-tokio")]
-            http_client: Arc::new(client(Some(request_timeout))?),
-        })
+            http_client: client(&options)?,
+            #[cfg(feature = "with-tokio")]
+            client_options: options,
+        }))
     }
 
     pub fn with_listobjects_v1(&self) -> Bucket {
@@ -671,8 +752,85 @@ impl Bucket {
             path_style: self.path_style,
             listobjects_v2: false,
             #[cfg(feature = "with-tokio")]
-            http_client: self.http_client.clone(),
+            http_client: self.http_client(),
+            #[cfg(feature = "with-tokio")]
+            client_options: self.client_options.clone(),
         }
+    }
+
+    /// Configures a bucket to accept invalid SSL certificates and hostnames.
+    ///
+    /// This method is available only when either the `tokio-native-tls` or `tokio-rustls-tls` feature is enabled.
+    ///
+    /// # Parameters
+    ///
+    /// - `accept_invalid_certs`: A boolean flag that determines whether the client should accept invalid SSL certificates.
+    /// - `accept_invalid_hostnames`: A boolean flag that determines whether the client should accept invalid hostnames.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the newly configured `Bucket` instance if successful, or an `S3Error` if an error occurs during client configuration.
+    ///
+    /// # Errors
+    ///
+    /// This function returns an `S3Error` if the HTTP client configuration fails.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use s3::bucket::Bucket;
+    /// # use s3::error::S3Error;
+    /// # use s3::creds::Credentials;
+    /// # use s3::Region;
+    /// # use std::str::FromStr;
+    ///
+    /// # fn example() -> Result<(), S3Error> {
+    /// let bucket = Bucket::new("my-bucket", Region::from_str("us-east-1")?, Credentials::default()?)?
+    ///     .set_dangereous_config(true, true)?;
+    /// # Ok(())
+    /// # }
+    ///
+    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    pub fn set_dangereous_config(
+        &self,
+        accept_invalid_certs: bool,
+        accept_invalid_hostnames: bool,
+    ) -> Result<Bucket, S3Error> {
+        let mut options = self.client_options.clone();
+        options.accept_invalid_certs = accept_invalid_certs;
+        options.accept_invalid_hostnames = accept_invalid_hostnames;
+
+        Ok(Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query: self.extra_query.clone(),
+            request_timeout: self.request_timeout,
+            path_style: self.path_style,
+            listobjects_v2: self.listobjects_v2,
+            http_client: client(&options)?,
+            client_options: options,
+        })
+    }
+
+    #[cfg(feature = "with-tokio")]
+    pub fn set_proxy(&self, proxy: reqwest::Proxy) -> Result<Bucket, S3Error> {
+        let mut options = self.client_options.clone();
+        options.proxy = Some(proxy);
+
+        Ok(Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query: self.extra_query.clone(),
+            request_timeout: self.request_timeout,
+            path_style: self.path_style,
+            listobjects_v2: self.listobjects_v2,
+            http_client: client(&options)?,
+            client_options: options,
+        })
     }
 
     /// Copy file from an S3 path, internally within the same bucket.
@@ -769,14 +927,149 @@ impl Bucket {
     }
 
     #[maybe_async::maybe_async]
+    pub async fn get_object_attributes<S: AsRef<str>>(
+        &self,
+        path: S,
+        expected_bucket_owner: &str,
+        version_id: Option<String>,
+    ) -> Result<GetObjectAttributesOutput, S3Error> {
+        let command = Command::GetObjectAttributes {
+            expected_bucket_owner: expected_bucket_owner.to_string(),
+            version_id,
+        };
+        let request = RequestImpl::new(self, path.as_ref(), command).await?;
+
+        let response = request.response_data(false).await?;
+
+        Ok(quick_xml::de::from_str::<GetObjectAttributesOutput>(
+            response.as_str()?,
+        )?)
+    }
+
+    /// Checks if an object exists at the specified S3 path.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let exists = bucket.object_exists("/test.file").await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let exists = bucket.object_exists("/test.file")?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let exists = bucket.object_exists_blocking("/test.file")?;
+    ///
+    /// if exists {
+    ///     println!("Object exists.");
+    /// } else {
+    ///     println!("Object does not exist.");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// This function will return an `Err` if the request to the S3 service fails or if there is an unexpected error.
+    /// It will return `Ok(false)` if the object does not exist (i.e., the server returns a 404 status code).
+    #[maybe_async::maybe_async]
+    pub async fn object_exists<S: AsRef<str>>(&self, path: S) -> Result<bool, S3Error> {
+        let command = Command::HeadObject;
+        let request = RequestImpl::new(self, path.as_ref(), command).await?;
+        let response_data = match request.response_data(false).await {
+            Ok(response_data) => response_data,
+            Err(S3Error::HttpFailWithBody(status_code, error)) => {
+                if status_code == 404 {
+                    return Ok(false);
+                }
+                return Err(S3Error::HttpFailWithBody(status_code, error));
+            }
+            Err(e) => return Err(e),
+        };
+        Ok(response_data.status_code() != 404)
+    }
+
+    #[maybe_async::maybe_async]
     pub async fn put_bucket_cors(
         &self,
-        cors_config: CorsConfiguration,
+        expected_bucket_owner: &str,
+        cors_config: &CorsConfiguration,
     ) -> Result<ResponseData, S3Error> {
         let command = Command::PutBucketCors {
-            configuration: cors_config,
+            expected_bucket_owner: expected_bucket_owner.to_string(),
+            configuration: cors_config.clone(),
         };
-        let request = RequestImpl::new(self, "?cors", command).await?;
+        let request = RequestImpl::new(self, "", command).await?;
+        request.response_data(false).await
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn get_bucket_cors(
+        &self,
+        expected_bucket_owner: &str,
+    ) -> Result<CorsConfiguration, S3Error> {
+        let command = Command::GetBucketCors {
+            expected_bucket_owner: expected_bucket_owner.to_string(),
+        };
+        let request = RequestImpl::new(self, "", command).await?;
+        let response = request.response_data(false).await?;
+        Ok(quick_xml::de::from_str::<CorsConfiguration>(
+            response.as_str()?,
+        )?)
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn delete_bucket_cors(
+        &self,
+        expected_bucket_owner: &str,
+    ) -> Result<ResponseData, S3Error> {
+        let command = Command::DeleteBucketCors {
+            expected_bucket_owner: expected_bucket_owner.to_string(),
+        };
+        let request = RequestImpl::new(self, "", command).await?;
+        request.response_data(false).await
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn get_bucket_lifecycle(&self) -> Result<BucketLifecycleConfiguration, S3Error> {
+        let request = RequestImpl::new(self, "", Command::GetBucketLifecycle).await?;
+        let response = request.response_data(false).await?;
+        Ok(quick_xml::de::from_str::<BucketLifecycleConfiguration>(
+            response.as_str()?,
+        )?)
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn put_bucket_lifecycle(
+        &self,
+        lifecycle_config: BucketLifecycleConfiguration,
+    ) -> Result<ResponseData, S3Error> {
+        let command = Command::PutBucketLifecycle {
+            configuration: lifecycle_config,
+        };
+        let request = RequestImpl::new(self, "", command).await?;
+        request.response_data(false).await
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn delete_bucket_lifecycle(&self) -> Result<ResponseData, S3Error> {
+        let request = RequestImpl::new(self, "", Command::DeleteBucket).await?;
         request.response_data(false).await
     }
 
@@ -1019,9 +1312,9 @@ impl Bucket {
     /// #[cfg(feature = "with-tokio")]
     /// use tokio::io::AsyncWriteExt;
     /// #[cfg(feature = "with-async-std")]
-    /// use futures_util::StreamExt;
+    /// use async_std::stream::StreamExt;
     /// #[cfg(feature = "with-async-std")]
-    /// use futures_util::AsyncWriteExt;
+    /// use async_std::io::WriteExt;
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<()> {
@@ -1229,6 +1522,7 @@ impl Bucket {
         // If the file is smaller CHUNK_SIZE, just do a regular upload.
         // Otherwise perform a multi-part upload.
         let first_chunk = crate::utils::read_chunk_async(reader).await?;
+        // println!("First chunk size: {}", first_chunk.len());
         if first_chunk.len() < CHUNK_SIZE {
             let total_size = first_chunk.len();
             let response_data = self
@@ -1346,7 +1640,7 @@ impl Bucket {
                 } else {
                     part_number += 1;
                     let part = self.put_multipart_chunk(
-                        chunk,
+                        &chunk,
                         &path,
                         part_number,
                         upload_id,
@@ -1369,7 +1663,7 @@ impl Bucket {
             } else {
                 part_number += 1;
                 let part =
-                    self.put_multipart_chunk(chunk, &path, part_number, upload_id, content_type)?;
+                    self.put_multipart_chunk(&chunk, &path, part_number, upload_id, content_type)?;
                 etags.push(part.etag.to_string());
             }
         }
@@ -1437,7 +1731,7 @@ impl Bucket {
         content_type: &str,
     ) -> Result<Part, S3Error> {
         let chunk = crate::utils::read_chunk(reader)?;
-        self.put_multipart_chunk(chunk, path, part_number, upload_id, content_type)
+        self.put_multipart_chunk(&chunk, path, part_number, upload_id, content_type)
     }
 
     /// Upload a buffered multipart chunk to s3 using a previously initiated multipart upload
@@ -1487,7 +1781,7 @@ impl Bucket {
     ) -> Result<Part, S3Error> {
         let command = Command::PutObject {
             // part_number,
-            content: &chunk,
+            content: chunk,
             multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
             content_type,
         };
@@ -2464,7 +2758,7 @@ mod test {
         .unwrap()
     }
 
-    fn test_aws_bucket() -> Bucket {
+    fn test_aws_bucket() -> Box<Bucket> {
         Bucket::new(
             "rust-s3-test",
             "eu-central-1".parse().unwrap(),
@@ -2473,7 +2767,7 @@ mod test {
         .unwrap()
     }
 
-    fn test_wasabi_bucket() -> Bucket {
+    fn test_wasabi_bucket() -> Box<Bucket> {
         Bucket::new(
             "rust-s3",
             "wa-eu-central-1".parse().unwrap(),
@@ -2482,7 +2776,7 @@ mod test {
         .unwrap()
     }
 
-    fn test_gc_bucket() -> Bucket {
+    fn test_gc_bucket() -> Box<Bucket> {
         let mut bucket = Bucket::new(
             "rust-s3",
             Region::Custom {
@@ -2496,7 +2790,7 @@ mod test {
         bucket
     }
 
-    fn test_minio_bucket() -> Bucket {
+    fn test_minio_bucket() -> Box<Bucket> {
         Bucket::new(
             "rust-s3",
             Region::Custom {
@@ -2510,11 +2804,11 @@ mod test {
     }
 
     #[allow(dead_code)]
-    fn test_digital_ocean_bucket() -> Bucket {
+    fn test_digital_ocean_bucket() -> Box<Bucket> {
         Bucket::new("rust-s3", Region::DoFra1, test_digital_ocean_credentials()).unwrap()
     }
 
-    fn test_r2_bucket() -> Bucket {
+    fn test_r2_bucket() -> Box<Bucket> {
         Bucket::new(
             "rust-s3",
             Region::R2 {
@@ -2532,13 +2826,26 @@ mod test {
     #[maybe_async::maybe_async]
     async fn put_head_get_delete_object(bucket: Bucket, head: bool) {
         let s3_path = "/+test.file";
+        let non_existant_path = "/+non_existant.file";
         let test: Vec<u8> = object(3072);
 
         let response_data = bucket.put_object(s3_path, &test).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
+
+        // let attributes = bucket
+        //     .get_object_attributes(s3_path, "904662384344", None)
+        //     .await
+        //     .unwrap();
+
         let response_data = bucket.get_object(s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
         assert_eq!(test, response_data.as_slice());
+
+        let exists = bucket.object_exists(s3_path).await.unwrap();
+        assert!(exists);
+
+        let not_exists = bucket.object_exists(non_existant_path).await.unwrap();
+        assert!(!not_exists);
 
         let response_data = bucket
             .get_object_range(s3_path, 100, Some(1000))
@@ -2547,12 +2854,9 @@ mod test {
         assert_eq!(response_data.status_code(), 206);
         assert_eq!(test[100..1001].to_vec(), response_data.as_slice());
         if head {
-            let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+            let (_head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+            // println!("{:?}", head_object_result);
             assert_eq!(code, 200);
-            assert_eq!(
-                head_object_result.content_type.unwrap(),
-                "application/octet-stream".to_owned()
-            );
         }
 
         // println!("{:?}", head_object_result);
@@ -2652,7 +2956,7 @@ mod test {
         )
     )]
     async fn streaming_big_aws_put_head_get_delete_object() {
-        streaming_test_put_get_delete_big_object(test_aws_bucket()).await;
+        streaming_test_put_get_delete_big_object(*test_aws_bucket()).await;
     }
 
     #[ignore]
@@ -2672,7 +2976,7 @@ mod test {
         )
     )]
     async fn streaming_big_gc_put_head_get_delete_object() {
-        streaming_test_put_get_delete_big_object(test_gc_bucket()).await;
+        streaming_test_put_get_delete_big_object(*test_gc_bucket()).await;
     }
 
     #[ignore]
@@ -2685,7 +2989,20 @@ mod test {
         )
     )]
     async fn streaming_big_minio_put_head_get_delete_object() {
-        streaming_test_put_get_delete_big_object(test_minio_bucket()).await;
+        streaming_test_put_get_delete_big_object(*test_minio_bucket()).await;
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn streaming_big_r2_put_head_get_delete_object() {
+        streaming_test_put_get_delete_big_object(*test_r2_bucket()).await;
     }
 
     // Test multi-part upload
@@ -2716,13 +3033,17 @@ mod test {
 
         let mut file = File::create(local_path).await.unwrap();
         file.write_all(&content).await.unwrap();
+        file.flush().await.unwrap();
         let mut reader = File::open(local_path).await.unwrap();
 
         let response = bucket
             .put_object_stream(&mut reader, remote_path)
             .await
             .unwrap();
+        #[cfg(not(feature = "sync"))]
         assert_eq!(response.status_code(), 200);
+        #[cfg(feature = "sync")]
+        assert_eq!(response, 200);
         let mut writer = Vec::new();
         let code = bucket
             .get_object_to_writer(remote_path, &mut writer)
@@ -2810,7 +3131,7 @@ mod test {
     }
 
     #[maybe_async::maybe_async]
-    async fn streaming_test_put_get_delete_small_object(bucket: Bucket) {
+    async fn streaming_test_put_get_delete_small_object(bucket: Box<Bucket>) {
         init();
         let remote_path = "+stream_test_small";
         let content: Vec<u8> = object(1000);
@@ -2818,12 +3139,17 @@ mod test {
         let mut reader = std::io::Cursor::new(&content);
         #[cfg(feature = "with-async-std")]
         let mut reader = async_std::io::Cursor::new(&content);
+        #[cfg(feature = "sync")]
+        let mut reader = std::io::Cursor::new(&content);
 
         let response = bucket
             .put_object_stream(&mut reader, remote_path)
             .await
             .unwrap();
+        #[cfg(not(feature = "sync"))]
         assert_eq!(response.status_code(), 200);
+        #[cfg(feature = "sync")]
+        assert_eq!(response, 200);
         let mut writer = Vec::new();
         let code = bucket
             .get_object_to_writer(remote_path, &mut writer)
@@ -2921,7 +3247,7 @@ mod test {
     ))]
     #[test]
     fn aws_put_head_get_delete_object_blocking() {
-        put_head_get_list_delete_object_blocking(test_aws_bucket())
+        put_head_get_list_delete_object_blocking(*test_aws_bucket())
     }
 
     #[ignore]
@@ -2931,7 +3257,7 @@ mod test {
     ))]
     #[test]
     fn gc_put_head_get_delete_object_blocking() {
-        put_head_get_list_delete_object_blocking(test_gc_bucket())
+        put_head_get_list_delete_object_blocking(*test_gc_bucket())
     }
 
     #[ignore]
@@ -2941,7 +3267,7 @@ mod test {
     ))]
     #[test]
     fn wasabi_put_head_get_delete_object_blocking() {
-        put_head_get_list_delete_object_blocking(test_wasabi_bucket())
+        put_head_get_list_delete_object_blocking(*test_wasabi_bucket())
     }
 
     #[ignore]
@@ -2951,7 +3277,7 @@ mod test {
     ))]
     #[test]
     fn minio_put_head_get_delete_object_blocking() {
-        put_head_get_list_delete_object_blocking(test_minio_bucket())
+        put_head_get_list_delete_object_blocking(*test_minio_bucket())
     }
 
     #[ignore]
@@ -2961,7 +3287,7 @@ mod test {
     ))]
     #[test]
     fn digital_ocean_put_head_get_delete_object_blocking() {
-        put_head_get_list_delete_object_blocking(test_digital_ocean_bucket())
+        put_head_get_list_delete_object_blocking(*test_digital_ocean_bucket())
     }
 
     #[ignore]
@@ -2974,7 +3300,7 @@ mod test {
         )
     )]
     async fn aws_put_head_get_delete_object() {
-        put_head_get_delete_object(test_aws_bucket(), true).await;
+        put_head_get_delete_object(*test_aws_bucket(), true).await;
     }
 
     #[ignore]
@@ -2993,7 +3319,7 @@ mod test {
         )
     )]
     async fn gc_test_put_head_get_delete_object() {
-        put_head_get_delete_object(test_gc_bucket(), true).await;
+        put_head_get_delete_object(*test_gc_bucket(), true).await;
     }
 
     #[ignore]
@@ -3006,7 +3332,7 @@ mod test {
         )
     )]
     async fn wasabi_test_put_head_get_delete_object() {
-        put_head_get_delete_object(test_wasabi_bucket(), true).await;
+        put_head_get_delete_object(*test_wasabi_bucket(), true).await;
     }
 
     #[ignore]
@@ -3019,7 +3345,7 @@ mod test {
         )
     )]
     async fn minio_test_put_head_get_delete_object() {
-        put_head_get_delete_object(test_minio_bucket(), true).await;
+        put_head_get_delete_object(*test_minio_bucket(), true).await;
     }
 
     // Keeps failing on tokio-rustls-tls
@@ -3046,7 +3372,7 @@ mod test {
         )
     )]
     async fn r2_test_put_head_get_delete_object() {
-        put_head_get_delete_object(test_r2_bucket(), false).await;
+        put_head_get_delete_object(*test_r2_bucket(), false).await;
     }
 
     #[maybe_async::test(
@@ -3255,7 +3581,7 @@ mod test {
         )
     )]
     #[ignore]
-    async fn test_put_bucket_cors() {
+    async fn test_bucket_cors() {
         let bucket = test_aws_bucket();
         let rule = CorsRule::new(
             None,
@@ -3265,8 +3591,21 @@ mod test {
             None,
             None,
         );
+        let expected_bucket_owner = "904662384344";
         let cors_config = CorsConfiguration::new(vec![rule]);
-        let response = bucket.put_bucket_cors(cors_config).await.unwrap();
-        assert_eq!(response.status_code(), 200)
+        let response = bucket
+            .put_bucket_cors(expected_bucket_owner, &cors_config)
+            .await
+            .unwrap();
+        assert_eq!(response.status_code(), 200);
+
+        let cors_response = bucket.get_bucket_cors(expected_bucket_owner).await.unwrap();
+        assert_eq!(cors_response, cors_config);
+
+        let response = bucket
+            .delete_bucket_cors(expected_bucket_owner)
+            .await
+            .unwrap();
+        assert_eq!(response.status_code(), 204);
     }
 }

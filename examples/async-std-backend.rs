@@ -1,9 +1,16 @@
 // cargo run --example async-std --no-default-features --features async-std-native-tls
 
+#[cfg(feature = "async-std")]
 use awscreds::Credentials;
+#[cfg(feature = "async-std")]
 use s3::error::S3Error;
+#[cfg(feature = "async-std")]
 use s3::Bucket;
 
+#[cfg(not(feature = "async-std"))]
+fn main() {}
+
+#[cfg(feature = "async-std")]
 #[async_std::main]
 async fn main() -> Result<(), S3Error> {
     let bucket = Bucket::new(

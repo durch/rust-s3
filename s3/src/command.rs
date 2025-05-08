@@ -1,6 +1,30 @@
+//! This module defines and manages various commands used for interacting with Amazon S3, encapsulating common operations such as creating buckets, uploading objects, and managing multipart uploads.
+//! It also provides utilities for calculating necessary metadata (like content length and SHA-256 hashes) required for secure and efficient communication with the S3 service.
+//!
+//! ## Key Components
+//!
+//! - **HttpMethod Enum**
+//!   - Represents HTTP methods used in S3 operations, including `GET`, `PUT`, `DELETE`, `POST`, and `HEAD`.
+//!   - Implements `fmt::Display` for easy conversion to string representations suitable for HTTP requests.
+//!
+//! - **Multipart Struct**
+//!   - Represents a part of a multipart upload, containing the part number and the associated upload ID.
+//!   - Provides methods for constructing a new multipart part and generating a query string for the S3 API.
+//!
+//! - **Command Enum**
+//!   - The core of this module, encapsulating various S3 operations, such as:
+//!     - Object management (`GetObject`, `PutObject`, `DeleteObject`, etc.)
+//!     - Bucket management (`CreateBucket`, `DeleteBucket`, etc.)
+//!     - Multipart upload management (`InitiateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload`, etc.)
+//!   - For each command, you can determine the associated HTTP method using `http_verb()` and calculate the content length or content type using `content_length()` and `content_type()` respectively.
+//!   - The `sha256()` method computes the SHA-256 hash of the request payload, a critical part of S3's security features.
+//!
 use std::collections::HashMap;
 
-use crate::serde_types::{CompleteMultipartUploadData, CorsConfiguration};
+use crate::error::S3Error;
+use crate::serde_types::{
+    BucketLifecycleConfiguration, CompleteMultipartUploadData, CorsConfiguration,
+};
 
 use crate::EMPTY_PAYLOAD_SHA;
 use sha2::{Digest, Sha256};
@@ -126,8 +150,24 @@ pub enum Command<'a> {
     },
     DeleteBucket,
     ListBuckets,
+    GetBucketCors {
+        expected_bucket_owner: String,
+    },
     PutBucketCors {
+        expected_bucket_owner: String,
         configuration: CorsConfiguration,
+    },
+    DeleteBucketCors {
+        expected_bucket_owner: String,
+    },
+    GetBucketLifecycle,
+    PutBucketLifecycle {
+        configuration: BucketLifecycleConfiguration,
+    },
+    DeleteBucketLifecycle,
+    GetObjectAttributes {
+        expected_bucket_owner: String,
+        version_id: Option<String>,
     },
 }
 
@@ -136,12 +176,14 @@ impl<'a> Command<'a> {
         match *self {
             Command::GetObject
             | Command::GetObjectTorrent
+            | Command::GetBucketCors { .. }
             | Command::GetObjectRange { .. }
             | Command::ListBuckets
             | Command::ListObjects { .. }
             | Command::ListObjectsV2 { .. }
             | Command::GetBucketLocation
             | Command::GetObjectTagging
+            | Command::GetBucketLifecycle
             | Command::ListMultipartUploads { .. }
             | Command::PresignGet { .. } => HttpMethod::Get,
             Command::PutObject { .. }
@@ -150,21 +192,25 @@ impl<'a> Command<'a> {
             | Command::PresignPut { .. }
             | Command::UploadPart { .. }
             | Command::PutBucketCors { .. }
-            | Command::CreateBucket { .. } => HttpMethod::Put,
+            | Command::CreateBucket { .. }
+            | Command::PutBucketLifecycle { .. } => HttpMethod::Put,
             Command::DeleteObject
             | Command::DeleteObjectTagging
             | Command::AbortMultipartUpload { .. }
             | Command::PresignDelete { .. }
-            | Command::DeleteBucket => HttpMethod::Delete,
+            | Command::DeleteBucket
+            | Command::DeleteBucketCors { .. }
+            | Command::DeleteBucketLifecycle => HttpMethod::Delete,
             Command::InitiateMultipartUpload { .. } | Command::CompleteMultipartUpload { .. } => {
                 HttpMethod::Post
             }
             Command::HeadObject => HttpMethod::Head,
+            Command::GetObjectAttributes { .. } => HttpMethod::Get,
         }
     }
 
-    pub fn content_length(&self) -> usize {
-        match &self {
+    pub fn content_length(&self) -> Result<usize, S3Error> {
+        let result = match &self {
             Command::CopyObject { from: _ } => 0,
             Command::PutObject { content, .. } => content.len(),
             Command::PutObjectTagging { tags } => tags.len(),
@@ -177,21 +223,77 @@ impl<'a> Command<'a> {
                     0
                 }
             }
-            _ => 0,
-        }
+            Command::PutBucketLifecycle { configuration } => {
+                quick_xml::se::to_string(configuration)?.as_bytes().len()
+            }
+            Command::PutBucketCors { configuration, .. } => {
+                configuration.to_string().as_bytes().len()
+            }
+            Command::HeadObject => 0,
+            Command::DeleteObject => 0,
+            Command::DeleteObjectTagging => 0,
+            Command::GetObject => 0,
+            Command::GetObjectTorrent => 0,
+            Command::GetObjectRange { .. } => 0,
+            Command::GetObjectTagging => 0,
+            Command::ListMultipartUploads { .. } => 0,
+            Command::ListObjects { .. } => 0,
+            Command::ListObjectsV2 { .. } => 0,
+            Command::GetBucketLocation => 0,
+            Command::PresignGet { .. } => 0,
+            Command::PresignPut { .. } => 0,
+            Command::PresignDelete { .. } => 0,
+            Command::InitiateMultipartUpload { .. } => 0,
+            Command::AbortMultipartUpload { .. } => 0,
+            Command::DeleteBucket => 0,
+            Command::ListBuckets => 0,
+            Command::GetBucketCors { .. } => 0,
+            Command::DeleteBucketCors { .. } => 0,
+            Command::GetBucketLifecycle => 0,
+            Command::DeleteBucketLifecycle { .. } => 0,
+            Command::GetObjectAttributes { .. } => 0,
+        };
+        Ok(result)
     }
 
     pub fn content_type(&self) -> String {
         match self {
             Command::InitiateMultipartUpload { content_type } => content_type.to_string(),
             Command::PutObject { content_type, .. } => content_type.to_string(),
-            Command::CompleteMultipartUpload { .. } => "application/xml".into(),
-            _ => "text/plain".into(),
+            Command::CompleteMultipartUpload { .. }
+            | Command::PutBucketLifecycle { .. }
+            | Command::PutBucketCors { .. } => "application/xml".into(),
+            Command::HeadObject => "text/plain".into(),
+            Command::DeleteObject => "text/plain".into(),
+            Command::DeleteObjectTagging => "text/plain".into(),
+            Command::GetObject => "text/plain".into(),
+            Command::GetObjectTorrent => "text/plain".into(),
+            Command::GetObjectRange { .. } => "text/plain".into(),
+            Command::GetObjectTagging => "text/plain".into(),
+            Command::ListMultipartUploads { .. } => "text/plain".into(),
+            Command::ListObjects { .. } => "text/plain".into(),
+            Command::ListObjectsV2 { .. } => "text/plain".into(),
+            Command::GetBucketLocation => "text/plain".into(),
+            Command::PresignGet { .. } => "text/plain".into(),
+            Command::PresignPut { .. } => "text/plain".into(),
+            Command::PresignDelete { .. } => "text/plain".into(),
+            Command::AbortMultipartUpload { .. } => "text/plain".into(),
+            Command::DeleteBucket => "text/plain".into(),
+            Command::ListBuckets => "text/plain".into(),
+            Command::GetBucketCors { .. } => "text/plain".into(),
+            Command::DeleteBucketCors { .. } => "text/plain".into(),
+            Command::GetBucketLifecycle => "text/plain".into(),
+            Command::DeleteBucketLifecycle { .. } => "text/plain".into(),
+            Command::CopyObject { .. } => "text/plain".into(),
+            Command::PutObjectTagging { .. } => "text/plain".into(),
+            Command::UploadPart { .. } => "text/plain".into(),
+            Command::CreateBucket { .. } => "text/plain".into(),
+            Command::GetObjectAttributes { .. } => "text/plain".into(),
         }
     }
 
-    pub fn sha256(&self) -> String {
-        match &self {
+    pub fn sha256(&self) -> Result<String, S3Error> {
+        let result = match &self {
             Command::PutObject { content, .. } => {
                 let mut sha = Sha256::default();
                 sha.update(content);
@@ -216,7 +318,42 @@ impl<'a> Command<'a> {
                     EMPTY_PAYLOAD_SHA.into()
                 }
             }
-            _ => EMPTY_PAYLOAD_SHA.into(),
-        }
+            Command::PutBucketLifecycle { configuration } => {
+                let mut sha = Sha256::default();
+                sha.update(quick_xml::se::to_string(configuration)?.as_bytes());
+                hex::encode(sha.finalize().as_slice())
+            }
+            Command::PutBucketCors { configuration, .. } => {
+                let mut sha = Sha256::default();
+                sha.update(configuration.to_string().as_bytes());
+                hex::encode(sha.finalize().as_slice())
+            }
+            Command::HeadObject => EMPTY_PAYLOAD_SHA.into(),
+            Command::DeleteObject => EMPTY_PAYLOAD_SHA.into(),
+            Command::DeleteObjectTagging => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetObject => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetObjectTorrent => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetObjectRange { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetObjectTagging => EMPTY_PAYLOAD_SHA.into(),
+            Command::ListMultipartUploads { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::ListObjects { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::ListObjectsV2 { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetBucketLocation => EMPTY_PAYLOAD_SHA.into(),
+            Command::PresignGet { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::PresignPut { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::PresignDelete { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::AbortMultipartUpload { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::DeleteBucket => EMPTY_PAYLOAD_SHA.into(),
+            Command::ListBuckets => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetBucketCors { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::DeleteBucketCors { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetBucketLifecycle => EMPTY_PAYLOAD_SHA.into(),
+            Command::DeleteBucketLifecycle { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::CopyObject { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::UploadPart { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::InitiateMultipartUpload { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetObjectAttributes { .. } => EMPTY_PAYLOAD_SHA.into(),
+        };
+        Ok(result)
     }
 }

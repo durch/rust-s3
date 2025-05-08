@@ -1,8 +1,8 @@
+use async_std::io::Write as AsyncWrite;
 use async_std::io::{ReadExt, WriteExt};
 use async_std::stream::StreamExt;
 use bytes::Bytes;
-use futures_io::AsyncWrite;
-use futures_util::FutureExt;
+use futures::FutureExt;
 use std::collections::HashMap;
 
 use crate::bucket::Bucket;
@@ -61,7 +61,7 @@ impl<'a> Request for SurfRequest<'a> {
             HttpMethod::Head => surf::Request::builder(Method::Head, self.url()?),
         };
 
-        let mut request = request.body(self.request_body());
+        let mut request = request.body(self.request_body()?);
 
         for (name, value) in headers.iter() {
             request = request.header(
@@ -85,7 +85,7 @@ impl<'a> Request for SurfRequest<'a> {
     }
 
     async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
-        let mut response = self.response().await?;
+        let mut response = crate::retry! {self.response().await}?;
         let status_code = response.status();
 
         let response_headers = response
@@ -120,7 +120,7 @@ impl<'a> Request for SurfRequest<'a> {
     ) -> Result<u16, S3Error> {
         let mut buffer = Vec::new();
 
-        let response = self.response().await?;
+        let response = crate::retry! {self.response().await}?;
 
         let status_code = response.status();
 
@@ -135,7 +135,7 @@ impl<'a> Request for SurfRequest<'a> {
 
     async fn response_header(&self) -> Result<(HeaderMap, u16), S3Error> {
         let mut header_map = HeaderMap::new();
-        let response = self.response().await?;
+        let response = crate::retry! {self.response().await}?;
         let status_code = response.status();
 
         for (name, value) in response.iter() {
@@ -150,7 +150,7 @@ impl<'a> Request for SurfRequest<'a> {
     }
 
     async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
-        let mut response = self.response().await?;
+        let mut response = crate::retry! {self.response().await}?;
         let status_code = response.status();
 
         let body = response

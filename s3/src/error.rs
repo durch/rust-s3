@@ -25,14 +25,12 @@ pub enum S3Error {
     #[error("http: {0}")]
     Http(#[from] http::Error),
     #[cfg(feature = "with-tokio")]
-    #[error("hyper: {0}")]
-    Hyper(#[from] hyper::Error),
-    #[cfg(feature = "use-tokio-native-tls")]
-    #[error("native-tls: {0}")]
-    NativeTls(#[from] native_tls::Error),
-    #[cfg(feature = "with-tokio-rustls")]
-    #[error("rustls: {0}")]
-    Rustls(#[from] rustls::TLSError),
+    #[error("reqwest: {0}")]
+    Reqwest(#[from] reqwest::Error),
+    #[cfg(feature = "with-tokio")]
+    #[error("reqwest: {0}")]
+    ReqwestHeaderToStr(#[from] reqwest::header::ToStrError),
+    #[cfg(feature = "with-async-std")]
     #[error("header to string: {0}")]
     HeaderToStr(#[from] http::header::ToStrError),
     #[error("from utf8: {0}")]
@@ -41,6 +39,7 @@ pub enum S3Error {
     SerdeXml(#[from] quick_xml::de::DeError),
     #[error("invalid header value: {0}")]
     InvalidHeaderValue(#[from] http::header::InvalidHeaderValue),
+    #[cfg(feature = "with-async-std")]
     #[error("invalid header name: {0}")]
     InvalidHeaderName(#[from] http::header::InvalidHeaderName),
     #[cfg(feature = "with-async-std")]
@@ -49,6 +48,12 @@ pub enum S3Error {
     #[cfg(feature = "sync")]
     #[error("attohttpc: {0}")]
     Atto(#[from] attohttpc::Error),
+    #[cfg(feature = "sync")]
+    #[error("attohttpc: {0}")]
+    AttoHeader(#[from] attohttpc::header::ToStrError),
+    #[cfg(feature = "sync")]
+    #[error("attohttpc: {0}")]
+    AttoHeaderName(#[from] attohttpc::header::InvalidHeaderName),
     #[error("Could not get Write lock on Credentials")]
     WLCredentials,
     #[error("Could not get Read lock on Credentials")]

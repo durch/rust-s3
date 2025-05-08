@@ -88,15 +88,51 @@ pub enum Region {
     /// Digital Ocean fra1
     DoFra1,
     /// Yandex Object Storage
+    OvhGra,
+    /// gra
+    OvhRbx,
+    /// rbx
+    OvhSbg,
+    /// sbg
+    OvhDe,
+    /// de
+    OvhUk,
+    /// uk
+    OvhWaw,
+    /// waw
+    OvhBhs,
+    /// bhs
+    OvhCaEastTor,
+    /// ca-east-tor
+    OvhSgp,
+    /// sgp
     Yandex,
     /// Wasabi us-east-1
     WaUsEast1,
     /// Wasabi us-east-2
     WaUsEast2,
+    /// Wasabi us-central-1
+    WaUsCentral1,
     /// Wasabi us-west-1
     WaUsWest1,
+    /// Wasabi ca-central-1
+    WaCaCentral1,
     /// Wasabi eu-central-1
     WaEuCentral1,
+    /// Wasabi eu-central-2
+    WaEuCentral2,
+    /// Wasabi eu-west-1
+    WaEuWest1,
+    /// Wasabi eu-west-2
+    WaEuWest2,
+    /// Wasabi ap-northeast-1
+    WaApNortheast1,
+    /// Wasabi ap-northeast-2
+    WaApNortheast2,
+    /// Wasabi ap-southeast-1
+    WaApSoutheast1,
+    /// Wasabi ap-southeast-2
+    WaApSoutheast2,
     /// Custom region
     R2 {
         account_id: String,
@@ -142,8 +178,26 @@ impl fmt::Display for Region {
             Yandex => write!(f, "ru-central1"),
             WaUsEast1 => write!(f, "us-east-1"),
             WaUsEast2 => write!(f, "us-east-2"),
+            WaUsCentral1 => write!(f, "us-central-1"),
             WaUsWest1 => write!(f, "us-west-1"),
+            WaCaCentral1 => write!(f, "ca-central-1"),
             WaEuCentral1 => write!(f, "eu-central-1"),
+            WaEuCentral2 => write!(f, "eu-central-2"),
+            WaEuWest1 => write!(f, "eu-west-1"),
+            WaEuWest2 => write!(f, "eu-west-2"),
+            WaApNortheast1 => write!(f, "ap-northeast-1"),
+            WaApNortheast2 => write!(f, "ap-northeast-2"),
+            WaApSoutheast1 => write!(f, "ap-southeast-1"),
+            WaApSoutheast2 => write!(f, "ap-southeast-2"),
+            OvhGra => write!(f, "gra"),
+            OvhRbx => write!(f, "rbx"),
+            OvhSbg => write!(f, "sbg"),
+            OvhDe => write!(f, "de"),
+            OvhUk => write!(f, "uk"),
+            OvhWaw => write!(f, "waw"),
+            OvhBhs => write!(f, "bhs"),
+            OvhCaEastTor => write!(f, "ca-east-tor"),
+            OvhSgp => write!(f, "sgp"),
             R2 { .. } => write!(f, "auto"),
             Custom { ref region, .. } => write!(f, "{}", region),
         }
@@ -188,8 +242,17 @@ impl FromStr for Region {
             "ru-central1" => Ok(Yandex),
             "wa-us-east-1" => Ok(WaUsEast1),
             "wa-us-east-2" => Ok(WaUsEast2),
+            "wa-us-central-1" => Ok(WaUsCentral1),
             "wa-us-west-1" => Ok(WaUsWest1),
+            "wa-ca-central-1" => Ok(WaCaCentral1),
             "wa-eu-central-1" => Ok(WaEuCentral1),
+            "wa-eu-central-2" => Ok(WaEuCentral2),
+            "wa-eu-west-1" => Ok(WaEuWest1),
+            "wa-eu-west-2" => Ok(WaEuWest2),
+            "wa-ap-northeast-1" => Ok(WaApNortheast1),
+            "wa-ap-northeast-2" => Ok(WaApNortheast2),
+            "wa-ap-southeast-1" => Ok(WaApSoutheast1),
+            "wa-ap-southeast-2" => Ok(WaApSoutheast2),
             x => Ok(Custom {
                 region: x.to_string(),
                 endpoint: x.to_string(),
@@ -235,8 +298,26 @@ impl Region {
             Yandex => String::from("storage.yandexcloud.net"),
             WaUsEast1 => String::from("s3.us-east-1.wasabisys.com"),
             WaUsEast2 => String::from("s3.us-east-2.wasabisys.com"),
+            WaUsCentral1 => String::from("s3.us-central-1.wasabisys.com"),
             WaUsWest1 => String::from("s3.us-west-1.wasabisys.com"),
+            WaCaCentral1 => String::from("s3.ca-central-1.wasabisys.com"),
             WaEuCentral1 => String::from("s3.eu-central-1.wasabisys.com"),
+            WaEuCentral2 => String::from("s3.eu-central-2.wasabisys.com"),
+            WaEuWest1 => String::from("s3.eu-west-1.wasabisys.com"),
+            WaEuWest2 => String::from("s3.eu-west-2.wasabisys.com"),
+            WaApNortheast1 => String::from("s3.ap-northeast-1.wasabisys.com"),
+            WaApNortheast2 => String::from("s3.ap-northeast-2.wasabisys.com"),
+            WaApSoutheast1 => String::from("s3.ap-southeast-1.wasabisys.com"),
+            WaApSoutheast2 => String::from("s3.ap-southeast-2.wasabisys.com"),
+            OvhGra => String::from("s3.gra.io.cloud.ovh.net"),
+            OvhRbx => String::from("s3.rbx.io.cloud.ovh.net"),
+            OvhSbg => String::from("s3.sbg.io.cloud.ovh.net"),
+            OvhDe => String::from("s3.de.io.cloud.ovh.net"),
+            OvhUk => String::from("s3.uk.io.cloud.ovh.net"),
+            OvhWaw => String::from("s3.waw.io.cloud.ovh.net"),
+            OvhBhs => String::from("s3.bhs.io.cloud.ovh.net"),
+            OvhCaEastTor => String::from("s3.ca-east-tor.io.cloud.ovh.net"),
+            OvhSgp => String::from("s3.sgp.io.cloud.ovh.net"),
             R2 { ref account_id } => format!("{}.r2.cloudflarestorage.com", account_id),
             Custom { ref endpoint, .. } => endpoint.to_string(),
         }

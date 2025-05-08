@@ -19,6 +19,91 @@ pub struct Owner {
     pub id: String,
 }
 
+// <GetObjectAttributesOutput>
+//    <ETag>string</ETag>
+//    <Checksum>
+//       <ChecksumCRC32>string</ChecksumCRC32>
+//       <ChecksumCRC32C>string</ChecksumCRC32C>
+//       <ChecksumSHA1>string</ChecksumSHA1>
+//       <ChecksumSHA256>string</ChecksumSHA256>
+//    </Checksum>
+//    <ObjectParts>
+//       <IsTruncated>boolean</IsTruncated>
+//       <MaxParts>integer</MaxParts>
+//       <NextPartNumberMarker>integer</NextPartNumberMarker>
+//       <PartNumberMarker>integer</PartNumberMarker>
+//       <Part>
+//          <ChecksumCRC32>string</ChecksumCRC32>
+//          <ChecksumCRC32C>string</ChecksumCRC32C>
+//          <ChecksumSHA1>string</ChecksumSHA1>
+//          <ChecksumSHA256>string</ChecksumSHA256>
+//          <PartNumber>integer</PartNumber>
+//          <Size>long</Size>
+//       </Part>
+//       ...
+//       <PartsCount>integer</PartsCount>
+//    </ObjectParts>
+//    <StorageClass>string</StorageClass>
+//    <ObjectSize>long</ObjectSize>
+// </GetObjectAttributesOutput>
+#[derive(Deserialize, Debug)]
+pub struct GetObjectAttributesOutput {
+    #[serde(rename = "ETag")]
+    pub etag: String,
+    #[serde(rename = "Checksum")]
+    pub checksum: Checksum,
+    #[serde(rename = "ObjectParts")]
+    pub object_parts: ObjectParts,
+    #[serde(rename = "StorageClass")]
+    pub storage_class: String,
+    #[serde(rename = "ObjectSize")]
+    pub object_size: u64,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Checksum {
+    #[serde(rename = "ChecksumCRC32")]
+    pub checksum_crc32: String,
+    #[serde(rename = "ChecksumCRC32C")]
+    pub checksum_crc32c: String,
+    #[serde(rename = "ChecksumSHA1")]
+    pub checksum_sha1: String,
+    #[serde(rename = "ChecksumSHA256")]
+    pub checksum_sha256: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ObjectParts {
+    #[serde(rename = "IsTruncated")]
+    pub is_truncated: bool,
+    #[serde(rename = "MaxParts")]
+    pub max_parts: i32,
+    #[serde(rename = "NextPartNumberMarker")]
+    pub next_part_number_marker: i32,
+    #[serde(rename = "PartNumberMarker")]
+    pub part_number_marker: i32,
+    #[serde(rename = "Part")]
+    pub part: Vec<AttributesPart>,
+    #[serde(rename = "PartsCount")]
+    pub parts_count: u64,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AttributesPart {
+    #[serde(rename = "ChecksumCRC32")]
+    pub checksum_crc32: String,
+    #[serde(rename = "ChecksumCRC32C")]
+    pub checksum_crc32c: String,
+    #[serde(rename = "ChecksumSHA1")]
+    pub checksum_sha1: String,
+    #[serde(rename = "ChecksumSHA256")]
+    pub checksum_sha256: String,
+    #[serde(rename = "PartNumber")]
+    pub part_number: i32,
+    #[serde(rename = "Size")]
+    pub size: u64,
+}
+
 /// An individual object in a `ListBucketResult`
 #[derive(Deserialize, Debug, Clone)]
 pub struct Object {
@@ -63,7 +148,7 @@ pub struct MultipartUpload {
     pub id: String,
 }
 
-use std::fmt;
+use std::fmt::{self};
 
 impl fmt::Display for CompleteMultipartUploadData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -319,7 +404,7 @@ pub struct AwsError {
     pub request_id: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename = "CORSConfiguration")]
 pub struct CorsConfiguration {
     #[serde(rename = "CORSRule")]
@@ -332,7 +417,21 @@ impl CorsConfiguration {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+impl fmt::Display for CorsConfiguration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let cors = quick_xml::se::to_string(&self).map_err(|_| fmt::Error)?;
+        let preamble = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
+        let cors = format!("{}{}", preamble, cors);
+        let cors = cors.replace(
+            "<CORSConfiguration>",
+            "<CORSConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">",
+        );
+
+        write!(f, "{}", cors)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct CorsRule {
     #[serde(rename = "AllowedHeader")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -344,6 +443,7 @@ pub struct CorsRule {
     #[serde(rename = "ExposeHeader")]
     #[serde(skip_serializing_if = "Option::is_none")]
     expose_headers: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "ID")]
     id: Option<String>,
     #[serde(rename = "MaxAgeSeconds")]
@@ -371,8 +471,343 @@ impl CorsRule {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename = "LifecycleConfiguration")]
+pub struct BucketLifecycleConfiguration {
+    #[serde(rename = "Rule")]
+    pub rules: Vec<LifecycleRule>,
+}
+
+impl BucketLifecycleConfiguration {
+    pub fn new(rules: Vec<LifecycleRule>) -> Self {
+        BucketLifecycleConfiguration { rules }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct LifecycleRule {
+    #[serde(
+        rename = "AbortIncompleteMultipartUpload",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub abort_incomplete_multipart_upload: Option<AbortIncompleteMultipartUpload>,
+
+    #[serde(rename = "Expiration", skip_serializing_if = "Option::is_none")]
+    pub expiration: Option<Expiration>,
+
+    #[serde(rename = "Filter", skip_serializing_if = "Option::is_none")]
+    pub filter: Option<LifecycleFilter>,
+
+    #[serde(rename = "ID", skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
+    #[serde(
+        rename = "NoncurrentVersionExpiration",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub noncurrent_version_expiration: Option<NoncurrentVersionExpiration>,
+
+    #[serde(
+        rename = "NoncurrentVersionTransition",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub noncurrent_version_transition: Option<Vec<NoncurrentVersionTransition>>,
+
+    #[serde(rename = "Status")]
+    /// Valid Values: Enabled | Disabled
+    pub status: String,
+
+    #[serde(rename = "Transition", skip_serializing_if = "Option::is_none")]
+    pub transition: Option<Vec<Transition>>,
+}
+
+pub struct LifecycleRuleBuilder {
+    lifecycle_rule: LifecycleRule,
+}
+
+impl LifecycleRule {
+    pub fn builder(status: &str) -> LifecycleRuleBuilder {
+        LifecycleRuleBuilder::new(status)
+    }
+}
+
+impl LifecycleRuleBuilder {
+    pub fn new(status: &str) -> LifecycleRuleBuilder {
+        LifecycleRuleBuilder {
+            lifecycle_rule: LifecycleRule {
+                status: status.to_string(),
+                ..Default::default()
+            },
+        }
+    }
+
+    pub fn abort_incomplete_multipart_upload(
+        mut self,
+        abort_incomplete_multipart_upload: AbortIncompleteMultipartUpload,
+    ) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.abort_incomplete_multipart_upload =
+            Some(abort_incomplete_multipart_upload);
+        self
+    }
+
+    pub fn expiration(mut self, expiration: Expiration) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.expiration = Some(expiration);
+        self
+    }
+
+    pub fn filter(mut self, filter: LifecycleFilter) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.filter = Some(filter);
+        self
+    }
+
+    pub fn id(mut self, id: &str) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.id = Some(id.to_string());
+        self
+    }
+
+    pub fn noncurrent_version_expiration(
+        mut self,
+        noncurrent_version_expiration: NoncurrentVersionExpiration,
+    ) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.noncurrent_version_expiration = Some(noncurrent_version_expiration);
+        self
+    }
+
+    pub fn noncurrent_version_transition(
+        mut self,
+        noncurrent_version_transition: Vec<NoncurrentVersionTransition>,
+    ) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.noncurrent_version_transition = Some(noncurrent_version_transition);
+        self
+    }
+
+    pub fn transition(mut self, transition: Vec<Transition>) -> LifecycleRuleBuilder {
+        self.lifecycle_rule.transition = Some(transition);
+        self
+    }
+
+    pub fn build(self) -> LifecycleRule {
+        self.lifecycle_rule
+    }
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AbortIncompleteMultipartUpload {
+    #[serde(
+        rename = "DaysAfterInitiation",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub days_after_initiation: Option<i32>,
+}
+
+impl AbortIncompleteMultipartUpload {
+    pub fn new(days_after_initiation: Option<i32>) -> Self {
+        Self {
+            days_after_initiation,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Expiration {
+    /// Indicates at what date the object is to be moved or deleted. The date value must conform to the ISO 8601 format. The time is always midnight UTC.
+    #[serde(rename = "Date", skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
+
+    #[serde(rename = "Days", skip_serializing_if = "Option::is_none")]
+    pub days: Option<u32>,
+
+    /// Indicates whether Amazon S3 will remove a delete marker with no noncurrent versions. If set to true, the delete marker will be expired; if set to false the policy takes no action. This cannot be specified with Days or Date in a Lifecycle Expiration Policy.
+    #[serde(
+        rename = "ExpiredObjectDeleteMarker",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub expired_object_delete_marker: Option<bool>,
+}
+
+impl Expiration {
+    pub fn new(
+        date: Option<String>,
+        days: Option<u32>,
+        expired_object_delete_marker: Option<bool>,
+    ) -> Self {
+        Self {
+            date,
+            days,
+            expired_object_delete_marker,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LifecycleFilter {
+    #[serde(rename = "And", skip_serializing_if = "Option::is_none")]
+    pub and: Option<And>,
+
+    #[serde(
+        rename = "ObjectSizeGreaterThan",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub object_size_greater_than: Option<i64>,
+
+    #[serde(rename = "ObjectSizeLessThan", skip_serializing_if = "Option::is_none")]
+    pub object_size_less_than: Option<i64>,
+
+    #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+
+    #[serde(rename = "Tag", skip_serializing_if = "Option::is_none")]
+    pub tag: Option<Tag>,
+}
+impl LifecycleFilter {
+    pub fn new(
+        and: Option<And>,
+        object_size_greater_than: Option<i64>,
+        object_size_less_than: Option<i64>,
+        prefix: Option<String>,
+        tag: Option<Tag>,
+    ) -> Self {
+        Self {
+            and,
+            object_size_greater_than,
+            object_size_less_than,
+            prefix,
+            tag,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct And {
+    #[serde(
+        rename = "ObjectSizeGreaterThan",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub object_size_greater_than: Option<i64>,
+
+    #[serde(rename = "ObjectSizeLessThan", skip_serializing_if = "Option::is_none")]
+    pub object_size_less_than: Option<i64>,
+
+    #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+
+    #[serde(rename = "Tag", skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<Tag>>,
+}
+
+impl And {
+    pub fn new(
+        object_size_greater_than: Option<i64>,
+        object_size_less_than: Option<i64>,
+        prefix: Option<String>,
+        tags: Option<Vec<Tag>>,
+    ) -> Self {
+        Self {
+            object_size_greater_than,
+            object_size_less_than,
+            prefix,
+            tags,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Tag {
+    #[serde(rename = "Key")]
+    pub key: String,
+
+    #[serde(rename = "Value")]
+    pub value: String,
+}
+
+impl Tag {
+    pub fn new(key: &str, value: &str) -> Self {
+        Self {
+            key: key.to_string(),
+            value: value.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NoncurrentVersionExpiration {
+    #[serde(
+        rename = "NewerNoncurrentVersions",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub newer_noncurrent_versions: Option<i32>,
+
+    #[serde(rename = "NoncurrentDays", skip_serializing_if = "Option::is_none")]
+    pub noncurrent_days: Option<i32>,
+}
+
+impl NoncurrentVersionExpiration {
+    pub fn new(newer_noncurrent_versions: Option<i32>, noncurrent_days: Option<i32>) -> Self {
+        NoncurrentVersionExpiration {
+            newer_noncurrent_versions,
+            noncurrent_days,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NoncurrentVersionTransition {
+    #[serde(
+        rename = "NewerNoncurrentVersions",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub newer_noncurrent_versions: Option<i32>,
+
+    #[serde(rename = "NoncurrentDays", skip_serializing_if = "Option::is_none")]
+    pub noncurrent_days: Option<i32>,
+
+    #[serde(rename = "StorageClass", skip_serializing_if = "Option::is_none")]
+    /// Valid Values: GLACIER | STANDARD_IA | ONEZONE_IA | INTELLIGENT_TIERING | DEEP_ARCHIVE | GLACIER_IR
+    pub storage_class: Option<String>,
+}
+
+impl NoncurrentVersionTransition {
+    pub fn new(
+        newer_noncurrent_versions: Option<i32>,
+        noncurrent_days: Option<i32>,
+        storage_class: Option<String>,
+    ) -> Self {
+        NoncurrentVersionTransition {
+            newer_noncurrent_versions,
+            noncurrent_days,
+            storage_class,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Transition {
+    #[serde(rename = "Date", skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
+
+    #[serde(rename = "Days", skip_serializing_if = "Option::is_none")]
+    pub days: Option<u32>,
+    /// Valid Values: GLACIER | STANDARD_IA | ONEZONE_IA | INTELLIGENT_TIERING | DEEP_ARCHIVE | GLACIER_IR
+    #[serde(rename = "StorageClass")]
+    pub storage_class: Option<String>,
+}
+
+impl Transition {
+    pub fn new(date: Option<String>, days: Option<u32>, storage_class: Option<String>) -> Self {
+        Transition {
+            date,
+            days,
+            storage_class,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use crate::serde_types::{
+        AbortIncompleteMultipartUpload, BucketLifecycleConfiguration, Expiration, LifecycleFilter,
+        LifecycleRule, NoncurrentVersionExpiration, NoncurrentVersionTransition, Transition,
+    };
+
     use super::{CorsConfiguration, CorsRule};
 
     #[test]
@@ -394,6 +829,51 @@ mod test {
         assert_eq!(
             se,
             r#"<CORSConfiguration><CORSRule><AllowedHeader>Authorization</AllowedHeader><AllowedHeader>Header2</AllowedHeader><AllowedMethod>GET</AllowedMethod><AllowedMethod>DELETE</AllowedMethod><AllowedOrigin>*</AllowedOrigin><ID>lala</ID></CORSRule><CORSRule><AllowedHeader>Authorization</AllowedHeader><AllowedHeader>Header2</AllowedHeader><AllowedMethod>GET</AllowedMethod><AllowedMethod>DELETE</AllowedMethod><AllowedOrigin>*</AllowedOrigin><ID>lala</ID></CORSRule></CORSConfiguration>"#
+        )
+    }
+
+    #[test]
+    fn lifecycle_config_serde() {
+        let rule = LifecycleRule {
+            abort_incomplete_multipart_upload: Some(AbortIncompleteMultipartUpload {
+                days_after_initiation: Some(30),
+            }),
+            expiration: Some(Expiration {
+                date: Some("2024-06-017".to_string()),
+                days: Some(30),
+                expired_object_delete_marker: Some(true),
+            }),
+            filter: Some(LifecycleFilter {
+                and: None,
+                object_size_greater_than: Some(10),
+                object_size_less_than: Some(50),
+                prefix: None,
+                tag: None,
+            }),
+            id: Some("lala".to_string()),
+            noncurrent_version_expiration: Some(NoncurrentVersionExpiration {
+                newer_noncurrent_versions: Some(30),
+                noncurrent_days: Some(30),
+            }),
+            noncurrent_version_transition: Some(vec![NoncurrentVersionTransition {
+                newer_noncurrent_versions: Some(30),
+                noncurrent_days: Some(30),
+                storage_class: Some("GLACIER".to_string()),
+            }]),
+            status: "Enabled".to_string(),
+            transition: Some(vec![Transition {
+                date: Some("2024-06-017".to_string()),
+                days: Some(30),
+                storage_class: Some("GLACIER".to_string()),
+            }]),
+        };
+
+        let config = BucketLifecycleConfiguration { rules: vec![rule] };
+
+        let se = quick_xml::se::to_string(&config).unwrap();
+        assert_eq!(
+            se,
+            r#"<LifecycleConfiguration><Rule><AbortIncompleteMultipartUpload><DaysAfterInitiation>30</DaysAfterInitiation></AbortIncompleteMultipartUpload><Expiration><Date>2024-06-017</Date><Days>30</Days><ExpiredObjectDeleteMarker>true</ExpiredObjectDeleteMarker></Expiration><Filter><ObjectSizeGreaterThan>10</ObjectSizeGreaterThan><ObjectSizeLessThan>50</ObjectSizeLessThan></Filter><ID>lala</ID><NoncurrentVersionExpiration><NewerNoncurrentVersions>30</NewerNoncurrentVersions><NoncurrentDays>30</NoncurrentDays></NoncurrentVersionExpiration><NoncurrentVersionTransition><NewerNoncurrentVersions>30</NewerNoncurrentVersions><NoncurrentDays>30</NoncurrentDays><StorageClass>GLACIER</StorageClass></NoncurrentVersionTransition><Status>Enabled</Status><Transition><Date>2024-06-017</Date><Days>30</Days><StorageClass>GLACIER</StorageClass></Transition></Rule></LifecycleConfiguration>"#
         )
     }
 }

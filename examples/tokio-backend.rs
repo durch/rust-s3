@@ -1,9 +1,16 @@
 // cargo run --example tokio
 
+#[cfg(feature = "tokio")]
 use awscreds::Credentials;
+#[cfg(feature = "tokio")]
 use s3::error::S3Error;
+#[cfg(feature = "tokio")]
 use s3::Bucket;
 
+#[cfg(not(feature = "tokio"))]
+fn main() {}
+
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), S3Error> {
     let bucket = Bucket::new(
@@ -23,10 +30,7 @@ async fn main() -> Result<(), S3Error> {
     assert_eq!(response_data.status_code(), 200);
     assert_eq!(test, response_data.as_slice());
 
-    let response_data = bucket
-        .get_object_range(s3_path, 100, Some(1000))
-        .await
-        .unwrap();
+    let response_data = bucket.get_object_range(s3_path, 1, Some(10)).await.unwrap();
     assert_eq!(response_data.status_code(), 206);
     let (head_object_result, code) = bucket.head_object(s3_path).await?;
     assert_eq!(code, 200);

@@ -1,10 +1,18 @@
 // cargo run --example r2
 
+#[cfg(feature = "tokio")]
 use awscreds::Credentials;
+#[cfg(feature = "tokio")]
 use awsregion::Region;
+#[cfg(feature = "tokio")]
 use s3::error::S3Error;
+#[cfg(feature = "tokio")]
 use s3::Bucket;
 
+#[cfg(not(feature = "tokio"))]
+fn main() {}
+
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), S3Error> {
     // This requires a running minio server at localhost:9000
