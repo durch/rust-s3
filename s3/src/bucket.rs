@@ -2047,30 +2047,30 @@ impl Bucket {
     ///
     /// let mut headers = http::HeaderMap::new();
     /// headers.insert(
-    ///     http::HeaderName::from_static("Cache-Control"),
+    ///     http::HeaderName::from_static("cache-control"),
     ///     "public, max-age=300".parse().unwrap(),
     /// );
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// let response_data = bucket
-    ///     .put_object_with_custom_headers("/test.file", content, "text/plain", Some(headers)).await?;
+    ///     .put_object_with_content_type_and_headers("/test.file", content, "text/plain", Some(headers)).await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
     /// let response_data = bucket
-    ///     .put_object_with_custom_headers("/test.file", content, "text/plain", Some(headers))?;
+    ///     .put_object_with_content_type_and_headers("/test.file", content, "text/plain", Some(headers))?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
     /// let response_data = bucket
-    ///     .put_object_with_custom_headers("/test.file", content, "text/plain", Some(headers))?;
+    ///     .put_object_with_content_type_and_headers("/test.file", content, "text/plain", Some(headers))?;
     /// #
     /// # Ok(())
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    pub async fn put_object_with_custom_headers<S: AsRef<str>>(
+    pub async fn put_object_with_content_type_and_headers<S: AsRef<str>>(
         &self,
         path: S,
         content: &[u8],
@@ -2085,6 +2085,56 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, path.as_ref(), command).await?;
         request.response_data(true).await
+    }
+
+    /// Put into an S3 bucket, with custom headers for the request.
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let content = "I want to go to S3".as_bytes();
+    ///
+    /// let mut headers = http::HeaderMap::new();
+    /// headers.insert(
+    ///     http::HeaderName::from_static("cache-control"),
+    ///     "public, max-age=300".parse().unwrap(),
+    /// );
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let response_data = bucket.put_object_with_headers("/test.file", content, Some(headers)).await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let response_data = bucket.put_object_with_headers("/test.file", content, Some(headers))?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let response_data = bucket.put_object_with_headers("/test.file", content, Some(headers))?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn put_object_with_headers<S: AsRef<str>>(
+        &self,
+        path: S,
+        content: &[u8],
+        custom_headers: Option<HeaderMap>,
+    ) -> Result<ResponseData, S3Error> {
+        self.put_object_with_content_type_and_headers(path, content, "application/octet-stream", custom_headers)
+            .await
     }
 
     /// Put into an S3 bucket.
@@ -2748,7 +2798,7 @@ mod test {
     use crate::BucketConfiguration;
     use crate::Tag;
     use crate::{Bucket, PostPolicy};
-    use http::header::HeaderName;
+    use http::header::{HeaderMap, HeaderName, HeaderValue, CACHE_CONTROL, CONTENT_TYPE};
     use http::HeaderMap;
     use std::env;
 
