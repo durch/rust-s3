@@ -1506,6 +1506,7 @@ impl Bucket {
         let command = Command::PutObject {
             content: &chunk,
             multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
+            custom_headers: None,
             content_type,
         };
         let request = RequestImpl::new(self, path, command).await?;
@@ -1748,6 +1749,7 @@ impl Bucket {
             // part_number,
             content: &chunk,
             multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
+            custom_headers: None,
             content_type,
         };
         let request = RequestImpl::new(self, path, command).await?;
@@ -1783,6 +1785,7 @@ impl Bucket {
             // part_number,
             content: chunk,
             multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
+            custom_headers: None,
             content_type,
         };
         let request = RequestImpl::new(self, path, command)?;
@@ -2017,6 +2020,67 @@ impl Bucket {
         let command = Command::PutObject {
             content,
             content_type,
+            custom_headers: None,
+            multipart: None,
+        };
+        let request = RequestImpl::new(self, path.as_ref(), command).await?;
+        request.response_data(true).await
+    }
+
+    /// Put into an S3 bucket, with explicit content-type and custom headers for the request.
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let content = "I want to go to S3".as_bytes();
+    ///
+    /// let mut headers = http::HeaderMap::new();
+    /// headers.insert(
+    ///     http::HeaderName::from_static("Cache-Control"),
+    ///     "public, max-age=300".parse().unwrap(),
+    /// );
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let response_data = bucket
+    ///     .put_object_with_custom_headers("/test.file", content, "text/plain", Some(headers)).await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let response_data = bucket
+    ///     .put_object_with_custom_headers("/test.file", content, "text/plain", Some(headers))?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let response_data = bucket
+    ///     .put_object_with_custom_headers("/test.file", content, "text/plain", Some(headers))?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn put_object_with_custom_headers<S: AsRef<str>>(
+        &self,
+        path: S,
+        content: &[u8],
+        content_type: &str,
+        custom_headers: Option<HeaderMap>,
+    ) -> Result<ResponseData, S3Error> {
+        let command = Command::PutObject {
+            content,
+            content_type,
+            custom_headers,
             multipart: None,
         };
         let request = RequestImpl::new(self, path.as_ref(), command).await?;
