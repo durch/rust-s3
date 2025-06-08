@@ -51,7 +51,7 @@ base64 = "0.22"
 block_on_proc = { version = "0.2", optional = true }
 bytes = { version = "1.2" }
 cfg-if = "1"
-futures = { version = "0.3", optional = true, default-features = false }
+futures-util = { version = "0.3", optional = true, default-features = false }
 hex = "0.4"
 hmac = "0.12"
 http = "1"
@@ -85,8 +85,8 @@ default = ["fail-on-err", "tags", "tokio-native-tls"]
 
 sync = ["attohttpc", "maybe-async/is_sync"]
 with-async-std-hyper = ["with-async-std", "surf/hyper-client"]
-with-async-std = ["async-std", "futures"]
-with-tokio = ["futures", "reqwest", "tokio", "tokio/fs", "tokio-stream"]
+with-async-std = ["async-std", "futures-util"]
+with-tokio = ["futures-util", "reqwest", "tokio", "tokio/fs", "tokio-stream"]
 
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]
 fail-on-err = []

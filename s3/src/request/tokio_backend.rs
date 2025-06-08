@@ -2,7 +2,7 @@ extern crate base64;
 extern crate md5;
 
 use bytes::Bytes;
-use futures::TryStreamExt;
+use futures_util::TryStreamExt;
 use maybe_async::maybe_async;
 use std::collections::HashMap;
 use std::str::FromStr as _;
