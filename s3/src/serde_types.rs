@@ -179,7 +179,7 @@ pub struct CompleteMultipartUploadData {
     pub parts: Vec<Part>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Part {
     #[serde(rename = "PartNumber")]
     pub part_number: u32,
@@ -298,6 +298,35 @@ pub struct CommonPrefix {
     #[serde(rename = "Prefix")]
     /// Keys that begin with the indicated prefix.
     pub prefix: String,
+}
+
+/// The parsed result of a s3 bucket listing of parts of an upload
+#[derive(Deserialize, Debug, Clone)]
+pub struct ListPartsResult {
+    #[serde(rename = "Bucket")]
+    /// The name of the bucket to which the multipart upload was initiated.
+    pub bucket: String,
+    #[serde(rename = "Key")]
+    /// The object key for which the multipart upload was initiated.
+    pub key: String,
+    #[serde(rename = "UploadId")]
+    /// The upload ID for the multipart upload.
+    pub upload_id: String,
+    #[serde(rename = "PartNumberMarker")]
+    /// The part number marker used to specify where to continue listing parts.
+    pub part_number_marker: Option<u32>,
+    #[serde(rename = "NextPartNumberMarker")]
+    /// The part number marker used to specify where to continue listing parts.
+    pub next_part_number_marker: Option<u32>,
+    #[serde(rename = "MaxParts")]
+    /// The maximum number of parts to return.
+    pub max_parts: Option<u32>,
+    #[serde(rename = "IsTruncated")]
+    /// Indicates whether the returned list of parts is truncated.
+    pub is_truncated: bool,
+    #[serde(rename = "Part", default)]
+    /// Metadata about each part returned.
+    pub parts: Vec<Part>,
 }
 
 // Taken from https://github.com/rusoto/rusoto

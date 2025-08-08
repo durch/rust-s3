@@ -90,7 +90,8 @@ use crate::post_policy::PresignedPost;
 use crate::serde_types::{
     BucketLifecycleConfiguration, BucketLocationResult, CompleteMultipartUploadData,
     CorsConfiguration, GetObjectAttributesOutput, HeadObjectResult,
-    InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
+    InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, ListPartsResult,
+    Part,
 };
 #[allow(unused_imports)]
 use crate::utils::{error_from_response_data, PutStreamResponse};
@@ -2436,6 +2437,45 @@ impl Bucket {
         }
 
         Ok(results)
+    }
+
+    /// Lists the parts that have been uploaded for a specific multipart upload.
+    #[maybe_async::async_impl]
+    pub async fn list_parts(
+        &self,
+        path: &str,
+        upload_id: &str,
+        max_parts: Option<usize>,
+        part_number_marker: Option<u32>,
+    ) -> Result<ListPartsResult, S3Error> {
+        let complete = Command::ListParts {
+            upload_id,
+            max_parts,
+            part_number_marker,
+        };
+        let complete_request = RequestImpl::new(self, path, complete).await?;
+        let response_data = complete_request.response_data(false).await?;
+        let list_parts_result = quick_xml::de::from_reader(response_data.as_slice())?;
+        Ok(list_parts_result)
+    }
+
+    #[maybe_async::sync_impl]
+    pub fn list_parts(
+        &self,
+        path: &str,
+        upload_id: &str,
+        max_parts: Option<usize>,
+        part_number_marker: Option<u32>,
+    ) -> Result<ListPartsResult, S3Error> {
+        let complete = Command::ListParts {
+            upload_id,
+            max_parts,
+            part_number_marker,
+        };
+        let complete_request = RequestImpl::new(self, path, complete)?;
+        let response_data = complete_request.response_data(false);
+        let list_parts_result = quick_xml::de::from_reader(response_data.as_slice())?;
+        Ok(list_parts_result)
     }
 
     /// Abort a running multipart upload.

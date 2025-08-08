@@ -418,6 +418,22 @@ pub trait Request {
             Command::GetObjectTagging => {}
             Command::ListObjects { .. } => {}
             Command::ListObjectsV2 { .. } => {}
+            Command::ListParts {
+                upload_id,
+                max_parts,
+                part_number_marker,
+            } => {
+                write!(url_str, "?uploadId={}", upload_id).expect("Could not write to url_str");
+                if let Some(max_parts) = max_parts {
+                    write!(url_str, "&max-parts={}", max_parts)
+                        .expect("Could not write to url_str");
+                }
+                if let Some(part_number_marker) = part_number_marker {
+                    write!(url_str, "&part-number-marker={}", part_number_marker)
+                        .expect("Could not write to url_str");
+                }
+            }
+
             Command::GetBucketLocation => {}
             Command::PresignGet { .. } => {}
             Command::PresignPut { .. } => {}

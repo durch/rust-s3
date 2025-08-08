@@ -117,6 +117,11 @@ pub enum Command<'a> {
         start_after: Option<String>,
         max_keys: Option<usize>,
     },
+    ListParts {
+        upload_id: &'a str,
+        max_parts: Option<usize>,
+        part_number_marker: Option<u32>,
+    },
     GetBucketLocation,
     PresignGet {
         expiry_secs: u32,
@@ -181,6 +186,7 @@ impl<'a> Command<'a> {
             | Command::ListBuckets
             | Command::ListObjects { .. }
             | Command::ListObjectsV2 { .. }
+            | Command::ListParts { .. }
             | Command::GetBucketLocation
             | Command::GetObjectTagging
             | Command::GetBucketLifecycle
@@ -239,6 +245,7 @@ impl<'a> Command<'a> {
             Command::ListMultipartUploads { .. } => 0,
             Command::ListObjects { .. } => 0,
             Command::ListObjectsV2 { .. } => 0,
+            Command::ListParts { .. } => 0,
             Command::GetBucketLocation => 0,
             Command::PresignGet { .. } => 0,
             Command::PresignPut { .. } => 0,
@@ -273,6 +280,7 @@ impl<'a> Command<'a> {
             Command::ListMultipartUploads { .. } => "text/plain".into(),
             Command::ListObjects { .. } => "text/plain".into(),
             Command::ListObjectsV2 { .. } => "text/plain".into(),
+            Command::ListParts { .. } => "text/plain".into(),
             Command::GetBucketLocation => "text/plain".into(),
             Command::PresignGet { .. } => "text/plain".into(),
             Command::PresignPut { .. } => "text/plain".into(),
@@ -338,6 +346,7 @@ impl<'a> Command<'a> {
             Command::ListMultipartUploads { .. } => EMPTY_PAYLOAD_SHA.into(),
             Command::ListObjects { .. } => EMPTY_PAYLOAD_SHA.into(),
             Command::ListObjectsV2 { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::ListParts { .. } => EMPTY_PAYLOAD_SHA.into(),
             Command::GetBucketLocation => EMPTY_PAYLOAD_SHA.into(),
             Command::PresignGet { .. } => EMPTY_PAYLOAD_SHA.into(),
             Command::PresignPut { .. } => EMPTY_PAYLOAD_SHA.into(),
