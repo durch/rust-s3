@@ -386,7 +386,18 @@ impl Bucket {
         config: BucketConfiguration,
     ) -> Result<CreateBucketResponse, S3Error> {
         let mut config = config;
-        config.set_region(region.clone());
+
+        // Check if we should skip location constraint for LocalStack/Minio compatibility
+        // This env var allows users to create buckets on S3-compatible services that
+        // don't support or require location constraints in the request body
+        let skip_constraint = std::env::var("RUST_S3_SKIP_LOCATION_CONSTRAINT")
+            .unwrap_or_default()
+            .to_lowercase();
+
+        if skip_constraint != "true" && skip_constraint != "1" {
+            config.set_region(region.clone());
+        }
+
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new(name, region, credentials)?;
         let request = RequestImpl::new(&bucket, "", command).await?;
@@ -537,7 +548,18 @@ impl Bucket {
         config: BucketConfiguration,
     ) -> Result<CreateBucketResponse, S3Error> {
         let mut config = config;
-        config.set_region(region.clone());
+
+        // Check if we should skip location constraint for LocalStack/Minio compatibility
+        // This env var allows users to create buckets on S3-compatible services that
+        // don't support or require location constraints in the request body
+        let skip_constraint = std::env::var("RUST_S3_SKIP_LOCATION_CONSTRAINT")
+            .unwrap_or_default()
+            .to_lowercase();
+
+        if skip_constraint != "true" && skip_constraint != "1" {
+            config.set_region(region.clone());
+        }
+
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new(name, region, credentials)?.with_path_style();
         let request = RequestImpl::new(&bucket, "", command).await?;
