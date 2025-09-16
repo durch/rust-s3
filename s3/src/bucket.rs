@@ -438,7 +438,16 @@ impl Bucket {
         credentials: Credentials,
     ) -> Result<crate::bucket_ops::ListBucketsResponse, S3Error> {
         let dummy_bucket = Bucket::new("", region, credentials)?.with_path_style();
-        let request = RequestImpl::new(&dummy_bucket, "", Command::ListBuckets).await?;
+        dummy_bucket.list_buckets_().await
+    }
+
+    /// Internal helper method that performs the actual bucket listing operation.
+    /// Used by the public `list_buckets` method to retrieve the list of buckets for the configured client.
+    #[maybe_async::maybe_async]
+    async fn list_buckets_(
+        &self
+    ) -> Result<crate::bucket_ops::ListBucketsResponse, S3Error> {
+        let request = RequestImpl::new(self, "", Command::ListBuckets).await?;
         let response = request.response_data(false).await?;
 
         Ok(quick_xml::de::from_str::<
@@ -479,9 +488,10 @@ impl Bucket {
     /// ```
     #[maybe_async::maybe_async]
     pub async fn exists(&self) -> Result<bool, S3Error> {
-        let credentials = self.credentials().await?;
+        let mut dummy_bucket = self.clone();
+        dummy_bucket.name = "".into();
 
-        let response = Self::list_buckets(self.region.clone(), credentials).await?;
+        let response = dummy_bucket.list_buckets_().await?;
 
         Ok(response
             .bucket_names()
