@@ -1,24 +1,33 @@
 all: ci-all
 
-ci: s3-ci region-ci creds-ci
+# Main CI targets - fmt and clippy first, then tests
+ci: fmt clippy test
 
-ci-all: s3-all region-ci creds-ci
+ci-all: fmt clippy test-all
 
+# Formatting targets
 fmt: s3-fmt region-fmt creds-fmt
 
+# Clippy targets for all features
 clippy: s3-clippy region-clippy creds-clippy
 
-s3-all:
+# Test targets (run after fmt and clippy)
+test: s3-test region-test creds-test
+
+test-all: s3-test-all region-test creds-test
+
+# Test targets for individual crates
+s3-test:
+	cd s3; make test-not-ignored
+
+s3-test-all:
 	cd s3; make test-all
 
-s3-ci:
-	cd s3; make ci
+region-test:
+	cd aws-region; cargo test
 
-region-ci:
-	cd aws-region; make ci
-
-creds-ci:
-	cd aws-creds; make ci
+creds-test:
+	cd aws-creds; cargo test
 
 s3-fmt:
 	cd s3; cargo fmt --all
