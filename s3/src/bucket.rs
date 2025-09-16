@@ -441,7 +441,8 @@ impl Bucket {
         dummy_bucket.list_buckets_().await
     }
 
-    /// Internally accessible non-static implementation of list_buckets
+    /// Internal helper method that performs the actual bucket listing operation.
+    /// Used by the public `list_buckets` method to retrieve the list of buckets for the configured client.
     #[maybe_async::maybe_async]
     async fn list_buckets_(
         &self
