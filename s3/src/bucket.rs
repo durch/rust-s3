@@ -3693,6 +3693,76 @@ mod test {
             async_std::test
         )
     )]
+    async fn test_presign_url_standard_ports() {
+        // Test that presigned URLs preserve standard ports in the host header
+        // This is crucial for signature validation
+
+        // Test with HTTP standard port 80
+        let region_http_80 = Region::Custom {
+            region: "eu-central-1".to_owned(),
+            endpoint: "http://minio:80".to_owned(),
+        };
+        let credentials = Credentials::new(
+            Some("test_access_key"),
+            Some("test_secret_key"),
+            None,
+            None,
+            None,
+        ).unwrap();
+        let bucket_http_80 = Bucket::new("test-bucket", region_http_80, credentials.clone())
+            .unwrap()
+            .with_path_style();
+
+        let presigned_url_80 = bucket_http_80.presign_get("/test.file", 3600, None).await.unwrap();
+        println!("Presigned URL with port 80: {}", presigned_url_80);
+
+        // Port 80 MUST be preserved in the URL for signature validation
+        assert!(
+            presigned_url_80.starts_with("http://minio:80/"),
+            "URL must preserve port 80, got: {}",
+            presigned_url_80
+        );
+
+        // Test with HTTPS standard port 443
+        let region_https_443 = Region::Custom {
+            region: "eu-central-1".to_owned(),
+            endpoint: "https://minio:443".to_owned(),
+        };
+        let bucket_https_443 = Bucket::new("test-bucket", region_https_443, credentials.clone())
+            .unwrap()
+            .with_path_style();
+
+        let presigned_url_443 = bucket_https_443.presign_get("/test.file", 3600, None).await.unwrap();
+        println!("Presigned URL with port 443: {}", presigned_url_443);
+
+        // Port 443 MUST be preserved in the URL for signature validation
+        assert!(
+            presigned_url_443.starts_with("https://minio:443/"),
+            "URL must preserve port 443, got: {}",
+            presigned_url_443
+        );
+
+        // Test with non-standard port (should always include port)
+        let region_http_9000 = Region::Custom {
+            region: "eu-central-1".to_owned(),
+            endpoint: "http://minio:9000".to_owned(),
+        };
+        let bucket_http_9000 = Bucket::new("test-bucket", region_http_9000, credentials)
+            .unwrap()
+            .with_path_style();
+
+        let presigned_url_9000 = bucket_http_9000.presign_get("/test.file", 3600, None).await.unwrap();
+        assert!(presigned_url_9000.contains("minio:9000"), "Non-standard port should be preserved in URL");
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
     #[ignore]
     async fn test_bucket_create_delete_default_region() {
         let config = BucketConfiguration::default();

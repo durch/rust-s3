@@ -283,10 +283,38 @@ pub trait Request {
             _ => unreachable!(),
         };
 
+        let url = self
+            .presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())
+            .await?;
+
+        // Build the URL string preserving the original host (including standard ports)
+        // The Url type drops standard ports when converting to string, but we need them
+        // for signature validation
+        let url_str = if let awsregion::Region::Custom { ref endpoint, .. } = self.bucket().region()
+        {
+            // Check if we need to preserve a standard port
+            if (endpoint.contains(":80") && url.scheme() == "http" && url.port().is_none())
+                || (endpoint.contains(":443") && url.scheme() == "https" && url.port().is_none())
+            {
+                // Rebuild the URL with the original host from the endpoint
+                let host = self.bucket().host();
+                format!(
+                    "{}://{}{}{}",
+                    url.scheme(),
+                    host,
+                    url.path(),
+                    url.query().map(|q| format!("?{}", q)).unwrap_or_default()
+                )
+            } else {
+                url.to_string()
+            }
+        } else {
+            url.to_string()
+        };
+
         Ok(format!(
             "{}&X-Amz-Signature={}",
-            self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())
-                .await?,
+            url_str,
             self.presigned_authorization(custom_headers.as_ref())
                 .await?
         ))
@@ -308,9 +336,37 @@ pub trait Request {
             _ => unreachable!(),
         };
 
+        let url =
+            self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())?;
+
+        // Build the URL string preserving the original host (including standard ports)
+        // The Url type drops standard ports when converting to string, but we need them
+        // for signature validation
+        let url_str = if let awsregion::Region::Custom { ref endpoint, .. } = self.bucket().region()
+        {
+            // Check if we need to preserve a standard port
+            if (endpoint.contains(":80") && url.scheme() == "http" && url.port().is_none())
+                || (endpoint.contains(":443") && url.scheme() == "https" && url.port().is_none())
+            {
+                // Rebuild the URL with the original host from the endpoint
+                let host = self.bucket().host();
+                format!(
+                    "{}://{}{}{}",
+                    url.scheme(),
+                    host,
+                    url.path(),
+                    url.query().map(|q| format!("?{}", q)).unwrap_or_default()
+                )
+            } else {
+                url.to_string()
+            }
+        } else {
+            url.to_string()
+        };
+
         Ok(format!(
             "{}&X-Amz-Signature={}",
-            self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())?,
+            url_str,
             self.presigned_authorization(custom_headers.as_ref())?
         ))
     }
