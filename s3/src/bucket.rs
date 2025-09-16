@@ -1506,6 +1506,7 @@ impl Bucket {
         let command = Command::PutObject {
             content: &chunk,
             multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
+            custom_headers: None,
             content_type,
         };
         let request = RequestImpl::new(self, path, command).await?;
@@ -1748,6 +1749,7 @@ impl Bucket {
             // part_number,
             content: &chunk,
             multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
+            custom_headers: None,
             content_type,
         };
         let request = RequestImpl::new(self, path, command).await?;
@@ -1783,6 +1785,7 @@ impl Bucket {
             // part_number,
             content: chunk,
             multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
+            custom_headers: None,
             content_type,
         };
         let request = RequestImpl::new(self, path, command)?;
@@ -2017,10 +2020,121 @@ impl Bucket {
         let command = Command::PutObject {
             content,
             content_type,
+            custom_headers: None,
             multipart: None,
         };
         let request = RequestImpl::new(self, path.as_ref(), command).await?;
         request.response_data(true).await
+    }
+
+    /// Put into an S3 bucket, with explicit content-type and custom headers for the request.
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let content = "I want to go to S3".as_bytes();
+    ///
+    /// let mut headers = http::HeaderMap::new();
+    /// headers.insert(
+    ///     http::HeaderName::from_static("cache-control"),
+    ///     "public, max-age=300".parse().unwrap(),
+    /// );
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let response_data = bucket
+    ///     .put_object_with_content_type_and_headers("/test.file", content, "text/plain", Some(headers)).await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let response_data = bucket
+    ///     .put_object_with_content_type_and_headers("/test.file", content, "text/plain", Some(headers))?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let response_data = bucket
+    ///     .put_object_with_content_type_and_headers("/test.file", content, "text/plain", Some(headers))?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn put_object_with_content_type_and_headers<S: AsRef<str>>(
+        &self,
+        path: S,
+        content: &[u8],
+        content_type: &str,
+        custom_headers: Option<HeaderMap>,
+    ) -> Result<ResponseData, S3Error> {
+        let command = Command::PutObject {
+            content,
+            content_type,
+            custom_headers,
+            multipart: None,
+        };
+        let request = RequestImpl::new(self, path.as_ref(), command).await?;
+        request.response_data(true).await
+    }
+
+    /// Put into an S3 bucket, with custom headers for the request.
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    /// let content = "I want to go to S3".as_bytes();
+    ///
+    /// let mut headers = http::HeaderMap::new();
+    /// headers.insert(
+    ///     http::HeaderName::from_static("cache-control"),
+    ///     "public, max-age=300".parse().unwrap(),
+    /// );
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let response_data = bucket.put_object_with_headers("/test.file", content, Some(headers)).await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let response_data = bucket.put_object_with_headers("/test.file", content, Some(headers))?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let response_data = bucket.put_object_with_headers("/test.file", content, Some(headers))?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn put_object_with_headers<S: AsRef<str>>(
+        &self,
+        path: S,
+        content: &[u8],
+        custom_headers: Option<HeaderMap>,
+    ) -> Result<ResponseData, S3Error> {
+        self.put_object_with_content_type_and_headers(path, content, "application/octet-stream", custom_headers)
+            .await
     }
 
     /// Put into an S3 bucket.
@@ -2684,8 +2798,7 @@ mod test {
     use crate::BucketConfiguration;
     use crate::Tag;
     use crate::{Bucket, PostPolicy};
-    use http::header::HeaderName;
-    use http::HeaderMap;
+    use http::header::{HeaderMap, HeaderName, HeaderValue, CACHE_CONTROL};
     use std::env;
 
     fn init() {
@@ -2860,6 +2973,49 @@ mod test {
         }
 
         // println!("{:?}", head_object_result);
+        let response_data = bucket.delete_object(s3_path).await.unwrap();
+        assert_eq!(response_data.status_code(), 204);
+    }
+
+    #[maybe_async::maybe_async]
+    async fn put_head_delete_object_with_headers(bucket: Bucket) {
+        let s3_path = "/+test.file";
+        let non_existant_path = "/+non_existant.file";
+        let test: Vec<u8> = object(3072);
+        let header_value = "max-age=42";
+
+        let mut custom_headers = HeaderMap::new();
+        custom_headers.insert(CACHE_CONTROL, HeaderValue::from_static(header_value));
+        custom_headers.insert(HeaderName::from_static("test-key"), "value".parse().unwrap());
+
+        let response_data = bucket
+            .put_object_with_headers(s3_path, &test, Some(custom_headers.clone()))
+            .await
+            .expect("Put object with custom headers failed");
+        assert_eq!(response_data.status_code(), 200);
+
+        let response_data = bucket.get_object(s3_path).await.unwrap();
+        assert_eq!(response_data.status_code(), 200);
+        assert_eq!(test, response_data.as_slice());
+
+        let exists = bucket.object_exists(s3_path).await.unwrap();
+        assert!(exists);
+
+        let not_exists = bucket.object_exists(non_existant_path).await.unwrap();
+        assert!(!not_exists);
+
+        let response_data = bucket
+            .get_object_range(s3_path, 100, Some(1000))
+            .await
+            .unwrap();
+        assert_eq!(response_data.status_code(), 206);
+        assert_eq!(test[100..1001].to_vec(), response_data.as_slice());
+
+        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+        // println!("{:?}", head_object_result);
+        assert_eq!(code, 200);
+        assert_eq!(head_object_result.cache_control, Some(header_value.to_string()));
+
         let response_data = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 204);
     }
@@ -3301,6 +3457,7 @@ mod test {
     )]
     async fn aws_put_head_get_delete_object() {
         put_head_get_delete_object(*test_aws_bucket(), true).await;
+        put_head_delete_object_with_headers(*test_aws_bucket()).await;
     }
 
     #[ignore]
@@ -3320,6 +3477,7 @@ mod test {
     )]
     async fn gc_test_put_head_get_delete_object() {
         put_head_get_delete_object(*test_gc_bucket(), true).await;
+        put_head_delete_object_with_headers(*test_gc_bucket()).await;
     }
 
     #[ignore]
@@ -3333,6 +3491,7 @@ mod test {
     )]
     async fn wasabi_test_put_head_get_delete_object() {
         put_head_get_delete_object(*test_wasabi_bucket(), true).await;
+        put_head_delete_object_with_headers(*test_wasabi_bucket()).await;
     }
 
     #[ignore]
@@ -3346,6 +3505,7 @@ mod test {
     )]
     async fn minio_test_put_head_get_delete_object() {
         put_head_get_delete_object(*test_minio_bucket(), true).await;
+        put_head_delete_object_with_headers(*test_minio_bucket()).await;
     }
 
     // Keeps failing on tokio-rustls-tls
@@ -3373,6 +3533,7 @@ mod test {
     )]
     async fn r2_test_put_head_get_delete_object() {
         put_head_get_delete_object(*test_r2_bucket(), false).await;
+        put_head_delete_object_with_headers(*test_r2_bucket()).await;
     }
 
     #[maybe_async::test(
