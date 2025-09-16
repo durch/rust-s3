@@ -43,10 +43,10 @@ path = "../examples/gcs-tokio.rs"
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
 attohttpc = { version = "0.30", optional = true, default-features = false }
-# aws-creds = { version = "*", path = "../aws-creds", default-features = false }
-aws-creds = { version = "0.38", default-features = false }
-# aws-region = { version = "*", path = "../aws-region" }
-aws-region = "0.27"
+aws-creds = { version = "*", path = "../aws-creds", default-features = false }
+# aws-creds = { version = "0.39", default-features = false }
+aws-region = { version = "*", path = "../aws-region" }
+# aws-region = "0.28"
 base64 = "0.22"
 block_on_proc = { version = "0.2", optional = true }
 bytes = { version = "1.2" }
@@ -85,7 +85,7 @@ default = ["fail-on-err", "tags", "tokio-native-tls"]
 
 sync = ["attohttpc", "maybe-async/is_sync"]
 with-async-std-hyper = ["with-async-std", "surf/hyper-client"]
-with-async-std = ["async-std", "futures-util"]
+with-async-std = ["async-std", "futures-util", "surf"]
 with-tokio = ["futures-util", "reqwest", "tokio", "tokio/fs", "tokio-stream"]
 
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]

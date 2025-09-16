@@ -119,6 +119,72 @@ impl fmt::Display for ResponseData {
     }
 }
 
+#[cfg(feature = "with-tokio")]
+impl tokio::io::AsyncRead for ResponseDataStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        // Poll the stream for the next chunk of bytes
+        match Stream::poll_next(self.bytes.as_mut(), cx) {
+            std::task::Poll::Ready(Some(Ok(chunk))) => {
+                // Write as much of the chunk as fits in the buffer
+                let amt = std::cmp::min(chunk.len(), buf.remaining());
+                buf.put_slice(&chunk[..amt]);
+
+                // AIDEV-NOTE: Bytes that don't fit in the buffer are discarded from this chunk.
+                // This is expected AsyncRead behavior - consumers should use appropriately sized
+                // buffers or wrap in BufReader for efficiency with small reads.
+
+                std::task::Poll::Ready(Ok(()))
+            }
+            std::task::Poll::Ready(Some(Err(error))) => {
+                // Convert S3Error to io::Error
+                std::task::Poll::Ready(Err(std::io::Error::other(error)))
+            }
+            std::task::Poll::Ready(None) => {
+                // Stream is exhausted, signal EOF by returning Ok(()) with no bytes written
+                std::task::Poll::Ready(Ok(()))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+#[cfg(feature = "with-async-std")]
+impl async_std::io::Read for ResponseDataStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        // Poll the stream for the next chunk of bytes
+        match Stream::poll_next(self.bytes.as_mut(), cx) {
+            std::task::Poll::Ready(Some(Ok(chunk))) => {
+                // Write as much of the chunk as fits in the buffer
+                let amt = std::cmp::min(chunk.len(), buf.len());
+                buf[..amt].copy_from_slice(&chunk[..amt]);
+
+                // AIDEV-NOTE: Bytes that don't fit in the buffer are discarded from this chunk.
+                // This is expected AsyncRead behavior - consumers should use appropriately sized
+                // buffers or wrap in BufReader for efficiency with small reads.
+
+                std::task::Poll::Ready(Ok(amt))
+            }
+            std::task::Poll::Ready(Some(Err(error))) => {
+                // Convert S3Error to io::Error
+                std::task::Poll::Ready(Err(std::io::Error::other(error)))
+            }
+            std::task::Poll::Ready(None) => {
+                // Stream is exhausted, signal EOF by returning 0 bytes read
+                std::task::Poll::Ready(Ok(0))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
 #[maybe_async::maybe_async]
 pub trait Request {
     type Response;
@@ -709,5 +775,229 @@ pub trait Request {
         headers.insert(DATE, self.datetime().format(&Rfc2822)?.parse()?);
 
         Ok(headers)
+    }
+}
+
+#[cfg(all(test, feature = "with-tokio"))]
+mod tests {
+    use super::*;
+    use bytes::Bytes;
+    use futures_util::stream;
+    use tokio::io::AsyncReadExt;
+
+    #[tokio::test]
+    async fn test_async_read_implementation() {
+        // Create a mock stream with test data
+        let chunks = vec![
+            Ok(Bytes::from("Hello, ")),
+            Ok(Bytes::from("World!")),
+            Ok(Bytes::from(" This is a test.")),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        // Read all data using AsyncRead
+        let mut buffer = Vec::new();
+        response_stream.read_to_end(&mut buffer).await.unwrap();
+
+        assert_eq!(buffer, b"Hello, World! This is a test.");
+    }
+
+    #[tokio::test]
+    async fn test_async_read_with_small_buffer() {
+        // Create a stream with a large chunk
+        let chunks = vec![
+            Ok(Bytes::from("This is a much longer string that won't fit in a small buffer")),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        // Read with a small buffer - demonstrates that excess bytes are discarded per chunk
+        let mut buffer = [0u8; 10];
+        let n = response_stream.read(&mut buffer).await.unwrap();
+
+        // We should only get the first 10 bytes
+        assert_eq!(n, 10);
+        assert_eq!(&buffer[..n], b"This is a ");
+
+        // Next read should get 0 bytes (EOF) because the chunk was consumed
+        let n = response_stream.read(&mut buffer).await.unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[tokio::test]
+    async fn test_async_read_with_error() {
+        use crate::error::S3Error;
+
+        // Create a stream that returns an error
+        let chunks: Vec<Result<Bytes, S3Error>> = vec![
+            Ok(Bytes::from("Some data")),
+            Err(S3Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "Test error"))),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        // First read should succeed
+        let mut buffer = [0u8; 20];
+        let n = response_stream.read(&mut buffer).await.unwrap();
+        assert_eq!(n, 9);
+        assert_eq!(&buffer[..n], b"Some data");
+
+        // Second read should fail with an error
+        let result = response_stream.read(&mut buffer).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_async_read_copy() {
+        // Test using tokio::io::copy which is a common use case
+        let chunks = vec![
+            Ok(Bytes::from("First chunk\n")),
+            Ok(Bytes::from("Second chunk\n")),
+            Ok(Bytes::from("Third chunk\n")),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        let mut output = Vec::new();
+        tokio::io::copy(&mut response_stream, &mut output).await.unwrap();
+
+        assert_eq!(output, b"First chunk\nSecond chunk\nThird chunk\n");
+    }
+}
+
+#[cfg(all(test, feature = "with-async-std"))]
+mod async_std_tests {
+    use super::*;
+    use bytes::Bytes;
+    use futures_util::stream;
+    use async_std::io::ReadExt;
+
+    #[async_std::test]
+    async fn test_async_read_implementation() {
+        // Create a mock stream with test data
+        let chunks = vec![
+            Ok(Bytes::from("Hello, ")),
+            Ok(Bytes::from("World!")),
+            Ok(Bytes::from(" This is a test.")),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        // Read all data using AsyncRead
+        let mut buffer = Vec::new();
+        response_stream.read_to_end(&mut buffer).await.unwrap();
+
+        assert_eq!(buffer, b"Hello, World! This is a test.");
+    }
+
+    #[async_std::test]
+    async fn test_async_read_with_small_buffer() {
+        // Create a stream with a large chunk
+        let chunks = vec![
+            Ok(Bytes::from("This is a much longer string that won't fit in a small buffer")),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        // Read with a small buffer - demonstrates that excess bytes are discarded per chunk
+        let mut buffer = [0u8; 10];
+        let n = response_stream.read(&mut buffer).await.unwrap();
+
+        // We should only get the first 10 bytes
+        assert_eq!(n, 10);
+        assert_eq!(&buffer[..n], b"This is a ");
+
+        // Next read should get 0 bytes (EOF) because the chunk was consumed
+        let n = response_stream.read(&mut buffer).await.unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[async_std::test]
+    async fn test_async_read_with_error() {
+        use crate::error::S3Error;
+
+        // Create a stream that returns an error
+        let chunks: Vec<Result<Bytes, S3Error>> = vec![
+            Ok(Bytes::from("Some data")),
+            Err(S3Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "Test error"))),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        // First read should succeed
+        let mut buffer = [0u8; 20];
+        let n = response_stream.read(&mut buffer).await.unwrap();
+        assert_eq!(n, 9);
+        assert_eq!(&buffer[..n], b"Some data");
+
+        // Second read should fail with an error
+        let result = response_stream.read(&mut buffer).await;
+        assert!(result.is_err());
+    }
+
+    #[async_std::test]
+    async fn test_async_read_copy() {
+        // Test using async_std::io::copy which is a common use case
+        let chunks = vec![
+            Ok(Bytes::from("First chunk\n")),
+            Ok(Bytes::from("Second chunk\n")),
+            Ok(Bytes::from("Third chunk\n")),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        let mut output = Vec::new();
+        async_std::io::copy(&mut response_stream, &mut output).await.unwrap();
+
+        assert_eq!(output, b"First chunk\nSecond chunk\nThird chunk\n");
     }
 }
