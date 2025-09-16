@@ -69,6 +69,7 @@ serde_derive = "1"
 serde_json = "1"
 sha2 = "0.10"
 surf = { version = "2", optional = true, default-features = false }
+sysinfo = {version = "0.37.0", optional = true }
 thiserror = { version = "2", default-features = false }
 time = { version = "^0.3.6", features = [
     "formatting",
@@ -85,8 +86,8 @@ default = ["fail-on-err", "tags", "tokio-native-tls"]
 
 sync = ["attohttpc", "maybe-async/is_sync"]
 with-async-std-hyper = ["with-async-std", "surf/hyper-client"]
-with-async-std = ["async-std", "futures-util", "surf"]
-with-tokio = ["futures-util", "reqwest", "tokio", "tokio/fs", "tokio-stream"]
+with-async-std = ["async-std", "futures-util", "surf", "sysinfo"]
+with-tokio = ["futures-util", "reqwest", "tokio", "tokio/fs", "tokio-stream", "sysinfo"]
 
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]
 fail-on-err = []
