@@ -335,10 +335,15 @@ impl Region {
 
     pub fn host(&self) -> String {
         match *self {
-            Region::Custom { ref endpoint, .. } => match endpoint.find("://") {
-                Some(pos) => endpoint[pos + 3..].to_string(),
-                None => endpoint.to_string(),
-            },
+            Region::Custom { ref endpoint, .. } => {
+                let host = match endpoint.find("://") {
+                    Some(pos) => endpoint[pos + 3..].to_string(),
+                    None => endpoint.to_string(),
+                };
+                // Remove trailing slashes to avoid signature mismatches
+                // AWS CLI and other SDKs handle this similarly
+                host.trim_end_matches('/').to_string()
+            }
             _ => self.endpoint(),
         }
     }
@@ -385,4 +390,35 @@ fn yandex_object_storage() {
 fn test_region_eu_central_2() {
     let region = "eu-central-2".parse::<Region>().unwrap();
     assert_eq!(region.endpoint(), "s3.eu-central-2.amazonaws.com");
+}
+
+#[test]
+fn test_custom_endpoint_trailing_slash() {
+    // Test that trailing slashes are removed from custom endpoints
+    let region_with_slash = Region::Custom {
+        region: "eu-central-1".to_owned(),
+        endpoint: "https://s3.gra.io.cloud.ovh.net/".to_owned(),
+    };
+    assert_eq!(region_with_slash.host(), "s3.gra.io.cloud.ovh.net");
+
+    // Test without trailing slash
+    let region_without_slash = Region::Custom {
+        region: "eu-central-1".to_owned(),
+        endpoint: "https://s3.gra.io.cloud.ovh.net".to_owned(),
+    };
+    assert_eq!(region_without_slash.host(), "s3.gra.io.cloud.ovh.net");
+
+    // Test multiple trailing slashes
+    let region_multiple_slashes = Region::Custom {
+        region: "eu-central-1".to_owned(),
+        endpoint: "https://s3.example.com///".to_owned(),
+    };
+    assert_eq!(region_multiple_slashes.host(), "s3.example.com");
+
+    // Test with port and trailing slash
+    let region_with_port = Region::Custom {
+        region: "eu-central-1".to_owned(),
+        endpoint: "http://localhost:9000/".to_owned(),
+    };
+    assert_eq!(region_with_port.host(), "localhost:9000");
 }
