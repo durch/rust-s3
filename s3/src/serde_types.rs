@@ -166,11 +166,11 @@ impl fmt::Display for CompleteMultipartUploadData {
 
 impl CompleteMultipartUploadData {
     pub fn len(&self) -> usize {
-        self.to_string().as_bytes().len()
+        self.to_string().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.to_string().as_bytes().len() == 0
+        self.to_string().len() == 0
     }
 }
 

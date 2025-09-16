@@ -128,13 +128,13 @@ impl From<&http::HeaderMap> for HeadObjectResult {
         };
         let mut values = ::std::collections::HashMap::new();
         for (key, value) in headers.iter() {
-            if key.as_str().starts_with("x-amz-meta-") {
-                if let Ok(value) = value.to_str() {
-                    values.insert(
-                        key.as_str()["x-amz-meta-".len()..].to_owned(),
-                        value.to_owned(),
-                    );
-                }
+            if key.as_str().starts_with("x-amz-meta-")
+                && let Ok(value) = value.to_str()
+            {
+                values.insert(
+                    key.as_str()["x-amz-meta-".len()..].to_owned(),
+                    value.to_owned(),
+                );
             }
         }
         result.metadata = Some(values);
@@ -204,13 +204,13 @@ impl From<&reqwest::header::HeaderMap> for HeadObjectResult {
         };
         let mut values = ::std::collections::HashMap::new();
         for (key, value) in headers.iter() {
-            if key.as_str().starts_with("x-amz-meta-") {
-                if let Ok(value) = value.to_str() {
-                    values.insert(
-                        key.as_str()["x-amz-meta-".len()..].to_owned(),
-                        value.to_owned(),
-                    );
-                }
+            if key.as_str().starts_with("x-amz-meta-")
+                && let Ok(value) = value.to_str()
+            {
+                values.insert(
+                    key.as_str()["x-amz-meta-".len()..].to_owned(),
+                    value.to_owned(),
+                );
             }
         }
         result.metadata = Some(values);
@@ -307,13 +307,13 @@ impl From<&attohttpc::header::HeaderMap> for HeadObjectResult {
         };
         let mut values = ::std::collections::HashMap::new();
         for (key, value) in headers.iter() {
-            if key.as_str().starts_with("x-amz-meta-") {
-                if let Ok(value) = value.to_str() {
-                    values.insert(
-                        key.as_str()["x-amz-meta-".len()..].to_owned(),
-                        value.to_owned(),
-                    );
-                }
+            if key.as_str().starts_with("x-amz-meta-")
+                && let Ok(value) = value.to_str()
+            {
+                values.insert(
+                    key.as_str()["x-amz-meta-".len()..].to_owned(),
+                    value.to_owned(),
+                );
             }
         }
         result.metadata = Some(values);
@@ -431,8 +431,8 @@ macro_rules! retry {
 mod test {
     use crate::utils::etag_for_path;
     use std::fs::File;
-    use std::io::prelude::*;
     use std::io::Cursor;
+    use std::io::prelude::*;
 
     fn object(size: u32) -> Vec<u8> {
         (0..size).map(|_| 33).collect()

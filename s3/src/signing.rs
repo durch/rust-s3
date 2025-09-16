@@ -34,14 +34,14 @@ use std::str;
 
 use hmac::{Hmac, Mac};
 use http::HeaderMap;
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use sha2::{Digest, Sha256};
-use time::{macros::format_description, OffsetDateTime};
+use time::{OffsetDateTime, macros::format_description};
 use url::Url;
 
+use crate::LONG_DATETIME;
 use crate::error::S3Error;
 use crate::region::Region;
-use crate::LONG_DATETIME;
 
 use std::fmt::Write as _;
 
@@ -299,8 +299,8 @@ mod tests {
     use std::convert::TryInto;
     use std::str;
 
-    use http::header::{HeaderName, HOST, RANGE};
     use http::HeaderMap;
+    use http::header::{HOST, HeaderName, RANGE};
     use time::Date;
     use url::Url;
 
@@ -475,6 +475,9 @@ mod tests {
 
     #[test]
     fn test_uri_encode() {
-        assert_eq!(uri_encode(r#"~!@#$%^&*()-_=+[]\{}|;:'",.<>? привет 你好"#, true), "~%21%40%23%24%25%5E%26%2A%28%29-_%3D%2B%5B%5D%5C%7B%7D%7C%3B%3A%27%22%2C.%3C%3E%3F%20%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82%20%E4%BD%A0%E5%A5%BD");
+        assert_eq!(
+            uri_encode(r#"~!@#$%^&*()-_=+[]\{}|;:'",.<>? привет 你好"#, true),
+            "~%21%40%23%24%25%5E%26%2A%28%29-_%3D%2B%5B%5D%5C%7B%7D%7C%3B%3A%27%22%2C.%3C%3E%3F%20%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82%20%E4%BD%A0%E5%A5%BD"
+        );
     }
 }

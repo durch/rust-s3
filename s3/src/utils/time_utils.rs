@@ -29,11 +29,7 @@ mod mocked_time {
     pub fn current_time() -> Result<u64, SystemTimeError> {
         TIMESTAMP.with(|ts| {
             let time = ts.get();
-            if time == 0 {
-                real_time()
-            } else {
-                Ok(time)
-            }
+            if time == 0 { real_time() } else { Ok(time) }
         })
     }
 

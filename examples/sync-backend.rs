@@ -3,9 +3,9 @@
 #[cfg(feature = "sync")]
 use awscreds::Credentials;
 #[cfg(feature = "sync")]
-use s3::error::S3Error;
-#[cfg(feature = "sync")]
 use s3::Bucket;
+#[cfg(feature = "sync")]
+use s3::error::S3Error;
 
 #[cfg(feature = "sync")]
 fn main() -> Result<(), S3Error> {

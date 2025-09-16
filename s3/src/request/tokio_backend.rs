@@ -188,7 +188,7 @@ impl<'a> Request for ReqwestRequest<'a> {
         self.bucket.clone()
     }
 
-    fn command(&self) -> Command {
+    fn command(&self) -> Command<'_> {
         self.command.clone()
     }
 
@@ -218,8 +218,8 @@ impl<'a> ReqwestRequest<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request::tokio_backend::ReqwestRequest;
     use crate::request::Request;
+    use crate::request::tokio_backend::ReqwestRequest;
     use awscreds::Credentials;
     use http::header::{HOST, RANGE};
 

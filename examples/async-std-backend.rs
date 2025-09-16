@@ -3,9 +3,9 @@
 #[cfg(feature = "async-std")]
 use awscreds::Credentials;
 #[cfg(feature = "async-std")]
-use s3::error::S3Error;
-#[cfg(feature = "async-std")]
 use s3::Bucket;
+#[cfg(feature = "async-std")]
+use s3::error::S3Error;
 
 #[cfg(not(feature = "async-std"))]
 fn main() {}
