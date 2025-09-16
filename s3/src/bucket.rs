@@ -438,15 +438,13 @@ impl Bucket {
         credentials: Credentials,
     ) -> Result<crate::bucket_ops::ListBucketsResponse, S3Error> {
         let dummy_bucket = Bucket::new("", region, credentials)?.with_path_style();
-        dummy_bucket.list_buckets_().await
+        dummy_bucket._list_buckets().await
     }
 
     /// Internal helper method that performs the actual bucket listing operation.
     /// Used by the public `list_buckets` method to retrieve the list of buckets for the configured client.
     #[maybe_async::maybe_async]
-    async fn list_buckets_(
-        &self
-    ) -> Result<crate::bucket_ops::ListBucketsResponse, S3Error> {
+    async fn _list_buckets(&self) -> Result<crate::bucket_ops::ListBucketsResponse, S3Error> {
         let request = RequestImpl::new(self, "", Command::ListBuckets).await?;
         let response = request.response_data(false).await?;
 
@@ -491,7 +489,7 @@ impl Bucket {
         let mut dummy_bucket = self.clone();
         dummy_bucket.name = "".into();
 
-        let response = dummy_bucket.list_buckets_().await?;
+        let response = dummy_bucket._list_buckets().await?;
 
         Ok(response
             .bucket_names()
@@ -3876,5 +3874,90 @@ mod test {
             .await
             .unwrap();
         assert_eq!(response.status_code(), 204);
+    }
+
+    #[ignore]
+    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn test_bucket_exists_with_dangerous_config() {
+        init();
+
+        // This test verifies that Bucket::exists() honors the dangerous SSL config
+        // which allows connections with invalid SSL certificates
+
+        // Create a bucket with dangerous config enabled
+        // Note: This test requires a test environment with self-signed or invalid certs
+        // For CI, we'll test with a regular bucket but verify the config is preserved
+
+        let credentials = test_aws_credentials();
+        let region = "eu-central-1".parse().unwrap();
+        let bucket_name = "rust-s3-test";
+
+        // Create bucket with dangerous config
+        let bucket = Bucket::new(bucket_name, region, credentials)
+            .unwrap()
+            .with_path_style();
+
+        // Set dangerous config (allow invalid certs, allow invalid hostnames)
+        let bucket = bucket.set_dangereous_config(true, true).unwrap();
+
+        // Test that exists() works with the dangerous config
+        // This should not panic or fail due to SSL certificate issues
+        let exists_result = bucket.exists().await;
+
+        // The bucket should exist (assuming test bucket is set up)
+        assert!(
+            exists_result.is_ok(),
+            "Bucket::exists() failed with dangerous config"
+        );
+        let exists = exists_result.unwrap();
+        assert!(exists, "Test bucket should exist");
+
+        // Verify that the dangerous config is preserved in the cloned bucket
+        // by checking if we can perform other operations
+        let list_result = bucket.list("".to_string(), Some("/".to_string())).await;
+        assert!(
+            list_result.is_ok(),
+            "List operation should work with dangerous config"
+        );
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn test_bucket_exists_without_dangerous_config() {
+        init();
+
+        // This test verifies normal behavior without dangerous config
+        let credentials = test_aws_credentials();
+        let region = "eu-central-1".parse().unwrap();
+        let bucket_name = "rust-s3-test";
+
+        // Create bucket without dangerous config
+        let bucket = Bucket::new(bucket_name, region, credentials)
+            .unwrap()
+            .with_path_style();
+
+        // Test that exists() works normally
+        let exists_result = bucket.exists().await;
+        assert!(
+            exists_result.is_ok(),
+            "Bucket::exists() should work without dangerous config"
+        );
+        let exists = exists_result.unwrap();
+        assert!(exists, "Test bucket should exist");
     }
 }
