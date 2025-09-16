@@ -133,7 +133,7 @@ pub enum Region {
     WaApSoutheast1,
     /// Wasabi ap-southeast-2
     WaApSoutheast2,
-    /// Cloudflare R2
+    /// Cloudflare R2 (global)
     R2 { account_id: String },
     /// Cloudflare R2 EU jurisdiction
     R2Eu { account_id: String },
