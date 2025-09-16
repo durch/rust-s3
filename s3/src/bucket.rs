@@ -97,6 +97,8 @@ use crate::serde_types::{
 use crate::utils::{PutStreamResponse, error_from_response_data};
 use http::HeaderMap;
 use http::header::HeaderName;
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+use sysinfo::{MemoryRefreshKind, System};
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
@@ -1594,6 +1596,37 @@ impl Bucket {
             .await
     }
 
+    /// Calculate the maximum number of concurrent chunks based on available memory.
+    /// Returns a value between 2 and 10, defaulting to 3 if memory detection fails.
+    #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+    fn calculate_max_concurrent_chunks() -> usize {
+        // Create a new System instance and refresh memory info
+        let mut system = System::new();
+        system.refresh_memory_specifics(MemoryRefreshKind::everything());
+
+        // Get available memory in bytes
+        let available_memory = system.available_memory();
+
+        // If we can't get memory info, use a conservative default
+        if available_memory == 0 {
+            return 3;
+        }
+
+        // CHUNK_SIZE is 8MB (8_388_608 bytes)
+        // Use a safety factor of 3 to leave room for other operations
+        // and account for memory that might be allocated during upload
+        let safety_factor = 3;
+        let memory_per_chunk = CHUNK_SIZE as u64 * safety_factor;
+
+        // Calculate how many chunks we can safely handle concurrently
+        let calculated_chunks = (available_memory / memory_per_chunk) as usize;
+
+        // Clamp between 2 and 10 for safety
+        // Minimum 2 to maintain some parallelism
+        // Maximum 10 to prevent too many concurrent connections
+        calculated_chunks.clamp(2, 10)
+    }
+
     #[maybe_async::async_impl]
     pub(crate) async fn _put_object_stream_with_content_type_and_headers<
         R: AsyncRead + Unpin + ?Sized,
@@ -1636,57 +1669,115 @@ impl Bucket {
         let path = msg.key;
         let upload_id = &msg.upload_id;
 
+        // Determine max concurrent chunks based on available memory
+        let max_concurrent_chunks = Self::calculate_max_concurrent_chunks();
+
+        // Use FuturesUnordered for bounded parallelism
+        use futures_util::FutureExt;
+        use futures_util::stream::{FuturesUnordered, StreamExt};
+
         let mut part_number: u32 = 0;
-        let mut etags = Vec::new();
-
-        // Collect request handles
-        let mut handles = vec![];
         let mut total_size = 0;
-        loop {
-            let chunk = if part_number == 0 {
-                first_chunk.clone()
-            } else {
-                crate::utils::read_chunk_async(reader).await?
-            };
-            total_size += chunk.len();
+        let mut etags = Vec::new();
+        let mut active_uploads: FuturesUnordered<
+            futures_util::future::BoxFuture<'_, (u32, Result<ResponseData, S3Error>)>,
+        > = FuturesUnordered::new();
+        let mut reading_done = false;
 
-            let done = chunk.len() < CHUNK_SIZE;
-
-            // Start chunk upload
-            part_number += 1;
-            handles.push(self.make_multipart_request(
-                &path,
-                chunk,
-                part_number,
-                upload_id,
-                content_type,
-            ));
-
-            if done {
-                break;
-            }
+        // Process first chunk
+        part_number += 1;
+        total_size += first_chunk.len();
+        if first_chunk.len() < CHUNK_SIZE {
+            reading_done = true;
         }
 
-        // Wait for all chunks to finish (or fail)
-        let responses = futures_util::future::join_all(handles).await;
+        let path_clone = path.clone();
+        let upload_id_clone = upload_id.clone();
+        let content_type_clone = content_type.to_string();
+        let bucket_clone = self.clone();
 
-        for response in responses {
-            let response_data = response?;
-            if !(200..300).contains(&response_data.status_code()) {
-                // if chunk upload failed - abort the upload
-                match self.abort_upload(&path, upload_id).await {
-                    Ok(_) => {
-                        return Err(error_from_response_data(response_data)?);
+        active_uploads.push(
+            async move {
+                let result = bucket_clone
+                    .make_multipart_request(
+                        &path_clone,
+                        first_chunk,
+                        1,
+                        &upload_id_clone,
+                        &content_type_clone,
+                    )
+                    .await;
+                (1, result)
+            }
+            .boxed(),
+        );
+
+        // Main upload loop with bounded parallelism
+        while !active_uploads.is_empty() || !reading_done {
+            // Start new uploads if we have room and more data to read
+            while active_uploads.len() < max_concurrent_chunks && !reading_done {
+                let chunk = crate::utils::read_chunk_async(reader).await?;
+                let chunk_len = chunk.len();
+
+                if chunk_len == 0 {
+                    reading_done = true;
+                    break;
+                }
+
+                total_size += chunk_len;
+                part_number += 1;
+
+                if chunk_len < CHUNK_SIZE {
+                    reading_done = true;
+                }
+
+                let current_part = part_number;
+                let path_clone = path.clone();
+                let upload_id_clone = upload_id.clone();
+                let content_type_clone = content_type.to_string();
+                let bucket_clone = self.clone();
+
+                active_uploads.push(
+                    async move {
+                        let result = bucket_clone
+                            .make_multipart_request(
+                                &path_clone,
+                                chunk,
+                                current_part,
+                                &upload_id_clone,
+                                &content_type_clone,
+                            )
+                            .await;
+                        (current_part, result)
                     }
-                    Err(error) => {
-                        return Err(error);
+                    .boxed(),
+                );
+            }
+
+            // Process completed uploads
+            if let Some((part_num, result)) = active_uploads.next().await {
+                let response_data = result?;
+                if !(200..300).contains(&response_data.status_code()) {
+                    // if chunk upload failed - abort the upload
+                    match self.abort_upload(&path, upload_id).await {
+                        Ok(_) => {
+                            return Err(error_from_response_data(response_data)?);
+                        }
+                        Err(error) => {
+                            return Err(error);
+                        }
                     }
                 }
-            }
 
-            let etag = response_data.as_str()?;
-            etags.push(etag.to_string());
+                let etag = response_data.as_str()?;
+                // Store part number with etag to sort later
+                etags.push((part_num, etag.to_string()));
+            }
         }
+
+        // Sort etags by part number to ensure correct order
+        etags.sort_by_key(|k| k.0);
+        let etags: Vec<String> = etags.into_iter().map(|(_, etag)| etag).collect();
 
         // Finish the upload
         let inner_data = etags

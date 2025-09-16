@@ -812,9 +812,9 @@ mod tests {
     #[tokio::test]
     async fn test_async_read_with_small_buffer() {
         // Create a stream with a large chunk
-        let chunks = vec![
-            Ok(Bytes::from("This is a much longer string that won't fit in a small buffer")),
-        ];
+        let chunks = vec![Ok(Bytes::from(
+            "This is a much longer string that won't fit in a small buffer",
+        ))];
 
         let stream = stream::iter(chunks);
         let data_stream: DataStream = Box::pin(stream);
@@ -844,7 +844,10 @@ mod tests {
         // Create a stream that returns an error
         let chunks: Vec<Result<Bytes, S3Error>> = vec![
             Ok(Bytes::from("Some data")),
-            Err(S3Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "Test error"))),
+            Err(S3Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Test error",
+            ))),
         ];
 
         let stream = stream::iter(chunks);
@@ -884,7 +887,9 @@ mod tests {
         };
 
         let mut output = Vec::new();
-        tokio::io::copy(&mut response_stream, &mut output).await.unwrap();
+        tokio::io::copy(&mut response_stream, &mut output)
+            .await
+            .unwrap();
 
         assert_eq!(output, b"First chunk\nSecond chunk\nThird chunk\n");
     }
@@ -893,9 +898,9 @@ mod tests {
 #[cfg(all(test, feature = "with-async-std"))]
 mod async_std_tests {
     use super::*;
+    use async_std::io::ReadExt;
     use bytes::Bytes;
     use futures_util::stream;
-    use async_std::io::ReadExt;
 
     #[async_std::test]
     async fn test_async_read_implementation() {
@@ -924,9 +929,9 @@ mod async_std_tests {
     #[async_std::test]
     async fn test_async_read_with_small_buffer() {
         // Create a stream with a large chunk
-        let chunks = vec![
-            Ok(Bytes::from("This is a much longer string that won't fit in a small buffer")),
-        ];
+        let chunks = vec![Ok(Bytes::from(
+            "This is a much longer string that won't fit in a small buffer",
+        ))];
 
         let stream = stream::iter(chunks);
         let data_stream: DataStream = Box::pin(stream);
@@ -956,7 +961,10 @@ mod async_std_tests {
         // Create a stream that returns an error
         let chunks: Vec<Result<Bytes, S3Error>> = vec![
             Ok(Bytes::from("Some data")),
-            Err(S3Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "Test error"))),
+            Err(S3Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Test error",
+            ))),
         ];
 
         let stream = stream::iter(chunks);
@@ -996,7 +1004,9 @@ mod async_std_tests {
         };
 
         let mut output = Vec::new();
-        async_std::io::copy(&mut response_stream, &mut output).await.unwrap();
+        async_std::io::copy(&mut response_stream, &mut output)
+            .await
+            .unwrap();
 
         assert_eq!(output, b"First chunk\nSecond chunk\nThird chunk\n");
     }
