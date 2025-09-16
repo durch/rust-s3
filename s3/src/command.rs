@@ -93,6 +93,7 @@ pub enum Command<'a> {
     PutObject {
         content: &'a [u8],
         content_type: &'a str,
+        custom_headers: Option<http::HeaderMap>,
         multipart: Option<Multipart<'a>>,
     },
     PutObjectTagging {
