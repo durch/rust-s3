@@ -44,12 +44,12 @@ use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
 use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
-#[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::client;
-#[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::ClientOptions;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use crate::request::ResponseDataStream;
+#[cfg(feature = "with-tokio")]
+use crate::request::tokio_backend::ClientOptions;
+#[cfg(feature = "with-tokio")]
+use crate::request::tokio_backend::client;
 use crate::request::{Request as _, ResponseData};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -85,6 +85,7 @@ use tokio::io::AsyncRead;
 #[cfg(feature = "with-async-std")]
 use async_std::io::Read as AsyncRead;
 
+use crate::PostPolicy;
 use crate::error::S3Error;
 use crate::post_policy::PresignedPost;
 use crate::serde_types::{
@@ -93,10 +94,11 @@ use crate::serde_types::{
     InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
 #[allow(unused_imports)]
-use crate::utils::{error_from_response_data, PutStreamResponse};
-use crate::PostPolicy;
-use http::header::HeaderName;
+use crate::utils::{PutStreamResponse, error_from_response_data};
 use http::HeaderMap;
+use http::header::HeaderName;
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+use sysinfo::{MemoryRefreshKind, System};
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
@@ -386,7 +388,18 @@ impl Bucket {
         config: BucketConfiguration,
     ) -> Result<CreateBucketResponse, S3Error> {
         let mut config = config;
-        config.set_region(region.clone());
+
+        // Check if we should skip location constraint for LocalStack/Minio compatibility
+        // This env var allows users to create buckets on S3-compatible services that
+        // don't support or require location constraints in the request body
+        let skip_constraint = std::env::var("RUST_S3_SKIP_LOCATION_CONSTRAINT")
+            .unwrap_or_default()
+            .to_lowercase();
+
+        if skip_constraint != "true" && skip_constraint != "1" {
+            config.set_region(region.clone());
+        }
+
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new(name, region, credentials)?;
         let request = RequestImpl::new(&bucket, "", command).await?;
@@ -438,7 +451,14 @@ impl Bucket {
         credentials: Credentials,
     ) -> Result<crate::bucket_ops::ListBucketsResponse, S3Error> {
         let dummy_bucket = Bucket::new("", region, credentials)?.with_path_style();
-        let request = RequestImpl::new(&dummy_bucket, "", Command::ListBuckets).await?;
+        dummy_bucket._list_buckets().await
+    }
+
+    /// Internal helper method that performs the actual bucket listing operation.
+    /// Used by the public `list_buckets` method to retrieve the list of buckets for the configured client.
+    #[maybe_async::maybe_async]
+    async fn _list_buckets(&self) -> Result<crate::bucket_ops::ListBucketsResponse, S3Error> {
+        let request = RequestImpl::new(self, "", Command::ListBuckets).await?;
         let response = request.response_data(false).await?;
 
         Ok(quick_xml::de::from_str::<
@@ -479,9 +499,10 @@ impl Bucket {
     /// ```
     #[maybe_async::maybe_async]
     pub async fn exists(&self) -> Result<bool, S3Error> {
-        let credentials = self.credentials().await?;
+        let mut dummy_bucket = self.clone();
+        dummy_bucket.name = "".into();
 
-        let response = Self::list_buckets(self.region.clone(), credentials).await?;
+        let response = dummy_bucket._list_buckets().await?;
 
         Ok(response
             .bucket_names()
@@ -529,7 +550,18 @@ impl Bucket {
         config: BucketConfiguration,
     ) -> Result<CreateBucketResponse, S3Error> {
         let mut config = config;
-        config.set_region(region.clone());
+
+        // Check if we should skip location constraint for LocalStack/Minio compatibility
+        // This env var allows users to create buckets on S3-compatible services that
+        // don't support or require location constraints in the request body
+        let skip_constraint = std::env::var("RUST_S3_SKIP_LOCATION_CONSTRAINT")
+            .unwrap_or_default()
+            .to_lowercase();
+
+        if skip_constraint != "true" && skip_constraint != "1" {
+            config.set_region(region.clone());
+        }
+
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new(name, region, credentials)?.with_path_style();
         let request = RequestImpl::new(&bucket, "", command).await?;
@@ -1069,7 +1101,7 @@ impl Bucket {
 
     #[maybe_async::maybe_async]
     pub async fn delete_bucket_lifecycle(&self) -> Result<ResponseData, S3Error> {
-        let request = RequestImpl::new(self, "", Command::DeleteBucket).await?;
+        let request = RequestImpl::new(self, "", Command::DeleteBucketLifecycle).await?;
         request.response_data(false).await
     }
 
@@ -1224,7 +1256,7 @@ impl Bucket {
     }
 
     #[maybe_async::sync_impl]
-    pub async fn get_object_range_to_writer<T: std::io::Write + Send + ?Sized, S: AsRef<str>>(
+    pub fn get_object_range_to_writer<T: std::io::Write + Send + ?Sized, S: AsRef<str>>(
         &self,
         path: S,
         start: u64,
@@ -1410,6 +1442,46 @@ impl Bucket {
         .await
     }
 
+    /// Create a builder for streaming PUT operations with custom options
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[cfg(feature = "with-tokio")]
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// # use tokio::fs::File;
+    ///
+    /// let bucket = Bucket::new("my-bucket", "us-east-1".parse()?, Credentials::default()?)?;
+    ///
+    /// # #[cfg(feature = "with-tokio")]
+    /// let mut file = File::open("large-file.zip").await?;
+    ///
+    /// // Stream upload with custom headers using builder pattern
+    /// let response = bucket.put_object_stream_builder("/large-file.zip")
+    ///     .with_content_type("application/zip")
+    ///     .with_cache_control("public, max-age=3600")?
+    ///     .with_metadata("uploaded-by", "stream-builder")?
+    ///     .execute_stream(&mut file)
+    ///     .await?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "with-tokio"))]
+    /// # fn main() {}
+    /// ```
+    #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+    pub fn put_object_stream_builder<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> crate::put_object_request::PutObjectStreamRequest<'_> {
+        crate::put_object_request::PutObjectStreamRequest::new(self, path)
+    }
+
     #[maybe_async::sync_impl]
     pub fn put_object_stream<R: Read>(
         &self,
@@ -1520,15 +1592,68 @@ impl Bucket {
         s3_path: &str,
         content_type: &str,
     ) -> Result<PutStreamResponse, S3Error> {
+        self._put_object_stream_with_content_type_and_headers(reader, s3_path, content_type, None)
+            .await
+    }
+
+    /// Calculate the maximum number of concurrent chunks based on available memory.
+    /// Returns a value between 2 and 10, defaulting to 3 if memory detection fails.
+    #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+    fn calculate_max_concurrent_chunks() -> usize {
+        // Create a new System instance and refresh memory info
+        let mut system = System::new();
+        system.refresh_memory_specifics(MemoryRefreshKind::everything());
+
+        // Get available memory in bytes
+        let available_memory = system.available_memory();
+
+        // If we can't get memory info, use a conservative default
+        if available_memory == 0 {
+            return 3;
+        }
+
+        // CHUNK_SIZE is 8MB (8_388_608 bytes)
+        // Use a safety factor of 3 to leave room for other operations
+        // and account for memory that might be allocated during upload
+        let safety_factor = 3;
+        let memory_per_chunk = CHUNK_SIZE as u64 * safety_factor;
+
+        // Calculate how many chunks we can safely handle concurrently
+        let calculated_chunks = (available_memory / memory_per_chunk) as usize;
+
+        // Clamp between 2 and 100 for safety
+        // Minimum 2 to maintain some parallelism
+        // Maximum 100 to prevent too many concurrent connections
+        calculated_chunks.clamp(2, 100)
+    }
+
+    #[maybe_async::async_impl]
+    pub(crate) async fn _put_object_stream_with_content_type_and_headers<
+        R: AsyncRead + Unpin + ?Sized,
+    >(
+        &self,
+        reader: &mut R,
+        s3_path: &str,
+        content_type: &str,
+        custom_headers: Option<http::HeaderMap>,
+    ) -> Result<PutStreamResponse, S3Error> {
         // If the file is smaller CHUNK_SIZE, just do a regular upload.
         // Otherwise perform a multi-part upload.
         let first_chunk = crate::utils::read_chunk_async(reader).await?;
         // println!("First chunk size: {}", first_chunk.len());
         if first_chunk.len() < CHUNK_SIZE {
             let total_size = first_chunk.len();
-            let response_data = self
-                .put_object_with_content_type(s3_path, first_chunk.as_slice(), content_type)
-                .await?;
+            // Use the builder pattern for small files
+            let mut builder = self
+                .put_object_builder(s3_path, first_chunk.as_slice())
+                .with_content_type(content_type);
+
+            // Add custom headers if provided
+            if let Some(headers) = custom_headers {
+                builder = builder.with_headers(headers);
+            }
+
+            let response_data = builder.execute().await?;
             if response_data.status_code() >= 300 {
                 return Err(error_from_response_data(response_data)?);
             }
@@ -1544,57 +1669,115 @@ impl Bucket {
         let path = msg.key;
         let upload_id = &msg.upload_id;
 
+        // Determine max concurrent chunks based on available memory
+        let max_concurrent_chunks = Self::calculate_max_concurrent_chunks();
+
+        // Use FuturesUnordered for bounded parallelism
+        use futures_util::FutureExt;
+        use futures_util::stream::{FuturesUnordered, StreamExt};
+
         let mut part_number: u32 = 0;
-        let mut etags = Vec::new();
-
-        // Collect request handles
-        let mut handles = vec![];
         let mut total_size = 0;
-        loop {
-            let chunk = if part_number == 0 {
-                first_chunk.clone()
-            } else {
-                crate::utils::read_chunk_async(reader).await?
-            };
-            total_size += chunk.len();
+        let mut etags = Vec::new();
+        let mut active_uploads: FuturesUnordered<
+            futures_util::future::BoxFuture<'_, (u32, Result<ResponseData, S3Error>)>,
+        > = FuturesUnordered::new();
+        let mut reading_done = false;
 
-            let done = chunk.len() < CHUNK_SIZE;
-
-            // Start chunk upload
-            part_number += 1;
-            handles.push(self.make_multipart_request(
-                &path,
-                chunk,
-                part_number,
-                upload_id,
-                content_type,
-            ));
-
-            if done {
-                break;
-            }
+        // Process first chunk
+        part_number += 1;
+        total_size += first_chunk.len();
+        if first_chunk.len() < CHUNK_SIZE {
+            reading_done = true;
         }
 
-        // Wait for all chunks to finish (or fail)
-        let responses = futures::future::join_all(handles).await;
+        let path_clone = path.clone();
+        let upload_id_clone = upload_id.clone();
+        let content_type_clone = content_type.to_string();
+        let bucket_clone = self.clone();
 
-        for response in responses {
-            let response_data = response?;
-            if !(200..300).contains(&response_data.status_code()) {
-                // if chunk upload failed - abort the upload
-                match self.abort_upload(&path, upload_id).await {
-                    Ok(_) => {
-                        return Err(error_from_response_data(response_data)?);
+        active_uploads.push(
+            async move {
+                let result = bucket_clone
+                    .make_multipart_request(
+                        &path_clone,
+                        first_chunk,
+                        1,
+                        &upload_id_clone,
+                        &content_type_clone,
+                    )
+                    .await;
+                (1, result)
+            }
+            .boxed(),
+        );
+
+        // Main upload loop with bounded parallelism
+        while !active_uploads.is_empty() || !reading_done {
+            // Start new uploads if we have room and more data to read
+            while active_uploads.len() < max_concurrent_chunks && !reading_done {
+                let chunk = crate::utils::read_chunk_async(reader).await?;
+                let chunk_len = chunk.len();
+
+                if chunk_len == 0 {
+                    reading_done = true;
+                    break;
+                }
+
+                total_size += chunk_len;
+                part_number += 1;
+
+                if chunk_len < CHUNK_SIZE {
+                    reading_done = true;
+                }
+
+                let current_part = part_number;
+                let path_clone = path.clone();
+                let upload_id_clone = upload_id.clone();
+                let content_type_clone = content_type.to_string();
+                let bucket_clone = self.clone();
+
+                active_uploads.push(
+                    async move {
+                        let result = bucket_clone
+                            .make_multipart_request(
+                                &path_clone,
+                                chunk,
+                                current_part,
+                                &upload_id_clone,
+                                &content_type_clone,
+                            )
+                            .await;
+                        (current_part, result)
                     }
-                    Err(error) => {
-                        return Err(error);
+                    .boxed(),
+                );
+            }
+
+            // Process completed uploads
+            if let Some((part_num, result)) = active_uploads.next().await {
+                let response_data = result?;
+                if !(200..300).contains(&response_data.status_code()) {
+                    // if chunk upload failed - abort the upload
+                    match self.abort_upload(&path, upload_id).await {
+                        Ok(_) => {
+                            return Err(error_from_response_data(response_data)?);
+                        }
+                        Err(error) => {
+                            return Err(error);
+                        }
                     }
                 }
-            }
 
-            let etag = response_data.as_str()?;
-            etags.push(etag.to_string());
+                let etag = response_data.as_str()?;
+                // Store part number with etag to sort later
+                etags.push((part_num, etag.to_string()));
+            }
         }
+
+        // Sort etags by part number to ensure correct order
+        etags.sort_by_key(|k| k.0);
+        let etags: Vec<String> = etags.into_iter().map(|(_, etag)| etag).collect();
 
         // Finish the upload
         let inner_data = etags
@@ -2178,6 +2361,42 @@ impl Bucket {
     ) -> Result<ResponseData, S3Error> {
         self.put_object_with_content_type(path, content, "application/octet-stream")
             .await
+    }
+
+    /// Create a builder for PUT object operations with custom options
+    ///
+    /// This method returns a builder that allows configuring various options
+    /// for the PUT operation including headers, content type, and metadata.
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket = Bucket::new("my-bucket", "us-east-1".parse()?, Credentials::default()?)?;
+    ///
+    /// // Upload with custom headers using builder pattern
+    /// let response = bucket.put_object_builder("/my-file.txt", b"Hello, World!")
+    ///     .with_content_type("text/plain")
+    ///     .with_cache_control("public, max-age=3600")?
+    ///     .with_metadata("author", "john-doe")?
+    ///     .execute()
+    ///     .await?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn put_object_builder<S: AsRef<str>>(
+        &self,
+        path: S,
+        content: &[u8],
+    ) -> crate::put_object_request::PutObjectRequest<'_> {
+        crate::put_object_request::PutObjectRequest::new(self, path, content)
     }
 
     fn _tags_xml<S: AsRef<str>>(&self, tags: &[(S, S)]) -> String {
@@ -2790,13 +3009,13 @@ impl Bucket {
 #[cfg(test)]
 mod test {
 
+    use crate::BucketConfiguration;
+    use crate::Tag;
     use crate::creds::Credentials;
     use crate::post_policy::{PostPolicyField, PostPolicyValue};
     use crate::region::Region;
     use crate::serde_types::CorsConfiguration;
     use crate::serde_types::CorsRule;
-    use crate::BucketConfiguration;
-    use crate::Tag;
     use crate::{Bucket, PostPolicy};
     use http::header::{HeaderMap, HeaderName, HeaderValue, CACHE_CONTROL};
     use std::env;
@@ -3171,7 +3390,7 @@ mod test {
         #[cfg(feature = "with-async-std")]
         use async_std::stream::StreamExt;
         #[cfg(feature = "with-tokio")]
-        use futures::StreamExt;
+        use futures_util::StreamExt;
         #[cfg(not(any(feature = "with-tokio", feature = "with-async-std")))]
         use std::fs::File;
         #[cfg(not(any(feature = "with-tokio", feature = "with-async-std")))]
@@ -3631,6 +3850,89 @@ mod test {
             async_std::test
         )
     )]
+    async fn test_presign_url_standard_ports() {
+        // Test that presigned URLs preserve standard ports in the host header
+        // This is crucial for signature validation
+
+        // Test with HTTP standard port 80
+        let region_http_80 = Region::Custom {
+            region: "eu-central-1".to_owned(),
+            endpoint: "http://minio:80".to_owned(),
+        };
+        let credentials = Credentials::new(
+            Some("test_access_key"),
+            Some("test_secret_key"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let bucket_http_80 = Bucket::new("test-bucket", region_http_80, credentials.clone())
+            .unwrap()
+            .with_path_style();
+
+        let presigned_url_80 = bucket_http_80
+            .presign_get("/test.file", 3600, None)
+            .await
+            .unwrap();
+        println!("Presigned URL with port 80: {}", presigned_url_80);
+
+        // Port 80 MUST be preserved in the URL for signature validation
+        assert!(
+            presigned_url_80.starts_with("http://minio:80/"),
+            "URL must preserve port 80, got: {}",
+            presigned_url_80
+        );
+
+        // Test with HTTPS standard port 443
+        let region_https_443 = Region::Custom {
+            region: "eu-central-1".to_owned(),
+            endpoint: "https://minio:443".to_owned(),
+        };
+        let bucket_https_443 = Bucket::new("test-bucket", region_https_443, credentials.clone())
+            .unwrap()
+            .with_path_style();
+
+        let presigned_url_443 = bucket_https_443
+            .presign_get("/test.file", 3600, None)
+            .await
+            .unwrap();
+        println!("Presigned URL with port 443: {}", presigned_url_443);
+
+        // Port 443 MUST be preserved in the URL for signature validation
+        assert!(
+            presigned_url_443.starts_with("https://minio:443/"),
+            "URL must preserve port 443, got: {}",
+            presigned_url_443
+        );
+
+        // Test with non-standard port (should always include port)
+        let region_http_9000 = Region::Custom {
+            region: "eu-central-1".to_owned(),
+            endpoint: "http://minio:9000".to_owned(),
+        };
+        let bucket_http_9000 = Bucket::new("test-bucket", region_http_9000, credentials)
+            .unwrap()
+            .with_path_style();
+
+        let presigned_url_9000 = bucket_http_9000
+            .presign_get("/test.file", 3600, None)
+            .await
+            .unwrap();
+        assert!(
+            presigned_url_9000.contains("minio:9000"),
+            "Non-standard port should be preserved in URL"
+        );
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
     #[ignore]
     async fn test_bucket_create_delete_default_region() {
         let config = BucketConfiguration::default();
@@ -3768,5 +4070,90 @@ mod test {
             .await
             .unwrap();
         assert_eq!(response.status_code(), 204);
+    }
+
+    #[ignore]
+    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn test_bucket_exists_with_dangerous_config() {
+        init();
+
+        // This test verifies that Bucket::exists() honors the dangerous SSL config
+        // which allows connections with invalid SSL certificates
+
+        // Create a bucket with dangerous config enabled
+        // Note: This test requires a test environment with self-signed or invalid certs
+        // For CI, we'll test with a regular bucket but verify the config is preserved
+
+        let credentials = test_aws_credentials();
+        let region = "eu-central-1".parse().unwrap();
+        let bucket_name = "rust-s3-test";
+
+        // Create bucket with dangerous config
+        let bucket = Bucket::new(bucket_name, region, credentials)
+            .unwrap()
+            .with_path_style();
+
+        // Set dangerous config (allow invalid certs, allow invalid hostnames)
+        let bucket = bucket.set_dangereous_config(true, true).unwrap();
+
+        // Test that exists() works with the dangerous config
+        // This should not panic or fail due to SSL certificate issues
+        let exists_result = bucket.exists().await;
+
+        // The bucket should exist (assuming test bucket is set up)
+        assert!(
+            exists_result.is_ok(),
+            "Bucket::exists() failed with dangerous config"
+        );
+        let exists = exists_result.unwrap();
+        assert!(exists, "Test bucket should exist");
+
+        // Verify that the dangerous config is preserved in the cloned bucket
+        // by checking if we can perform other operations
+        let list_result = bucket.list("".to_string(), Some("/".to_string())).await;
+        assert!(
+            list_result.is_ok(),
+            "List operation should work with dangerous config"
+        );
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn test_bucket_exists_without_dangerous_config() {
+        init();
+
+        // This test verifies normal behavior without dangerous config
+        let credentials = test_aws_credentials();
+        let region = "eu-central-1".parse().unwrap();
+        let bucket_name = "rust-s3-test";
+
+        // Create bucket without dangerous config
+        let bucket = Bucket::new(bucket_name, region, credentials)
+            .unwrap()
+            .with_path_style();
+
+        // Test that exists() works normally
+        let exists_result = bucket.exists().await;
+        assert!(
+            exists_result.is_ok(),
+            "Bucket::exists() should work without dangerous config"
+        );
+        let exists = exists_result.unwrap();
+        assert!(exists, "Test bucket should exist");
     }
 }

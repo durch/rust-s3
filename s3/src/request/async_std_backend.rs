@@ -2,7 +2,7 @@ use async_std::io::Write as AsyncWrite;
 use async_std::io::{ReadExt, WriteExt};
 use async_std::stream::StreamExt;
 use bytes::Bytes;
-use futures::FutureExt;
+use futures_util::FutureExt;
 use std::collections::HashMap;
 
 use crate::bucket::Bucket;
@@ -16,8 +16,8 @@ use crate::request::{Request, ResponseData, ResponseDataStream};
 
 use http::HeaderMap;
 use maybe_async::maybe_async;
-use surf::http::headers::{HeaderName, HeaderValue};
 use surf::http::Method;
+use surf::http::headers::{HeaderName, HeaderValue};
 
 // Temporary structure for making a request
 pub struct SurfRequest<'a> {
@@ -41,7 +41,7 @@ impl<'a> Request for SurfRequest<'a> {
         self.bucket.clone()
     }
 
-    fn command(&self) -> Command {
+    fn command(&self) -> Command<'_> {
         self.command.clone()
     }
 
@@ -94,6 +94,18 @@ impl<'a> Request for SurfRequest<'a> {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect::<HashMap<String, String>>();
 
+        // When etag=true, we extract the ETag header and return it as the body.
+        // This is used for PUT operations (regular puts, multipart chunks) where:
+        // 1. S3 returns an empty or non-useful response body
+        // 2. The ETag header contains the essential information we need
+        // 3. The calling code expects to get the ETag via response_data.as_str()
+        //
+        // Note: This approach means we discard any actual response body when etag=true,
+        // but for the operations that use this (PUTs), the body is typically empty
+        // or contains redundant information already available in headers.
+        //
+        // TODO: Refactor this to properly return the response body and access ETag
+        // from headers instead of replacing the body. This would be a breaking change.
         let body_vec = if etag {
             if let Some(etag) = response.header("ETag") {
                 Bytes::from(etag.as_str().to_string())
@@ -192,8 +204,8 @@ impl<'a> SurfRequest<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request::async_std_backend::SurfRequest;
     use crate::request::Request;
+    use crate::request::async_std_backend::SurfRequest;
     use anyhow::Result;
     use awscreds::Credentials;
 

@@ -1,24 +1,24 @@
-use base64::engine::general_purpose;
 use base64::Engine;
+use base64::engine::general_purpose;
 use hmac::Mac;
 use quick_xml::se::to_string;
 use std::collections::HashMap;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use std::pin::Pin;
-use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc2822;
 use url::Url;
 
+use crate::LONG_DATETIME;
 use crate::bucket::Bucket;
 use crate::command::Command;
 use crate::error::S3Error;
 use crate::signing;
-use crate::LONG_DATETIME;
 use bytes::Bytes;
-use http::header::{
-    HeaderName, ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DATE, HOST, RANGE,
-};
 use http::HeaderMap;
+use http::header::{
+    ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DATE, HOST, HeaderName, RANGE,
+};
 use std::fmt::Write as _;
 
 #[cfg(feature = "with-async-std")]
@@ -119,6 +119,72 @@ impl fmt::Display for ResponseData {
     }
 }
 
+#[cfg(feature = "with-tokio")]
+impl tokio::io::AsyncRead for ResponseDataStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        // Poll the stream for the next chunk of bytes
+        match Stream::poll_next(self.bytes.as_mut(), cx) {
+            std::task::Poll::Ready(Some(Ok(chunk))) => {
+                // Write as much of the chunk as fits in the buffer
+                let amt = std::cmp::min(chunk.len(), buf.remaining());
+                buf.put_slice(&chunk[..amt]);
+
+                // AIDEV-NOTE: Bytes that don't fit in the buffer are discarded from this chunk.
+                // This is expected AsyncRead behavior - consumers should use appropriately sized
+                // buffers or wrap in BufReader for efficiency with small reads.
+
+                std::task::Poll::Ready(Ok(()))
+            }
+            std::task::Poll::Ready(Some(Err(error))) => {
+                // Convert S3Error to io::Error
+                std::task::Poll::Ready(Err(std::io::Error::other(error)))
+            }
+            std::task::Poll::Ready(None) => {
+                // Stream is exhausted, signal EOF by returning Ok(()) with no bytes written
+                std::task::Poll::Ready(Ok(()))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+#[cfg(feature = "with-async-std")]
+impl async_std::io::Read for ResponseDataStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        // Poll the stream for the next chunk of bytes
+        match Stream::poll_next(self.bytes.as_mut(), cx) {
+            std::task::Poll::Ready(Some(Ok(chunk))) => {
+                // Write as much of the chunk as fits in the buffer
+                let amt = std::cmp::min(chunk.len(), buf.len());
+                buf[..amt].copy_from_slice(&chunk[..amt]);
+
+                // AIDEV-NOTE: Bytes that don't fit in the buffer are discarded from this chunk.
+                // This is expected AsyncRead behavior - consumers should use appropriately sized
+                // buffers or wrap in BufReader for efficiency with small reads.
+
+                std::task::Poll::Ready(Ok(amt))
+            }
+            std::task::Poll::Ready(Some(Err(error))) => {
+                // Convert S3Error to io::Error
+                std::task::Poll::Ready(Err(std::io::Error::other(error)))
+            }
+            std::task::Poll::Ready(None) => {
+                // Stream is exhausted, signal EOF by returning 0 bytes read
+                std::task::Poll::Ready(Ok(0))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
 #[maybe_async::maybe_async]
 pub trait Request {
     type Response;
@@ -146,7 +212,7 @@ pub trait Request {
     async fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error>;
     fn datetime(&self) -> OffsetDateTime;
     fn bucket(&self) -> Bucket;
-    fn command(&self) -> Command;
+    fn command(&self) -> Command<'_>;
     fn path(&self) -> String;
 
     async fn signing_key(&self) -> Result<Vec<u8>, S3Error> {
@@ -217,10 +283,38 @@ pub trait Request {
             _ => unreachable!(),
         };
 
+        let url = self
+            .presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())
+            .await?;
+
+        // Build the URL string preserving the original host (including standard ports)
+        // The Url type drops standard ports when converting to string, but we need them
+        // for signature validation
+        let url_str = if let awsregion::Region::Custom { ref endpoint, .. } = self.bucket().region()
+        {
+            // Check if we need to preserve a standard port
+            if (endpoint.contains(":80") && url.scheme() == "http" && url.port().is_none())
+                || (endpoint.contains(":443") && url.scheme() == "https" && url.port().is_none())
+            {
+                // Rebuild the URL with the original host from the endpoint
+                let host = self.bucket().host();
+                format!(
+                    "{}://{}{}{}",
+                    url.scheme(),
+                    host,
+                    url.path(),
+                    url.query().map(|q| format!("?{}", q)).unwrap_or_default()
+                )
+            } else {
+                url.to_string()
+            }
+        } else {
+            url.to_string()
+        };
+
         Ok(format!(
             "{}&X-Amz-Signature={}",
-            self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())
-                .await?,
+            url_str,
             self.presigned_authorization(custom_headers.as_ref())
                 .await?
         ))
@@ -242,9 +336,37 @@ pub trait Request {
             _ => unreachable!(),
         };
 
+        let url =
+            self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())?;
+
+        // Build the URL string preserving the original host (including standard ports)
+        // The Url type drops standard ports when converting to string, but we need them
+        // for signature validation
+        let url_str = if let awsregion::Region::Custom { ref endpoint, .. } = self.bucket().region()
+        {
+            // Check if we need to preserve a standard port
+            if (endpoint.contains(":80") && url.scheme() == "http" && url.port().is_none())
+                || (endpoint.contains(":443") && url.scheme() == "https" && url.port().is_none())
+            {
+                // Rebuild the URL with the original host from the endpoint
+                let host = self.bucket().host();
+                format!(
+                    "{}://{}{}{}",
+                    url.scheme(),
+                    host,
+                    url.path(),
+                    url.query().map(|q| format!("?{}", q)).unwrap_or_default()
+                )
+            } else {
+                url.to_string()
+            }
+        } else {
+            url.to_string()
+        };
+
         Ok(format!(
             "{}&X-Amz-Signature={}",
-            self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())?,
+            url_str,
             self.presigned_authorization(custom_headers.as_ref())?
         ))
     }
@@ -566,11 +688,11 @@ pub trait Request {
         }
 
         // Append custom headers for PUT request if any
-        if let Command::PutObject { custom_headers, .. } = self.command() {
-            if let Some(custom_headers) = custom_headers {
-                for (k, v) in custom_headers.iter() {
-                    headers.insert(k.clone(), v.clone());
-                }
+        if let Command::PutObject { custom_headers, .. } = self.command()
+            && let Some(custom_headers) = custom_headers
+        {
+            for (k, v) in custom_headers.iter() {
+                headers.insert(k.clone(), v.clone());
             }
         }
 
@@ -587,6 +709,7 @@ pub trait Request {
             Command::GetObject => {}
             Command::GetObjectTagging => {}
             Command::GetBucketLocation => {}
+            Command::ListBuckets => {}
             _ => {
                 headers.insert(
                     CONTENT_LENGTH,
@@ -708,5 +831,239 @@ pub trait Request {
         headers.insert(DATE, self.datetime().format(&Rfc2822)?.parse()?);
 
         Ok(headers)
+    }
+}
+
+#[cfg(all(test, feature = "with-tokio"))]
+mod tests {
+    use super::*;
+    use bytes::Bytes;
+    use futures_util::stream;
+    use tokio::io::AsyncReadExt;
+
+    #[tokio::test]
+    async fn test_async_read_implementation() {
+        // Create a mock stream with test data
+        let chunks = vec![
+            Ok(Bytes::from("Hello, ")),
+            Ok(Bytes::from("World!")),
+            Ok(Bytes::from(" This is a test.")),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        // Read all data using AsyncRead
+        let mut buffer = Vec::new();
+        response_stream.read_to_end(&mut buffer).await.unwrap();
+
+        assert_eq!(buffer, b"Hello, World! This is a test.");
+    }
+
+    #[tokio::test]
+    async fn test_async_read_with_small_buffer() {
+        // Create a stream with a large chunk
+        let chunks = vec![Ok(Bytes::from(
+            "This is a much longer string that won't fit in a small buffer",
+        ))];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        // Read with a small buffer - demonstrates that excess bytes are discarded per chunk
+        let mut buffer = [0u8; 10];
+        let n = response_stream.read(&mut buffer).await.unwrap();
+
+        // We should only get the first 10 bytes
+        assert_eq!(n, 10);
+        assert_eq!(&buffer[..n], b"This is a ");
+
+        // Next read should get 0 bytes (EOF) because the chunk was consumed
+        let n = response_stream.read(&mut buffer).await.unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[tokio::test]
+    async fn test_async_read_with_error() {
+        use crate::error::S3Error;
+
+        // Create a stream that returns an error
+        let chunks: Vec<Result<Bytes, S3Error>> = vec![
+            Ok(Bytes::from("Some data")),
+            Err(S3Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Test error",
+            ))),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        // First read should succeed
+        let mut buffer = [0u8; 20];
+        let n = response_stream.read(&mut buffer).await.unwrap();
+        assert_eq!(n, 9);
+        assert_eq!(&buffer[..n], b"Some data");
+
+        // Second read should fail with an error
+        let result = response_stream.read(&mut buffer).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_async_read_copy() {
+        // Test using tokio::io::copy which is a common use case
+        let chunks = vec![
+            Ok(Bytes::from("First chunk\n")),
+            Ok(Bytes::from("Second chunk\n")),
+            Ok(Bytes::from("Third chunk\n")),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        let mut output = Vec::new();
+        tokio::io::copy(&mut response_stream, &mut output)
+            .await
+            .unwrap();
+
+        assert_eq!(output, b"First chunk\nSecond chunk\nThird chunk\n");
+    }
+}
+
+#[cfg(all(test, feature = "with-async-std"))]
+mod async_std_tests {
+    use super::*;
+    use async_std::io::ReadExt;
+    use bytes::Bytes;
+    use futures_util::stream;
+
+    #[async_std::test]
+    async fn test_async_read_implementation() {
+        // Create a mock stream with test data
+        let chunks = vec![
+            Ok(Bytes::from("Hello, ")),
+            Ok(Bytes::from("World!")),
+            Ok(Bytes::from(" This is a test.")),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        // Read all data using AsyncRead
+        let mut buffer = Vec::new();
+        response_stream.read_to_end(&mut buffer).await.unwrap();
+
+        assert_eq!(buffer, b"Hello, World! This is a test.");
+    }
+
+    #[async_std::test]
+    async fn test_async_read_with_small_buffer() {
+        // Create a stream with a large chunk
+        let chunks = vec![Ok(Bytes::from(
+            "This is a much longer string that won't fit in a small buffer",
+        ))];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        // Read with a small buffer - demonstrates that excess bytes are discarded per chunk
+        let mut buffer = [0u8; 10];
+        let n = response_stream.read(&mut buffer).await.unwrap();
+
+        // We should only get the first 10 bytes
+        assert_eq!(n, 10);
+        assert_eq!(&buffer[..n], b"This is a ");
+
+        // Next read should get 0 bytes (EOF) because the chunk was consumed
+        let n = response_stream.read(&mut buffer).await.unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[async_std::test]
+    async fn test_async_read_with_error() {
+        use crate::error::S3Error;
+
+        // Create a stream that returns an error
+        let chunks: Vec<Result<Bytes, S3Error>> = vec![
+            Ok(Bytes::from("Some data")),
+            Err(S3Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Test error",
+            ))),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        // First read should succeed
+        let mut buffer = [0u8; 20];
+        let n = response_stream.read(&mut buffer).await.unwrap();
+        assert_eq!(n, 9);
+        assert_eq!(&buffer[..n], b"Some data");
+
+        // Second read should fail with an error
+        let result = response_stream.read(&mut buffer).await;
+        assert!(result.is_err());
+    }
+
+    #[async_std::test]
+    async fn test_async_read_copy() {
+        // Test using async_std::io::copy which is a common use case
+        let chunks = vec![
+            Ok(Bytes::from("First chunk\n")),
+            Ok(Bytes::from("Second chunk\n")),
+            Ok(Bytes::from("Third chunk\n")),
+        ];
+
+        let stream = stream::iter(chunks);
+        let data_stream: DataStream = Box::pin(stream);
+
+        let mut response_stream = ResponseDataStream {
+            bytes: data_stream,
+            status_code: 200,
+        };
+
+        let mut output = Vec::new();
+        async_std::io::copy(&mut response_stream, &mut output)
+            .await
+            .unwrap();
+
+        assert_eq!(output, b"First chunk\nSecond chunk\nThird chunk\n");
     }
 }

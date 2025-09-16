@@ -1,6 +1,6 @@
 [package]
 name = "rust-s3"
-version = "0.36.0"
+version = "0.37.0"
 authors = ["Drazen Urch"]
 description = "Rust library for working with AWS S3 and compatible object storage APIs"
 repository = "https://github.com/durch/rust-s3"
@@ -8,7 +8,7 @@ readme = "README.md"
 keywords = ["S3", "Wasabi", "Minio", "GCP", "R2"]
 license = "MIT"
 documentation = "https://docs.rs/rust-s3/latest/s3/"
-edition = "2021"
+edition = "2024"
 
 [lib]
 name = "s3"
@@ -42,25 +42,25 @@ path = "../examples/gcs-tokio.rs"
 [dependencies]
 async-std = { version = "1", optional = true }
 async-trait = "0.1"
-attohttpc = { version = "0.28", optional = true, default-features = false }
+attohttpc = { version = "0.30", optional = true, default-features = false }
 # aws-creds = { version = "*", path = "../aws-creds", default-features = false }
-aws-creds = { version = "0.38", default-features = false }
+aws-creds = { version = "0.39", default-features = false }
 # aws-region = { version = "*", path = "../aws-region" }
-aws-region = "0.27"
+aws-region = "0.28"
 base64 = "0.22"
 block_on_proc = { version = "0.2", optional = true }
 bytes = { version = "1.2" }
 cfg-if = "1"
-futures = { version = "0.3", optional = true, default-features = false }
+futures-util = { version = "0.3", optional = true, default-features = false }
 hex = "0.4"
 hmac = "0.12"
 http = "1"
 log = "0.4"
 maybe-async = { version = "0.2" }
-md5 = "0.7"
+md5 = "0.8"
 minidom = { version = "0.16", optional = true }
 percent-encoding = "2"
-quick-xml = { version = "0.36", features = ["serialize"] }
+quick-xml = { version = "0.38", features = ["serialize"] }
 reqwest = { version = "0.12", optional = true, features = [
     "stream",
 ], default-features = false }
@@ -69,7 +69,8 @@ serde_derive = "1"
 serde_json = "1"
 sha2 = "0.10"
 surf = { version = "2", optional = true, default-features = false }
-thiserror = { version = "1", default-features = false }
+sysinfo = {version = "0.37.0", optional = true }
+thiserror = { version = "2", default-features = false }
 time = { version = "^0.3.6", features = [
     "formatting",
     "macros",
@@ -85,8 +86,8 @@ default = ["fail-on-err", "tags", "tokio-native-tls"]
 
 sync = ["attohttpc", "maybe-async/is_sync"]
 with-async-std-hyper = ["with-async-std", "surf/hyper-client"]
-with-async-std = ["async-std", "futures"]
-with-tokio = ["futures", "reqwest", "tokio", "tokio/fs", "tokio-stream"]
+with-async-std = ["async-std", "futures-util", "surf", "sysinfo"]
+with-tokio = ["futures-util", "reqwest", "tokio", "tokio/fs", "tokio-stream", "sysinfo"]
 
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]
 fail-on-err = []

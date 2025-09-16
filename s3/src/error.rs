@@ -39,7 +39,7 @@ pub enum S3Error {
     SerdeXml(#[from] quick_xml::de::DeError),
     #[error("invalid header value: {0}")]
     InvalidHeaderValue(#[from] http::header::InvalidHeaderValue),
-    #[cfg(feature = "with-async-std")]
+    #[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
     #[error("invalid header name: {0}")]
     InvalidHeaderName(#[from] http::header::InvalidHeaderName),
     #[cfg(feature = "with-async-std")]
@@ -70,4 +70,6 @@ pub enum S3Error {
     CredentialsReadLock,
     #[error("Could not get write lock on credentials")]
     CredentialsWriteLock,
+    #[error("xml serialization error: {0}")]
+    XmlSeError(#[from] quick_xml::SeError),
 }

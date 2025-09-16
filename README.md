@@ -71,6 +71,18 @@ All runtimes support either `native-tls` or `rustls-tls`, there are features for
 
 `Bucket` struct provides constructors for `path-style` paths, `subdomain` style is the default. `Bucket` exposes methods for configuring and accessing `path-style` configuration. `blocking` feature will generate a `*_blocking` variant of all the methods listed below.
 
+#### LocalStack Compatibility
+
+When using LocalStack, you may need to skip sending the location constraint in bucket creation requests. LocalStack doesn't support location constraints in the request body and will return `InvalidLocationConstraint` errors. Set this environment variable to skip the constraint:
+
+```bash
+export RUST_S3_SKIP_LOCATION_CONSTRAINT=true
+# or
+export RUST_S3_SKIP_LOCATION_CONSTRAINT=1
+```
+
+This may also be needed for other S3-compatible services that don't support AWS-style location constraints.
+
 #### Buckets
 
 |          |                                                                                          |
