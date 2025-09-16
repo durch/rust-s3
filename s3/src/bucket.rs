@@ -1575,7 +1575,7 @@ impl Bucket {
         }
 
         // Wait for all chunks to finish (or fail)
-        let responses = futures::future::join_all(handles).await;
+        let responses = futures_util::future::join_all(handles).await;
 
         for response in responses {
             let response_data = response?;
