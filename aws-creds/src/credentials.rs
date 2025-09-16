@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::ops::Deref;
+use std::path::Path;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -407,10 +408,28 @@ impl Credentials {
         })
     }
 
-    pub fn from_profile(section: Option<&str>) -> Result<Credentials, CredentialsError> {
-        let home_dir = home::home_dir().ok_or(CredentialsError::HomeDir)?;
-        let profile = format!("{}/.aws/credentials", home_dir.display());
-        let conf = Ini::load_from_file(profile)?;
+    /// Load credentials from a specific credentials file.
+    ///
+    /// This method allows loading AWS credentials from a custom file location,
+    /// which is useful when credentials are stored in a non-standard location.
+    ///
+    /// # Arguments
+    ///
+    /// * `file` - Path to the credentials file
+    /// * `section` - Optional profile name to load (defaults to "default")
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use awscreds::Credentials;
+    ///
+    /// let credentials = Credentials::from_credentials_file(
+    ///     "/custom/path/credentials",
+    ///     Some("production")
+    /// ).unwrap();
+    /// ```
+    pub fn from_credentials_file<P: AsRef<Path>>(file: P, section: Option<&str>) -> Result<Credentials, CredentialsError> {
+        let conf = Ini::load_from_file(file.as_ref())?;
         let section = section.unwrap_or("default");
         let data = conf
             .section(Some(section))
@@ -431,6 +450,17 @@ impl Credentials {
             expiration: None,
         };
         Ok(credentials)
+    }
+
+    pub fn from_profile(section: Option<&str>) -> Result<Credentials, CredentialsError> {
+        // Check for AWS_SHARED_CREDENTIALS_FILE environment variable first
+        let profile = if let Ok(path) = env::var("AWS_SHARED_CREDENTIALS_FILE") {
+            path
+        } else {
+            let home_dir = home::home_dir().ok_or(CredentialsError::HomeDir)?;
+            format!("{}/.aws/credentials", home_dir.display())
+        };
+        Credentials::from_credentials_file(&profile, section)
     }
 }
 
@@ -462,6 +492,77 @@ struct CredentialsFromInstanceMetadata {
     secret_access_key: String,
     token: String,
     expiration: Rfc3339OffsetDateTime, // TODO fix #163
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn create_test_credentials_file(content: &str) -> NamedTempFile {
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+        file.flush().unwrap();
+        file
+    }
+
+    #[test]
+    fn test_from_credentials_file_custom_location() {
+        let content = r#"[default]
+aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+[production]
+aws_access_key_id = PROD_KEY
+aws_secret_access_key = PROD_SECRET
+aws_session_token = PROD_SESSION_TOKEN
+"#;
+        let file = create_test_credentials_file(content);
+
+        // Test default section
+        let creds = Credentials::from_credentials_file(file.path(), None).unwrap();
+        assert_eq!(creds.access_key.unwrap(), "AKIAIOSFODNN7EXAMPLE");
+
+        // Test custom section
+        let creds = Credentials::from_credentials_file(file.path(), Some("production")).unwrap();
+        assert_eq!(creds.access_key.unwrap(), "PROD_KEY");
+        assert_eq!(creds.session_token.unwrap(), "PROD_SESSION_TOKEN");
+    }
+
+    #[test]
+    fn test_from_profile_respects_env_var() {
+        let content = r#"[default]
+aws_access_key_id = ENV_KEY
+aws_secret_access_key = ENV_SECRET
+"#;
+        let file = create_test_credentials_file(content);
+
+        // Set the environment variable
+        env::set_var("AWS_SHARED_CREDENTIALS_FILE", file.path());
+
+        let creds = Credentials::from_profile(None).unwrap();
+        assert_eq!(creds.access_key.unwrap(), "ENV_KEY");
+
+        // Clean up
+        env::remove_var("AWS_SHARED_CREDENTIALS_FILE");
+    }
+
+    #[test]
+    fn test_from_credentials_file_errors() {
+        // Test missing file
+        let result = Credentials::from_credentials_file("/nonexistent/path", None);
+        assert!(result.is_err());
+
+        // Test missing section
+        let content = r#"[default]
+aws_access_key_id = KEY
+aws_secret_access_key = SECRET
+"#;
+        let file = create_test_credentials_file(content);
+        let result = Credentials::from_credentials_file(file.path(), Some("nonexistent"));
+        assert!(matches!(result.unwrap_err(), CredentialsError::ConfigNotFound));
+    }
 }
 
 #[cfg(test)]
