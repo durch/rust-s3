@@ -70,4 +70,6 @@ pub enum S3Error {
     CredentialsReadLock,
     #[error("Could not get write lock on credentials")]
     CredentialsWriteLock,
+    #[error("xml serialization error: {0}")]
+    XmlSeError(#[from] quick_xml::SeError),
 }

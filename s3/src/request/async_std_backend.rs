@@ -16,8 +16,8 @@ use crate::request::{Request, ResponseData, ResponseDataStream};
 
 use http::HeaderMap;
 use maybe_async::maybe_async;
-use surf::http::headers::{HeaderName, HeaderValue};
 use surf::http::Method;
+use surf::http::headers::{HeaderName, HeaderValue};
 
 // Temporary structure for making a request
 pub struct SurfRequest<'a> {
@@ -41,7 +41,7 @@ impl<'a> Request for SurfRequest<'a> {
         self.bucket.clone()
     }
 
-    fn command(&self) -> Command {
+    fn command(&self) -> Command<'_> {
         self.command.clone()
     }
 
@@ -192,8 +192,8 @@ impl<'a> SurfRequest<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request::async_std_backend::SurfRequest;
     use crate::request::Request;
+    use crate::request::async_std_backend::SurfRequest;
     use anyhow::Result;
     use awscreds::Credentials;
 

@@ -28,10 +28,10 @@
 
 use crate::error::S3Error;
 use crate::utils::now_utc;
-use crate::{signing, Bucket, LONG_DATETIME};
+use crate::{Bucket, LONG_DATETIME, signing};
 
-use awscreds::error::CredentialsError;
 use awscreds::Rfc3339OffsetDateTime;
+use awscreds::error::CredentialsError;
 use serde::ser;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, SerializeTuple, Serializer};
 use std::borrow::Cow;
@@ -58,7 +58,11 @@ impl<'a> PostPolicy<'a> {
 
     /// Build a finalized post policy with credentials
     #[maybe_async::maybe_async]
-    async fn build(&self, now: &OffsetDateTime, bucket: &Bucket) -> Result<PostPolicy, S3Error> {
+    async fn build(
+        &self,
+        now: &OffsetDateTime,
+        bucket: &Bucket,
+    ) -> Result<PostPolicy<'_>, S3Error> {
         let access_key = bucket.access_key().await?.ok_or(S3Error::Credentials(
             CredentialsError::ConfigMissingAccessKeyId,
         ))?;
@@ -97,8 +101,8 @@ impl<'a> PostPolicy<'a> {
     }
 
     fn policy_string(&self) -> Result<String, S3Error> {
-        use base64::engine::general_purpose;
         use base64::Engine;
+        use base64::engine::general_purpose;
 
         let data = serde_json::to_string(self)?;
 

@@ -50,8 +50,8 @@ pub enum CannedBucketAcl {
     Custom(String),
 }
 
-use http::header::HeaderName;
 use http::HeaderMap;
+use http::header::HeaderName;
 use std::fmt;
 
 impl fmt::Display for CannedBucketAcl {

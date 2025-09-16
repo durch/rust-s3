@@ -3,9 +3,9 @@
 #[cfg(feature = "tokio")]
 use awscreds::Credentials;
 #[cfg(feature = "tokio")]
-use s3::error::S3Error;
-#[cfg(feature = "tokio")]
 use s3::Bucket;
+#[cfg(feature = "tokio")]
+use s3::error::S3Error;
 
 #[cfg(not(feature = "tokio"))]
 fn main() {}

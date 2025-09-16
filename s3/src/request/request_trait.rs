@@ -1,24 +1,24 @@
-use base64::engine::general_purpose;
 use base64::Engine;
+use base64::engine::general_purpose;
 use hmac::Mac;
 use quick_xml::se::to_string;
 use std::collections::HashMap;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use std::pin::Pin;
-use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc2822;
 use url::Url;
 
+use crate::LONG_DATETIME;
 use crate::bucket::Bucket;
 use crate::command::Command;
 use crate::error::S3Error;
 use crate::signing;
-use crate::LONG_DATETIME;
 use bytes::Bytes;
-use http::header::{
-    HeaderName, ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DATE, HOST, RANGE,
-};
 use http::HeaderMap;
+use http::header::{
+    ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DATE, HOST, HeaderName, RANGE,
+};
 use std::fmt::Write as _;
 
 #[cfg(feature = "with-async-std")]
@@ -146,7 +146,7 @@ pub trait Request {
     async fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error>;
     fn datetime(&self) -> OffsetDateTime;
     fn bucket(&self) -> Bucket;
-    fn command(&self) -> Command;
+    fn command(&self) -> Command<'_>;
     fn path(&self) -> String;
 
     async fn signing_key(&self) -> Result<Vec<u8>, S3Error> {

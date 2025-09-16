@@ -44,12 +44,12 @@ use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
 use crate::command::{Command, Multipart};
 use crate::creds::Credentials;
 use crate::region::Region;
-#[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::client;
-#[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::ClientOptions;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use crate::request::ResponseDataStream;
+#[cfg(feature = "with-tokio")]
+use crate::request::tokio_backend::ClientOptions;
+#[cfg(feature = "with-tokio")]
+use crate::request::tokio_backend::client;
 use crate::request::{Request as _, ResponseData};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -85,6 +85,7 @@ use tokio::io::AsyncRead;
 #[cfg(feature = "with-async-std")]
 use async_std::io::Read as AsyncRead;
 
+use crate::PostPolicy;
 use crate::error::S3Error;
 use crate::post_policy::PresignedPost;
 use crate::serde_types::{
@@ -93,10 +94,9 @@ use crate::serde_types::{
     InitiateMultipartUploadResponse, ListBucketResult, ListMultipartUploadsResult, Part,
 };
 #[allow(unused_imports)]
-use crate::utils::{error_from_response_data, PutStreamResponse};
-use crate::PostPolicy;
-use http::header::HeaderName;
+use crate::utils::{PutStreamResponse, error_from_response_data};
 use http::HeaderMap;
+use http::header::HeaderName;
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
@@ -2790,13 +2790,13 @@ impl Bucket {
 #[cfg(test)]
 mod test {
 
+    use crate::BucketConfiguration;
+    use crate::Tag;
     use crate::creds::Credentials;
     use crate::post_policy::{PostPolicyField, PostPolicyValue};
     use crate::region::Region;
     use crate::serde_types::CorsConfiguration;
     use crate::serde_types::CorsRule;
-    use crate::BucketConfiguration;
-    use crate::Tag;
     use crate::{Bucket, PostPolicy};
     use http::header::{HeaderMap, HeaderName, HeaderValue, CACHE_CONTROL};
     use std::env;
