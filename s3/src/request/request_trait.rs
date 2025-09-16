@@ -566,11 +566,11 @@ pub trait Request {
         }
 
         // Append custom headers for PUT request if any
-        if let Command::PutObject { custom_headers, .. } = self.command() {
-            if let Some(custom_headers) = custom_headers {
-                for (k, v) in custom_headers.iter() {
-                    headers.insert(k.clone(), v.clone());
-                }
+        if let Command::PutObject { custom_headers, .. } = self.command()
+            && let Some(custom_headers) = custom_headers
+        {
+            for (k, v) in custom_headers.iter() {
+                headers.insert(k.clone(), v.clone());
             }
         }
 

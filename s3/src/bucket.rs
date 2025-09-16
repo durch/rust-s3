@@ -1410,6 +1410,46 @@ impl Bucket {
         .await
     }
 
+    /// Create a builder for streaming PUT operations with custom options
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[cfg(feature = "with-tokio")]
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// # use tokio::fs::File;
+    ///
+    /// let bucket = Bucket::new("my-bucket", "us-east-1".parse()?, Credentials::default()?)?;
+    ///
+    /// # #[cfg(feature = "with-tokio")]
+    /// let mut file = File::open("large-file.zip").await?;
+    ///
+    /// // Stream upload with custom headers using builder pattern
+    /// let response = bucket.put_object_stream_builder("/large-file.zip")
+    ///     .with_content_type("application/zip")
+    ///     .with_cache_control("public, max-age=3600")?
+    ///     .with_metadata("uploaded-by", "stream-builder")?
+    ///     .execute_stream(&mut file)
+    ///     .await?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "with-tokio"))]
+    /// # fn main() {}
+    /// ```
+    #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+    pub fn put_object_stream_builder<S: AsRef<str>>(
+        &self,
+        path: S,
+    ) -> crate::put_object_request::PutObjectStreamRequest<'_> {
+        crate::put_object_request::PutObjectStreamRequest::new(self, path)
+    }
+
     #[maybe_async::sync_impl]
     pub fn put_object_stream<R: Read>(
         &self,
@@ -1520,15 +1560,37 @@ impl Bucket {
         s3_path: &str,
         content_type: &str,
     ) -> Result<PutStreamResponse, S3Error> {
+        self._put_object_stream_with_content_type_and_headers(reader, s3_path, content_type, None)
+            .await
+    }
+
+    #[maybe_async::async_impl]
+    pub(crate) async fn _put_object_stream_with_content_type_and_headers<
+        R: AsyncRead + Unpin + ?Sized,
+    >(
+        &self,
+        reader: &mut R,
+        s3_path: &str,
+        content_type: &str,
+        custom_headers: Option<http::HeaderMap>,
+    ) -> Result<PutStreamResponse, S3Error> {
         // If the file is smaller CHUNK_SIZE, just do a regular upload.
         // Otherwise perform a multi-part upload.
         let first_chunk = crate::utils::read_chunk_async(reader).await?;
         // println!("First chunk size: {}", first_chunk.len());
         if first_chunk.len() < CHUNK_SIZE {
             let total_size = first_chunk.len();
-            let response_data = self
-                .put_object_with_content_type(s3_path, first_chunk.as_slice(), content_type)
-                .await?;
+            // Use the builder pattern for small files
+            let mut builder = self
+                .put_object_builder(s3_path, first_chunk.as_slice())
+                .with_content_type(content_type);
+
+            // Add custom headers if provided
+            if let Some(headers) = custom_headers {
+                builder = builder.with_headers(headers);
+            }
+
+            let response_data = builder.execute().await?;
             if response_data.status_code() >= 300 {
                 return Err(error_from_response_data(response_data)?);
             }
@@ -2178,6 +2240,42 @@ impl Bucket {
     ) -> Result<ResponseData, S3Error> {
         self.put_object_with_content_type(path, content, "application/octet-stream")
             .await
+    }
+
+    /// Create a builder for PUT object operations with custom options
+    ///
+    /// This method returns a builder that allows configuring various options
+    /// for the PUT operation including headers, content type, and metadata.
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket = Bucket::new("my-bucket", "us-east-1".parse()?, Credentials::default()?)?;
+    ///
+    /// // Upload with custom headers using builder pattern
+    /// let response = bucket.put_object_builder("/my-file.txt", b"Hello, World!")
+    ///     .with_content_type("text/plain")
+    ///     .with_cache_control("public, max-age=3600")?
+    ///     .with_metadata("author", "john-doe")?
+    ///     .execute()
+    ///     .await?;
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn put_object_builder<S: AsRef<str>>(
+        &self,
+        path: S,
+        content: &[u8],
+    ) -> crate::put_object_request::PutObjectRequest<'_> {
+        crate::put_object_request::PutObjectRequest::new(self, path, content)
     }
 
     fn _tags_xml<S: AsRef<str>>(&self, tags: &[(S, S)]) -> String {
@@ -3171,7 +3269,7 @@ mod test {
         #[cfg(feature = "with-async-std")]
         use async_std::stream::StreamExt;
         #[cfg(feature = "with-tokio")]
-        use futures::StreamExt;
+        use futures_util::StreamExt;
         #[cfg(not(any(feature = "with-tokio", feature = "with-async-std")))]
         use std::fs::File;
         #[cfg(not(any(feature = "with-tokio", feature = "with-async-std")))]
