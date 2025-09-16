@@ -1621,10 +1621,10 @@ impl Bucket {
         // Calculate how many chunks we can safely handle concurrently
         let calculated_chunks = (available_memory / memory_per_chunk) as usize;
 
-        // Clamp between 2 and 10 for safety
+        // Clamp between 2 and 100 for safety
         // Minimum 2 to maintain some parallelism
-        // Maximum 10 to prevent too many concurrent connections
-        calculated_chunks.clamp(2, 10)
+        // Maximum 100 to prevent too many concurrent connections
+        calculated_chunks.clamp(2, 100)
     }
 
     #[maybe_async::async_impl]
