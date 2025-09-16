@@ -29,6 +29,7 @@ use crate::serde_types::{
 use crate::EMPTY_PAYLOAD_SHA;
 use sha2::{Digest, Sha256};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HttpMethod {
     Delete,
     Get,
