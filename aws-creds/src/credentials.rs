@@ -428,7 +428,10 @@ impl Credentials {
     ///     Some("production")
     /// ).unwrap();
     /// ```
-    pub fn from_credentials_file<P: AsRef<Path>>(file: P, section: Option<&str>) -> Result<Credentials, CredentialsError> {
+    pub fn from_credentials_file<P: AsRef<Path>>(
+        file: P,
+        section: Option<&str>,
+    ) -> Result<Credentials, CredentialsError> {
         let conf = Ini::load_from_file(file.as_ref())?;
         let section = section.unwrap_or("default");
         let data = conf
@@ -561,7 +564,10 @@ aws_secret_access_key = SECRET
 "#;
         let file = create_test_credentials_file(content);
         let result = Credentials::from_credentials_file(file.path(), Some("nonexistent"));
-        assert!(matches!(result.unwrap_err(), CredentialsError::ConfigNotFound));
+        assert!(matches!(
+            result.unwrap_err(),
+            CredentialsError::ConfigNotFound
+        ));
     }
 }
 
