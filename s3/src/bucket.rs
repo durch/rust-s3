@@ -1101,7 +1101,7 @@ impl Bucket {
 
     #[maybe_async::maybe_async]
     pub async fn delete_bucket_lifecycle(&self) -> Result<ResponseData, S3Error> {
-        let request = RequestImpl::new(self, "", Command::DeleteBucket).await?;
+        let request = RequestImpl::new(self, "", Command::DeleteBucketLifecycle).await?;
         request.response_data(false).await
     }
 
