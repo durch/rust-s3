@@ -133,6 +133,18 @@ impl<'a> Request for ReqwestRequest<'a> {
                 )
             })
             .collect::<HashMap<String, String>>();
+        // When etag=true, we extract the ETag header and return it as the body.
+        // This is used for PUT operations (regular puts, multipart chunks) where:
+        // 1. S3 returns an empty or non-useful response body
+        // 2. The ETag header contains the essential information we need
+        // 3. The calling code expects to get the ETag via response_data.as_str()
+        //
+        // Note: This approach means we discard any actual response body when etag=true,
+        // but for the operations that use this (PUTs), the body is typically empty
+        // or contains redundant information already available in headers.
+        //
+        // TODO: Refactor this to properly return the response body and access ETag
+        // from headers instead of replacing the body. This would be a breaking change.
         let body_vec = if etag {
             if let Some(etag) = headers.remove("ETag") {
                 Bytes::from(etag.to_str()?.to_string())
