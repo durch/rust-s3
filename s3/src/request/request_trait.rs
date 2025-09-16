@@ -587,6 +587,7 @@ pub trait Request {
             Command::GetObject => {}
             Command::GetObjectTagging => {}
             Command::GetBucketLocation => {}
+            Command::ListBuckets => {}
             _ => {
                 headers.insert(
                     CONTENT_LENGTH,
