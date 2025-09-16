@@ -3865,12 +3865,16 @@ mod test {
             None,
             None,
             None,
-        ).unwrap();
+        )
+        .unwrap();
         let bucket_http_80 = Bucket::new("test-bucket", region_http_80, credentials.clone())
             .unwrap()
             .with_path_style();
 
-        let presigned_url_80 = bucket_http_80.presign_get("/test.file", 3600, None).await.unwrap();
+        let presigned_url_80 = bucket_http_80
+            .presign_get("/test.file", 3600, None)
+            .await
+            .unwrap();
         println!("Presigned URL with port 80: {}", presigned_url_80);
 
         // Port 80 MUST be preserved in the URL for signature validation
@@ -3889,7 +3893,10 @@ mod test {
             .unwrap()
             .with_path_style();
 
-        let presigned_url_443 = bucket_https_443.presign_get("/test.file", 3600, None).await.unwrap();
+        let presigned_url_443 = bucket_https_443
+            .presign_get("/test.file", 3600, None)
+            .await
+            .unwrap();
         println!("Presigned URL with port 443: {}", presigned_url_443);
 
         // Port 443 MUST be preserved in the URL for signature validation
@@ -3908,8 +3915,14 @@ mod test {
             .unwrap()
             .with_path_style();
 
-        let presigned_url_9000 = bucket_http_9000.presign_get("/test.file", 3600, None).await.unwrap();
-        assert!(presigned_url_9000.contains("minio:9000"), "Non-standard port should be preserved in URL");
+        let presigned_url_9000 = bucket_http_9000
+            .presign_get("/test.file", 3600, None)
+            .await
+            .unwrap();
+        assert!(
+            presigned_url_9000.contains("minio:9000"),
+            "Non-standard port should be preserved in URL"
+        );
     }
 
     #[maybe_async::test(
