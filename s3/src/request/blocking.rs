@@ -103,7 +103,12 @@ impl<'a> Request for AttoRequest<'a> {
                 Bytes::from("")
             }
         } else {
-            Bytes::from(response.bytes()?)
+            // HEAD requests don't have a response body
+            if self.command.http_verb() == HttpMethod::Head {
+                Bytes::from("")
+            } else {
+                Bytes::from(response.bytes()?)
+            }
         };
         Ok(ResponseData::new(body_vec, status_code, response_headers))
     }
