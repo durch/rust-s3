@@ -1186,7 +1186,7 @@ impl Bucket {
         end: Option<u64>,
     ) -> Result<ResponseData, S3Error> {
         if let Some(end) = end {
-            assert!(start < end);
+            assert!(start <= end);
         }
 
         let command = Command::GetObjectRange { start, end };
@@ -1247,7 +1247,7 @@ impl Bucket {
         S: AsRef<str>,
     {
         if let Some(end) = end {
-            assert!(start < end);
+            assert!(start <= end);
         }
 
         let command = Command::GetObjectRange { start, end };
@@ -1264,7 +1264,7 @@ impl Bucket {
         writer: &mut T,
     ) -> Result<u16, S3Error> {
         if let Some(end) = end {
-            assert!(start < end);
+            assert!(start <= end);
         }
 
         let command = Command::GetObjectRange { start, end };
