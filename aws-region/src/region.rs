@@ -77,6 +77,8 @@ pub enum Region {
     IlCentral1,
     /// me-south-1
     MeSouth1,
+    /// me-central-1
+    MeCentral1,
     /// sa-east-1
     SaEast1,
     /// Digital Ocean nyc3
@@ -168,6 +170,7 @@ impl fmt::Display for Region {
             EuWest3 => write!(f, "eu-west-3"),
             SaEast1 => write!(f, "sa-east-1"),
             IlCentral1 => write!(f, "il-central-1"),
+            MeCentral1 => write!(f, "me-central-1"),
             MeSouth1 => write!(f, "me-south-1"),
             DoNyc3 => write!(f, "nyc3"),
             DoAms3 => write!(f, "ams3"),
@@ -232,6 +235,7 @@ impl FromStr for Region {
             "eu-west-3" => Ok(EuWest3),
             "sa-east-1" => Ok(SaEast1),
             "il-central-1" => Ok(IlCentral1),
+            "me-central-1" => Ok(MeCentral1),
             "me-south-1" => Ok(MeSouth1),
             "nyc3" => Ok(DoNyc3),
             "ams3" => Ok(DoAms3),
@@ -289,6 +293,7 @@ impl Region {
             EuWest3 => String::from("s3-eu-west-3.amazonaws.com"),
             SaEast1 => String::from("s3-sa-east-1.amazonaws.com"),
             IlCentral1 => String::from("s3.il-central-1.amazonaws.com"),
+            MeCentral1 => String::from("s3.me-central-1.amazonaws.com"),
             MeSouth1 => String::from("s3-me-south-1.amazonaws.com"),
             DoNyc3 => String::from("nyc3.digitaloceanspaces.com"),
             DoAms3 => String::from("ams3.digitaloceanspaces.com"),
@@ -390,6 +395,13 @@ fn yandex_object_storage() {
 fn test_region_eu_central_2() {
     let region = "eu-central-2".parse::<Region>().unwrap();
     assert_eq!(region.endpoint(), "s3.eu-central-2.amazonaws.com");
+}
+
+#[test]
+fn test_region_me_central_1() {
+    let region = "me-central-1".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.me-central-1.amazonaws.com");
+    assert_eq!(region.to_string(), "me-central-1");
 }
 
 #[test]
