@@ -14,13 +14,6 @@ use tokio::io::AsyncRead;
 #[cfg(feature = "with-async-std")]
 use async_std::io::Read as AsyncRead;
 
-#[cfg(feature = "with-async-std")]
-use crate::request::async_std_backend::SurfRequest as RequestImpl;
-#[cfg(feature = "sync")]
-use crate::request::blocking::AttoRequest as RequestImpl;
-#[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::ReqwestRequest as RequestImpl;
-
 /// Builder for constructing S3 PUT object requests with custom options
 ///
 /// # Example
@@ -195,7 +188,7 @@ impl<'a> PutObjectRequest<'a> {
             multipart: None,
         };
 
-        let request = RequestImpl::new(self.bucket, &self.path, command).await?;
+        let request = self.bucket.make_request(&self.path, command).await?;
         request.response_data(true).await
     }
 }

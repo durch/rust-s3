@@ -184,12 +184,11 @@ impl<'a> Request for SurfRequest<'a> {
 }
 
 impl<'a> SurfRequest<'a> {
-    pub async fn new<'b>(
+    pub fn new<'b>(
         bucket: &'b Bucket,
         path: &'b str,
         command: Command<'b>,
     ) -> Result<SurfRequest<'b>, S3Error> {
-        bucket.credentials_refresh().await?;
         Ok(SurfRequest {
             bucket,
             path,
@@ -222,9 +221,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
+        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url()?.scheme(), "https");
 
@@ -240,9 +237,7 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-first/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
+        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().unwrap().scheme(), "https");
 
@@ -258,9 +253,7 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
+        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().unwrap().scheme(), "http");
 
@@ -275,9 +268,7 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-second/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
+        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().unwrap().scheme(), "http");
 

@@ -210,12 +210,11 @@ impl<'a> Request for ReqwestRequest<'a> {
 }
 
 impl<'a> ReqwestRequest<'a> {
-    pub async fn new(
+    pub fn new(
         bucket: &'a Bucket,
         path: &'a str,
         command: Command<'a>,
     ) -> Result<ReqwestRequest<'a>, S3Error> {
-        bucket.credentials_refresh().await?;
         Ok(Self {
             bucket,
             path,
@@ -248,9 +247,7 @@ mod tests {
         let region = "custom-region".parse().unwrap();
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials()).unwrap();
         let path = "/my-first/path";
-        let request = ReqwestRequest::new(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
+        let request = ReqwestRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().unwrap().scheme(), "https");
 
@@ -267,9 +264,7 @@ mod tests {
             .unwrap()
             .with_path_style();
         let path = "/my-first/path";
-        let request = ReqwestRequest::new(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
+        let request = ReqwestRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().unwrap().scheme(), "https");
 
@@ -284,9 +279,7 @@ mod tests {
         let region = "http://custom-region".parse().unwrap();
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials()).unwrap();
         let path = "/my-second/path";
-        let request = ReqwestRequest::new(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
+        let request = ReqwestRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().unwrap().scheme(), "http");
 
@@ -302,9 +295,7 @@ mod tests {
             .unwrap()
             .with_path_style();
         let path = "/my-second/path";
-        let request = ReqwestRequest::new(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
+        let request = ReqwestRequest::new(&bucket, path, Command::GetObject).unwrap();
 
         assert_eq!(request.url().unwrap().scheme(), "http");
 
@@ -329,7 +320,6 @@ mod tests {
                 end: None,
             },
         )
-        .await
         .unwrap();
         let headers = request.headers().await.unwrap();
         let range = headers.get(RANGE).unwrap();
@@ -343,7 +333,6 @@ mod tests {
                 end: Some(1),
             },
         )
-        .await
         .unwrap();
         let headers = request.headers().await.unwrap();
         let range = headers.get(RANGE).unwrap();

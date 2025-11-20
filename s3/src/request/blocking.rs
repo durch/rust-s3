@@ -148,7 +148,6 @@ impl<'a> AttoRequest<'a> {
         path: &'b str,
         command: Command<'b>,
     ) -> Result<AttoRequest<'b>, S3Error> {
-        bucket.credentials_refresh()?;
         Ok(AttoRequest {
             bucket,
             path,
