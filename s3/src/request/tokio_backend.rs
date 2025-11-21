@@ -4,17 +4,13 @@ extern crate md5;
 use bytes::Bytes;
 use futures_util::TryStreamExt;
 use maybe_async::maybe_async;
+use std::borrow::Cow;
 use std::collections::HashMap;
-use std::str::FromStr as _;
-use time::OffsetDateTime;
 
 use super::request_trait::{Request, ResponseData, ResponseDataStream};
 use crate::bucket::Bucket;
-use crate::command::Command;
-use crate::command::HttpMethod;
 use crate::error::S3Error;
 use crate::retry;
-use crate::utils::now_utc;
 
 use tokio_stream::StreamExt;
 
@@ -60,10 +56,8 @@ pub(crate) fn client(options: &ClientOptions) -> Result<reqwest::Client, S3Error
 }
 // Temporary structure for making a request
 pub struct ReqwestRequest<'a> {
-    pub bucket: &'a Bucket,
-    pub path: &'a str,
-    pub command: Command<'a>,
-    pub datetime: OffsetDateTime,
+    request: http::Request<Cow<'a, [u8]>>,
+    client: reqwest::Client,
     pub sync: bool,
 }
 
@@ -73,40 +67,8 @@ impl<'a> Request for ReqwestRequest<'a> {
     type HeaderMap = reqwest::header::HeaderMap;
 
     async fn response(&self) -> Result<Self::Response, S3Error> {
-        let headers = self
-            .headers()
-            .await?
-            .iter()
-            .map(|(k, v)| {
-                (
-                    reqwest::header::HeaderName::from_str(k.as_str()),
-                    reqwest::header::HeaderValue::from_str(v.to_str().unwrap_or_default()),
-                )
-            })
-            .filter(|(k, v)| k.is_ok() && v.is_ok())
-            .map(|(k, v)| (k.unwrap(), v.unwrap()))
-            .collect();
-
-        let client = self.bucket.http_client();
-
-        let method = match self.command.http_verb() {
-            HttpMethod::Delete => reqwest::Method::DELETE,
-            HttpMethod::Get => reqwest::Method::GET,
-            HttpMethod::Post => reqwest::Method::POST,
-            HttpMethod::Put => reqwest::Method::PUT,
-            HttpMethod::Head => reqwest::Method::HEAD,
-        };
-
-        let request = client
-            .request(method, self.url()?.as_str())
-            .headers(headers)
-            .body(self.request_body()?);
-
-        let request = request.build()?;
-
-        // println!("Request: {:?}", request);
-
-        let response = client.execute(request).await?;
+        let request = self.request.clone().map(|b| b.into_owned()).try_into()?;
+        let response = self.client.execute(request).await?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             let status = response.status().as_u16();
@@ -191,35 +153,13 @@ impl<'a> Request for ReqwestRequest<'a> {
         let headers = response.headers().clone();
         Ok((headers, status_code))
     }
-
-    fn datetime(&self) -> OffsetDateTime {
-        self.datetime
-    }
-
-    fn bucket(&self) -> Bucket {
-        self.bucket.clone()
-    }
-
-    fn command(&self) -> Command<'_> {
-        self.command.clone()
-    }
-
-    fn path(&self) -> String {
-        self.path.to_string()
-    }
 }
 
 impl<'a> ReqwestRequest<'a> {
-    pub fn new(
-        bucket: &'a Bucket,
-        path: &'a str,
-        command: Command<'a>,
-    ) -> Result<ReqwestRequest<'a>, S3Error> {
+    pub fn new(request: http::Request<Cow<'a, [u8]>>, bucket: &Bucket) -> Result<Self, S3Error> {
         Ok(Self {
-            bucket,
-            path,
-            command,
-            datetime: now_utc(),
+            request,
+            client: bucket.http_client(),
             sync: false,
         })
     }
@@ -229,8 +169,7 @@ impl<'a> ReqwestRequest<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request::Request;
-    use crate::request::tokio_backend::ReqwestRequest;
+    use crate::request::request_trait::build_request;
     use awscreds::Credentials;
     use http::header::{HOST, RANGE};
 
@@ -247,11 +186,13 @@ mod tests {
         let region = "custom-region".parse().unwrap();
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials()).unwrap();
         let path = "/my-first/path";
-        let request = ReqwestRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = build_request(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
 
-        assert_eq!(request.url().unwrap().scheme(), "https");
+        assert_eq!(request.uri().scheme_str().unwrap(), "https");
 
-        let headers = request.headers().await.unwrap();
+        let headers = request.headers();
         let host = headers.get(HOST).unwrap();
 
         assert_eq!(*host, "my-first-bucket.custom-region".to_string());
@@ -264,11 +205,13 @@ mod tests {
             .unwrap()
             .with_path_style();
         let path = "/my-first/path";
-        let request = ReqwestRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = build_request(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
 
-        assert_eq!(request.url().unwrap().scheme(), "https");
+        assert_eq!(request.uri().scheme_str().unwrap(), "https");
 
-        let headers = request.headers().await.unwrap();
+        let headers = request.headers();
         let host = headers.get(HOST).unwrap();
 
         assert_eq!(*host, "custom-region".to_string());
@@ -279,11 +222,13 @@ mod tests {
         let region = "http://custom-region".parse().unwrap();
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials()).unwrap();
         let path = "/my-second/path";
-        let request = ReqwestRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = build_request(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
 
-        assert_eq!(request.url().unwrap().scheme(), "http");
+        assert_eq!(request.uri().scheme_str().unwrap(), "http");
 
-        let headers = request.headers().await.unwrap();
+        let headers = request.headers();
         let host = headers.get(HOST).unwrap();
         assert_eq!(*host, "my-second-bucket.custom-region".to_string());
     }
@@ -295,11 +240,13 @@ mod tests {
             .unwrap()
             .with_path_style();
         let path = "/my-second/path";
-        let request = ReqwestRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = build_request(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
 
-        assert_eq!(request.url().unwrap().scheme(), "http");
+        assert_eq!(request.uri().scheme_str().unwrap(), "http");
 
-        let headers = request.headers().await.unwrap();
+        let headers = request.headers();
         let host = headers.get(HOST).unwrap();
         assert_eq!(*host, "custom-region".to_string());
     }
@@ -312,7 +259,7 @@ mod tests {
             .with_path_style();
         let path = "/my-second/path";
 
-        let request = ReqwestRequest::new(
+        let request = build_request(
             &bucket,
             path,
             Command::GetObjectRange {
@@ -320,12 +267,13 @@ mod tests {
                 end: None,
             },
         )
+        .await
         .unwrap();
-        let headers = request.headers().await.unwrap();
+        let headers = request.headers();
         let range = headers.get(RANGE).unwrap();
         assert_eq!(range, "bytes=0-");
 
-        let request = ReqwestRequest::new(
+        let request = build_request(
             &bucket,
             path,
             Command::GetObjectRange {
@@ -333,8 +281,9 @@ mod tests {
                 end: Some(1),
             },
         )
+        .await
         .unwrap();
-        let headers = request.headers().await.unwrap();
+        let headers = request.headers();
         let range = headers.get(RANGE).unwrap();
         assert_eq!(range, "bytes=0-1");
     }

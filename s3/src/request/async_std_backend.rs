@@ -3,15 +3,12 @@ use async_std::io::{ReadExt, WriteExt};
 use async_std::stream::StreamExt;
 use bytes::Bytes;
 use futures_util::FutureExt;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::bucket::Bucket;
-use crate::command::Command;
 use crate::error::S3Error;
-use crate::utils::now_utc;
-use time::OffsetDateTime;
 
-use crate::command::HttpMethod;
 use crate::request::{Request, ResponseData, ResponseDataStream};
 
 use http::HeaderMap;
@@ -21,10 +18,7 @@ use surf::http::headers::{HeaderName, HeaderValue};
 
 // Temporary structure for making a request
 pub struct SurfRequest<'a> {
-    pub bucket: &'a Bucket,
-    pub path: &'a str,
-    pub command: Command<'a>,
-    pub datetime: OffsetDateTime,
+    request: http::Request<Cow<'a, [u8]>>,
     pub sync: bool,
 }
 
@@ -33,37 +27,24 @@ impl<'a> Request for SurfRequest<'a> {
     type Response = surf::Response;
     type HeaderMap = HeaderMap;
 
-    fn datetime(&self) -> OffsetDateTime {
-        self.datetime
-    }
-
-    fn bucket(&self) -> Bucket {
-        self.bucket.clone()
-    }
-
-    fn command(&self) -> Command<'_> {
-        self.command.clone()
-    }
-
-    fn path(&self) -> String {
-        self.path.to_string()
-    }
-
     async fn response(&self) -> Result<surf::Response, S3Error> {
-        // Build headers
-        let headers = self.headers().await?;
+        let url = format!("{}", self.request.uri()).parse()?;
+        let mut request = match *self.request.method() {
+            http::Method::GET => surf::Request::builder(Method::Get, url),
+            http::Method::DELETE => surf::Request::builder(Method::Delete, url),
+            http::Method::PUT => surf::Request::builder(Method::Put, url),
+            http::Method::POST => surf::Request::builder(Method::Post, url),
+            http::Method::HEAD => surf::Request::builder(Method::Head, url),
+            ref m => surf::Request::builder(
+                m.as_str()
+                    .parse()
+                    .map_err(|e: surf::Error| S3Error::Surf(e.to_string()))?,
+                url,
+            ),
+        }
+        .body(self.request.body().clone().into_owned());
 
-        let request = match self.command.http_verb() {
-            HttpMethod::Get => surf::Request::builder(Method::Get, self.url()?),
-            HttpMethod::Delete => surf::Request::builder(Method::Delete, self.url()?),
-            HttpMethod::Put => surf::Request::builder(Method::Put, self.url()?),
-            HttpMethod::Post => surf::Request::builder(Method::Post, self.url()?),
-            HttpMethod::Head => surf::Request::builder(Method::Head, self.url()?),
-        };
-
-        let mut request = request.body(self.request_body()?);
-
-        for (name, value) in headers.iter() {
+        for (name, value) in self.request.headers().iter() {
             request = request.header(
                 HeaderName::from_bytes(AsRef::<[u8]>::as_ref(&name).to_vec())
                     .expect("Could not parse heaeder name"),
@@ -184,16 +165,9 @@ impl<'a> Request for SurfRequest<'a> {
 }
 
 impl<'a> SurfRequest<'a> {
-    pub fn new<'b>(
-        bucket: &'b Bucket,
-        path: &'b str,
-        command: Command<'b>,
-    ) -> Result<SurfRequest<'b>, S3Error> {
-        Ok(SurfRequest {
-            bucket,
-            path,
-            command,
-            datetime: now_utc(),
+    pub fn new(request: http::Request<Cow<'a, [u8]>>, _: &Bucket) -> Result<Self, S3Error> {
+        Ok(Self {
+            request,
             sync: false,
         })
     }
@@ -203,8 +177,7 @@ impl<'a> SurfRequest<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request::Request;
-    use crate::request::async_std_backend::SurfRequest;
+    use crate::request::request_trait::build_request;
     use anyhow::Result;
     use awscreds::Credentials;
 
@@ -221,11 +194,13 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = build_request(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
 
-        assert_eq!(request.url()?.scheme(), "https");
+        assert_eq!(request.uri().scheme_str().unwrap(), "https");
 
-        let headers = request.headers().await.unwrap();
+        let headers = request.headers();
         let host = headers.get("Host").unwrap();
 
         assert_eq!(*host, "my-first-bucket.custom-region".to_string());
@@ -237,11 +212,13 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-first/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = build_request(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
 
-        assert_eq!(request.url().unwrap().scheme(), "https");
+        assert_eq!(request.uri().scheme_str().unwrap(), "https");
 
-        let headers = request.headers().await.unwrap();
+        let headers = request.headers();
         let host = headers.get("Host").unwrap();
 
         assert_eq!(*host, "custom-region".to_string());
@@ -253,11 +230,13 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = build_request(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
 
-        assert_eq!(request.url().unwrap().scheme(), "http");
+        assert_eq!(request.uri().scheme_str().unwrap(), "http");
 
-        let headers = request.headers().await.unwrap();
+        let headers = request.headers();
         let host = headers.get("Host").unwrap();
         assert_eq!(*host, "my-second-bucket.custom-region".to_string());
         Ok(())
@@ -268,11 +247,13 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?.with_path_style();
         let path = "/my-second/path";
-        let request = SurfRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = build_request(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
 
-        assert_eq!(request.url().unwrap().scheme(), "http");
+        assert_eq!(request.uri().scheme_str().unwrap(), "http");
 
-        let headers = request.headers().await.unwrap();
+        let headers = request.headers();
         let host = headers.get("Host").unwrap();
         assert_eq!(*host, "custom-region".to_string());
 

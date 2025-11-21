@@ -21,7 +21,6 @@ pub enum S3Error {
     UrlParse(#[from] url::ParseError),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
-    #[cfg(feature = "with-tokio")]
     #[error("http: {0}")]
     Http(#[from] http::Error),
     #[cfg(feature = "with-tokio")]

@@ -1,7 +1,9 @@
 use base64::Engine;
 use base64::engine::general_purpose;
 use hmac::Mac;
+use http::Method;
 use quick_xml::se::to_string;
+use std::borrow::Cow;
 use std::collections::HashMap;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use std::pin::Pin;
@@ -11,9 +13,10 @@ use url::Url;
 
 use crate::LONG_DATETIME;
 use crate::bucket::Bucket;
-use crate::command::Command;
+use crate::command::{Command, HttpMethod};
 use crate::error::S3Error;
 use crate::signing;
+use crate::utils::now_utc;
 use bytes::Bytes;
 use http::HeaderMap;
 use http::header::{
@@ -210,94 +213,76 @@ pub trait Request {
     #[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
     async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error>;
     async fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error>;
-    fn datetime(&self) -> OffsetDateTime;
-    fn bucket(&self) -> Bucket;
-    fn command(&self) -> Command<'_>;
-    fn path(&self) -> String;
+}
 
+struct BuildHelper<'temp, 'body> {
+    bucket: &'temp Bucket,
+    path: &'temp str,
+    command: Command<'body>,
+    datetime: OffsetDateTime,
+}
+
+#[maybe_async::maybe_async]
+impl<'temp, 'body> BuildHelper<'temp, 'body> {
     async fn signing_key(&self) -> Result<Vec<u8>, S3Error> {
         signing::signing_key(
-            &self.datetime(),
+            &self.datetime,
             &self
-                .bucket()
+                .bucket
                 .secret_key()
                 .await?
                 .expect("Secret key must be provided to sign headers, found None"),
-            &self.bucket().region(),
+            &self.bucket.region(),
             "s3",
         )
     }
 
-    fn request_body(&self) -> Result<Vec<u8>, S3Error> {
-        let result = if let Command::PutObject { content, .. } = self.command() {
-            Vec::from(content)
-        } else if let Command::PutObjectTagging { tags } = self.command() {
-            Vec::from(tags)
-        } else if let Command::UploadPart { content, .. } = self.command() {
-            Vec::from(content)
-        } else if let Command::CompleteMultipartUpload { data, .. } = &self.command() {
-            let body = data.to_string();
-            body.as_bytes().to_vec()
-        } else if let Command::CreateBucket { config } = &self.command() {
-            if let Some(payload) = config.location_constraint_payload() {
-                Vec::from(payload)
-            } else {
-                Vec::new()
-            }
-        } else if let Command::PutBucketLifecycle { configuration, .. } = &self.command() {
-            quick_xml::se::to_string(configuration)?.as_bytes().to_vec()
-        } else if let Command::PutBucketCors { configuration, .. } = &self.command() {
-            let cors = configuration.to_string();
-            cors.as_bytes().to_vec()
-        } else {
-            Vec::new()
-        };
-        Ok(result)
-    }
-
     fn long_date(&self) -> Result<String, S3Error> {
-        Ok(self.datetime().format(LONG_DATETIME)?)
+        Ok(self.datetime.format(LONG_DATETIME)?)
     }
 
     fn string_to_sign(&self, request: &str) -> Result<String, S3Error> {
-        signing::string_to_sign(&self.datetime(), &self.bucket().region(), request)
+        signing::string_to_sign(&self.datetime, &self.bucket.region(), request)
     }
 
     fn host_header(&self) -> String {
-        self.bucket().host()
+        self.bucket.host()
     }
 
     #[maybe_async::async_impl]
     async fn presigned(&self) -> Result<String, S3Error> {
-        let (expiry, custom_headers, custom_queries) = match self.command() {
+        let (expiry, custom_headers, custom_queries) = match &self.command {
             Command::PresignGet {
                 expiry_secs,
                 custom_queries,
-            } => (expiry_secs, None, custom_queries),
+            } => (expiry_secs, None, custom_queries.as_ref()),
             Command::PresignPut {
                 expiry_secs,
                 custom_headers,
                 custom_queries,
-            } => (expiry_secs, custom_headers, custom_queries),
+            } => (
+                expiry_secs,
+                custom_headers.as_ref(),
+                custom_queries.as_ref(),
+            ),
             Command::PresignDelete { expiry_secs } => (expiry_secs, None, None),
             _ => unreachable!(),
         };
 
         let url = self
-            .presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())
+            .presigned_url_no_sig(*expiry, custom_headers, custom_queries)
             .await?;
 
         // Build the URL string preserving the original host (including standard ports)
         // The Url type drops standard ports when converting to string, but we need them
         // for signature validation
-        let url_str = if let awsregion::Region::Custom { ref endpoint, .. } = self.bucket().region()
-        {
+        let url_str = if let awsregion::Region::Custom { ref endpoint, .. } = self.bucket.region() {
             // Check if we need to preserve a standard port
             if (endpoint.contains(":80") && url.scheme() == "http" && url.port().is_none())
                 || (endpoint.contains(":443") && url.scheme() == "https" && url.port().is_none())
             {
                 // Rebuild the URL with the original host from the endpoint
-                let host = self.bucket().host();
+                let host = self.bucket.host();
                 format!(
                     "{}://{}{}{}",
                     url.scheme(),
@@ -315,41 +300,38 @@ pub trait Request {
         Ok(format!(
             "{}&X-Amz-Signature={}",
             url_str,
-            self.presigned_authorization(custom_headers.as_ref())
-                .await?
+            self.presigned_authorization(custom_headers).await?
         ))
     }
 
     #[maybe_async::sync_impl]
     async fn presigned(&self) -> Result<String, S3Error> {
-        let (expiry, custom_headers, custom_queries) = match self.command() {
+        let (expiry, custom_headers, custom_queries) = match &self.command {
             Command::PresignGet {
                 expiry_secs,
                 custom_queries,
-            } => (expiry_secs, None, custom_queries),
+            } => (expiry_secs, None, custom_queries.as_ref()),
             Command::PresignPut {
                 expiry_secs,
                 custom_headers,
                 ..
-            } => (expiry_secs, custom_headers, None),
+            } => (expiry_secs, custom_headers.as_ref(), None),
             Command::PresignDelete { expiry_secs } => (expiry_secs, None, None),
             _ => unreachable!(),
         };
 
-        let url =
-            self.presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())?;
+        let url = self.presigned_url_no_sig(*expiry, custom_headers, custom_queries)?;
 
         // Build the URL string preserving the original host (including standard ports)
         // The Url type drops standard ports when converting to string, but we need them
         // for signature validation
-        let url_str = if let awsregion::Region::Custom { ref endpoint, .. } = self.bucket().region()
-        {
+        let url_str = if let awsregion::Region::Custom { ref endpoint, .. } = self.bucket.region() {
             // Check if we need to preserve a standard port
             if (endpoint.contains(":80") && url.scheme() == "http" && url.port().is_none())
                 || (endpoint.contains(":443") && url.scheme() == "https" && url.port().is_none())
             {
                 // Rebuild the URL with the original host from the endpoint
-                let host = self.bucket().host();
+                let host = self.bucket.host();
                 format!(
                     "{}://{}{}{}",
                     url.scheme(),
@@ -367,7 +349,7 @@ pub trait Request {
         Ok(format!(
             "{}&X-Amz-Signature={}",
             url_str,
-            self.presigned_authorization(custom_headers.as_ref())?
+            self.presigned_authorization(custom_headers)?
         ))
     }
 
@@ -393,24 +375,28 @@ pub trait Request {
     }
 
     async fn presigned_canonical_request(&self, headers: &HeaderMap) -> Result<String, S3Error> {
-        let (expiry, custom_headers, custom_queries) = match self.command() {
+        let (expiry, custom_headers, custom_queries) = match &self.command {
             Command::PresignGet {
                 expiry_secs,
                 custom_queries,
-            } => (expiry_secs, None, custom_queries),
+            } => (expiry_secs, None, custom_queries.as_ref()),
             Command::PresignPut {
                 expiry_secs,
                 custom_headers,
                 custom_queries,
-            } => (expiry_secs, custom_headers, custom_queries),
+            } => (
+                expiry_secs,
+                custom_headers.as_ref(),
+                custom_queries.as_ref(),
+            ),
             Command::PresignDelete { expiry_secs } => (expiry_secs, None, None),
             _ => unreachable!(),
         };
 
         signing::canonical_request(
-            &self.command().http_verb().to_string(),
+            &self.command.http_verb().to_string(),
             &self
-                .presigned_url_no_sig(expiry, custom_headers.as_ref(), custom_queries.as_ref())
+                .presigned_url_no_sig(*expiry, custom_headers, custom_queries)
                 .await?,
             headers,
             "UNSIGNED-PAYLOAD",
@@ -424,7 +410,7 @@ pub trait Request {
         custom_headers: Option<&HeaderMap>,
         custom_queries: Option<&HashMap<String, String>>,
     ) -> Result<Url, S3Error> {
-        let bucket = self.bucket();
+        let bucket = self.bucket;
         let token = if let Some(security_token) = bucket.security_token().await? {
             Some(security_token)
         } else {
@@ -434,9 +420,9 @@ pub trait Request {
             "{}{}{}",
             self.url()?,
             &signing::authorization_query_params_no_sig(
-                &self.bucket().access_key().await?.unwrap_or_default(),
-                &self.datetime(),
-                &self.bucket().region(),
+                &self.bucket.access_key().await?.unwrap_or_default(),
+                &self.datetime,
+                &self.bucket.region(),
                 expiry,
                 custom_headers,
                 token.as_ref()
@@ -454,7 +440,7 @@ pub trait Request {
         custom_headers: Option<&HeaderMap>,
         custom_queries: Option<&HashMap<String, String>>,
     ) -> Result<Url, S3Error> {
-        let bucket = self.bucket();
+        let bucket = self.bucket;
         let token = if let Some(security_token) = bucket.security_token()? {
             Some(security_token)
         } else {
@@ -464,9 +450,9 @@ pub trait Request {
             "{}{}{}",
             self.url()?,
             &signing::authorization_query_params_no_sig(
-                &self.bucket().access_key()?.unwrap_or_default(),
-                &self.datetime(),
-                &self.bucket().region(),
+                &self.bucket.access_key()?.unwrap_or_default(),
+                &self.datetime,
+                &self.bucket.region(),
                 expiry,
                 custom_headers,
                 token.as_ref()
@@ -478,20 +464,20 @@ pub trait Request {
     }
 
     fn url(&self) -> Result<Url, S3Error> {
-        let mut url_str = self.bucket().url();
+        let mut url_str = self.bucket.url();
 
-        if let Command::ListBuckets { .. } = self.command() {
+        if let Command::ListBuckets { .. } = self.command {
             return Ok(Url::parse(&url_str)?);
         }
 
-        if let Command::CreateBucket { .. } = self.command() {
+        if let Command::CreateBucket { .. } = self.command {
             return Ok(Url::parse(&url_str)?);
         }
 
-        let path = if self.path().starts_with('/') {
-            self.path()[1..].to_string()
+        let path = if self.path.starts_with('/') {
+            self.path[1..].to_string()
         } else {
-            self.path()[..].to_string()
+            self.path[..].to_string()
         };
 
         url_str.push('/');
@@ -499,7 +485,7 @@ pub trait Request {
 
         // Append to url_path
         #[allow(clippy::collapsible_match)]
-        match self.command() {
+        match &self.command {
             Command::InitiateMultipartUpload { .. } | Command::ListMultipartUploads { .. } => {
                 url_str.push_str("?uploads")
             }
@@ -554,7 +540,7 @@ pub trait Request {
 
         let mut url = Url::parse(&url_str)?;
 
-        for (key, value) in &self.bucket().extra_query {
+        for (key, value) in &self.bucket.extra_query {
             url.query_pairs_mut().append_pair(key, value);
         }
 
@@ -564,7 +550,7 @@ pub trait Request {
             continuation_token,
             start_after,
             max_keys,
-        } = self.command().clone()
+        } = self.command.clone()
         {
             let mut query_pairs = url.query_pairs_mut();
             delimiter.map(|d| query_pairs.append_pair("delimiter", &d));
@@ -587,7 +573,7 @@ pub trait Request {
             delimiter,
             marker,
             max_keys,
-        } = self.command().clone()
+        } = self.command.clone()
         {
             let mut query_pairs = url.query_pairs_mut();
             delimiter.map(|d| query_pairs.append_pair("delimiter", &d));
@@ -601,7 +587,7 @@ pub trait Request {
             }
         }
 
-        match self.command() {
+        match &self.command {
             Command::ListMultipartUploads {
                 prefix,
                 delimiter,
@@ -614,7 +600,7 @@ pub trait Request {
                     query_pairs.append_pair("prefix", prefix);
                 }
                 if let Some(key_marker) = key_marker {
-                    query_pairs.append_pair("key-marker", &key_marker);
+                    query_pairs.append_pair("key-marker", key_marker);
                 }
                 if let Some(max_uploads) = max_uploads {
                     query_pairs.append_pair("max-uploads", max_uploads.to_string().as_str());
@@ -633,10 +619,10 @@ pub trait Request {
 
     fn canonical_request(&self, headers: &HeaderMap) -> Result<String, S3Error> {
         signing::canonical_request(
-            &self.command().http_verb().to_string(),
+            &self.command.http_verb().to_string(),
             &self.url()?,
             headers,
-            &self.command().sha256()?,
+            &self.command.sha256()?,
         )
     }
 
@@ -650,31 +636,29 @@ pub trait Request {
         let signed_header = signing::signed_header_string(headers);
         signing::authorization_header(
             &self
-                .bucket()
+                .bucket
                 .access_key()
                 .await?
                 .expect("No access_key provided"),
-            &self.datetime(),
-            &self.bucket().region(),
+            &self.datetime,
+            &self.bucket.region(),
             &signed_header,
             &signature,
         )
     }
 
     #[maybe_async::maybe_async]
-    async fn headers(&self) -> Result<HeaderMap, S3Error> {
+    async fn add_headers(&self, headers: &mut HeaderMap) -> Result<(), S3Error> {
         // Generate this once, but it's used in more than one place.
-        let sha256 = self.command().sha256()?;
+        let sha256 = self.command.sha256()?;
 
         // Start with extra_headers, that way our headers replace anything with
         // the same name.
 
-        let mut headers = HeaderMap::new();
-
-        for (k, v) in self.bucket().extra_headers.iter() {
+        for (k, v) in self.bucket.extra_headers.iter() {
             if k.as_str().starts_with("x-amz-meta-") {
                 // metadata is invalid on any multipart command other than initiate
-                match self.command() {
+                match self.command {
                     Command::UploadPart { .. }
                     | Command::AbortMultipartUpload { .. }
                     | Command::CompleteMultipartUpload { .. }
@@ -688,7 +672,7 @@ pub trait Request {
         }
 
         // Append custom headers for PUT request if any
-        if let Command::PutObject { custom_headers, .. } = self.command()
+        if let Command::PutObject { custom_headers, .. } = &self.command
             && let Some(custom_headers) = custom_headers
         {
             for (k, v) in custom_headers.iter() {
@@ -700,7 +684,7 @@ pub trait Request {
 
         headers.insert(HOST, host_header.parse()?);
 
-        match self.command() {
+        match self.command {
             Command::CopyObject { from } => {
                 headers.insert(HeaderName::from_static("x-amz-copy-source"), from.parse()?);
             }
@@ -713,9 +697,9 @@ pub trait Request {
             _ => {
                 headers.insert(
                     CONTENT_LENGTH,
-                    self.command().content_length()?.to_string().parse()?,
+                    self.command.content_length()?.to_string().parse()?,
                 );
-                headers.insert(CONTENT_TYPE, self.command().content_type().parse()?);
+                headers.insert(CONTENT_TYPE, self.command.content_type().parse()?);
             }
         }
         headers.insert(
@@ -727,34 +711,34 @@ pub trait Request {
             self.long_date()?.parse()?,
         );
 
-        if let Some(session_token) = self.bucket().session_token().await? {
+        if let Some(session_token) = self.bucket.session_token().await? {
             headers.insert(
                 HeaderName::from_static("x-amz-security-token"),
                 session_token.parse()?,
             );
-        } else if let Some(security_token) = self.bucket().security_token().await? {
+        } else if let Some(security_token) = self.bucket.security_token().await? {
             headers.insert(
                 HeaderName::from_static("x-amz-security-token"),
                 security_token.parse()?,
             );
         }
 
-        if let Command::PutObjectTagging { tags } = self.command() {
+        if let Command::PutObjectTagging { tags } = self.command {
             let digest = md5::compute(tags);
             let hash = general_purpose::STANDARD.encode(digest.as_ref());
             headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
-        } else if let Command::PutObject { content, .. } = self.command() {
+        } else if let Command::PutObject { content, .. } = self.command {
             let digest = md5::compute(content);
             let hash = general_purpose::STANDARD.encode(digest.as_ref());
             headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
-        } else if let Command::UploadPart { content, .. } = self.command() {
+        } else if let Command::UploadPart { content, .. } = self.command {
             let digest = md5::compute(content);
             let hash = general_purpose::STANDARD.encode(digest.as_ref());
             headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
-        } else if let Command::GetObject {} = self.command() {
+        } else if let Command::GetObject {} = self.command {
             headers.insert(ACCEPT, "application/octet-stream".to_string().parse()?);
         // headers.insert(header::ACCEPT_CHARSET, HeaderValue::from_str("UTF-8")?);
-        } else if let Command::GetObjectRange { start, end } = self.command() {
+        } else if let Command::GetObjectRange { start, end } = self.command {
             headers.insert(ACCEPT, "application/octet-stream".to_string().parse()?);
 
             let mut range = format!("bytes={}-", start);
@@ -764,9 +748,9 @@ pub trait Request {
             }
 
             headers.insert(RANGE, range.parse()?);
-        } else if let Command::CreateBucket { ref config } = self.command() {
-            config.add_headers(&mut headers)?;
-        } else if let Command::PutBucketLifecycle { ref configuration } = self.command() {
+        } else if let Command::CreateBucket { ref config } = self.command {
+            config.add_headers(headers)?;
+        } else if let Command::PutBucketLifecycle { ref configuration } = self.command {
             let digest = md5::compute(to_string(configuration)?.as_bytes());
             let hash = general_purpose::STANDARD.encode(digest.as_ref());
             headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
@@ -775,7 +759,7 @@ pub trait Request {
             expected_bucket_owner,
             configuration,
             ..
-        } = self.command()
+        } = &self.command
         {
             let digest = md5::compute(configuration.to_string().as_bytes());
             let hash = general_purpose::STANDARD.encode(digest.as_ref());
@@ -787,7 +771,7 @@ pub trait Request {
             );
         } else if let Command::GetBucketCors {
             expected_bucket_owner,
-        } = self.command()
+        } = &self.command
         {
             headers.insert(
                 HeaderName::from_static("x-amz-expected-bucket-owner"),
@@ -795,7 +779,7 @@ pub trait Request {
             );
         } else if let Command::DeleteBucketCors {
             expected_bucket_owner,
-        } = self.command()
+        } = &self.command
         {
             headers.insert(
                 HeaderName::from_static("x-amz-expected-bucket-owner"),
@@ -804,7 +788,7 @@ pub trait Request {
         } else if let Command::GetObjectAttributes {
             expected_bucket_owner,
             ..
-        } = self.command()
+        } = &self.command
         {
             headers.insert(
                 HeaderName::from_static("x-amz-expected-bucket-owner"),
@@ -817,8 +801,8 @@ pub trait Request {
         }
 
         // This must be last, as it signs the other headers, omitted if no secret key is provided
-        if self.bucket().secret_key().await?.is_some() {
-            let authorization = self.authorization(&headers).await?;
+        if self.bucket.secret_key().await?.is_some() {
+            let authorization = self.authorization(headers).await?;
             headers.insert(AUTHORIZATION, authorization.parse()?);
         }
 
@@ -828,10 +812,94 @@ pub trait Request {
         // range and can't be used again e.g. reply attacks. Adding this header
         // after the generation of the Authorization header leaves it out of
         // the signed headers.
-        headers.insert(DATE, self.datetime().format(&Rfc2822)?.parse()?);
+        headers.insert(DATE, self.datetime.format(&Rfc2822)?.parse()?);
 
-        Ok(headers)
+        Ok(())
     }
+}
+
+fn make_body(command: Command<'_>) -> Result<Cow<'_, [u8]>, S3Error> {
+    let result = if let Command::PutObject { content, .. } = command {
+        content.into()
+    } else if let Command::PutObjectTagging { tags } = command {
+        tags.as_bytes().into()
+    } else if let Command::UploadPart { content, .. } = command {
+        content.into()
+    } else if let Command::CompleteMultipartUpload { data, .. } = &command {
+        let body = data.to_string();
+        body.as_bytes().to_vec().into()
+    } else if let Command::CreateBucket { config } = &command {
+        if let Some(payload) = config.location_constraint_payload() {
+            payload.as_bytes().to_vec().into()
+        } else {
+            b"".into()
+        }
+    } else if let Command::PutBucketLifecycle { configuration, .. } = &command {
+        quick_xml::se::to_string(configuration)?
+            .as_bytes()
+            .to_vec()
+            .into()
+    } else if let Command::PutBucketCors { configuration, .. } = &command {
+        let cors = configuration.to_string();
+        cors.as_bytes().to_vec().into()
+    } else {
+        b"".into()
+    };
+    Ok(result)
+}
+
+#[maybe_async::maybe_async]
+pub(crate) async fn build_request<'body>(
+    bucket: &Bucket,
+    path: &str,
+    command: Command<'body>,
+) -> Result<http::Request<Cow<'body, [u8]>>, S3Error> {
+    let method = match command.http_verb() {
+        HttpMethod::Delete => Method::DELETE,
+        HttpMethod::Get => Method::GET,
+        HttpMethod::Post => Method::POST,
+        HttpMethod::Put => Method::PUT,
+        HttpMethod::Head => Method::HEAD,
+    };
+
+    let mut request_builder = http::Request::builder().method(method);
+    let headers_builder = BuildHelper {
+        bucket,
+        path,
+        command,
+        datetime: now_utc(),
+    };
+    headers_builder
+        .add_headers(request_builder.headers_mut().unwrap())
+        .await?;
+    let url = headers_builder.url()?;
+    let uri_builder = http::Uri::builder()
+        .scheme(url.scheme())
+        .authority(url.authority());
+    let uri_builder = match url.query() {
+        None => uri_builder.path_and_query(url.path()),
+        Some(query) => uri_builder.path_and_query(format!("{}?{}", url.path(), query)),
+    };
+    let request = request_builder
+        .uri(uri_builder.build()?)
+        .body(make_body(headers_builder.command)?)?;
+    Ok(request)
+}
+
+#[maybe_async::maybe_async]
+pub(crate) async fn build_presigned(
+    bucket: &Bucket,
+    path: &str,
+    command: Command<'_>,
+) -> Result<String, S3Error> {
+    BuildHelper {
+        bucket,
+        path,
+        command,
+        datetime: now_utc(),
+    }
+    .presigned()
+    .await
 }
 
 #[cfg(all(test, feature = "with-tokio"))]

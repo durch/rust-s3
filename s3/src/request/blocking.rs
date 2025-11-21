@@ -7,22 +7,17 @@ use std::io::Write;
 use attohttpc::header::HeaderName;
 
 use crate::bucket::Bucket;
-use crate::command::Command;
 use crate::error::S3Error;
-use crate::utils::now_utc;
 use bytes::Bytes;
+use std::borrow::Cow;
 use std::collections::HashMap;
-use time::OffsetDateTime;
 
-use crate::command::HttpMethod;
 use crate::request::{Request, ResponseData};
 
 // Temporary structure for making a request
 pub struct AttoRequest<'a> {
-    pub bucket: &'a Bucket,
-    pub path: &'a str,
-    pub command: Command<'a>,
-    pub datetime: OffsetDateTime,
+    request: http::Request<Cow<'a, [u8]>>,
+    request_timeout: Option<std::time::Duration>,
     pub sync: bool,
 }
 
@@ -30,45 +25,29 @@ impl<'a> Request for AttoRequest<'a> {
     type Response = attohttpc::Response;
     type HeaderMap = attohttpc::header::HeaderMap;
 
-    fn datetime(&self) -> OffsetDateTime {
-        self.datetime
-    }
-
-    fn bucket(&self) -> Bucket {
-        self.bucket.clone()
-    }
-
-    fn command(&self) -> Command<'_> {
-        self.command.clone()
-    }
-
-    fn path(&self) -> String {
-        self.path.to_string()
-    }
-
     fn response(&self) -> Result<Self::Response, S3Error> {
-        // Build headers
-        let headers = self.headers()?;
-
         let mut session = attohttpc::Session::new();
 
-        for (name, value) in headers.iter() {
+        for (name, value) in self.request.headers().iter() {
             session.header(HeaderName::from_bytes(name.as_ref())?, value.to_str()?);
         }
 
-        if let Some(timeout) = self.bucket.request_timeout {
+        if let Some(timeout) = self.request_timeout {
             session.timeout(timeout)
         }
 
-        let request = match self.command.http_verb() {
-            HttpMethod::Get => session.get(self.url()?),
-            HttpMethod::Delete => session.delete(self.url()?),
-            HttpMethod::Put => session.put(self.url()?),
-            HttpMethod::Post => session.post(self.url()?),
-            HttpMethod::Head => session.head(self.url()?),
+        let url = format!("{}", self.request.uri());
+        let request = match *self.request.method() {
+            http::Method::GET => session.get(url),
+            http::Method::DELETE => session.delete(url),
+            http::Method::PUT => session.put(url),
+            http::Method::POST => session.post(url),
+            http::Method::HEAD => session.head(url),
+            _ => {
+                return Err(S3Error::HttpFailWithBody(405, "".into()));
+            }
         };
-
-        let response = request.bytes(&self.request_body()?).send()?;
+        let response = request.bytes(self.request.body().clone()).send()?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             let status = response.status().as_u16();
@@ -116,7 +95,7 @@ impl<'a> Request for AttoRequest<'a> {
             }
         } else {
             // HEAD requests don't have a response body
-            if self.command.http_verb() == HttpMethod::Head {
+            if *self.request.method() == http::Method::HEAD {
                 Bytes::from("")
             } else {
                 Bytes::from(response.bytes()?)
@@ -143,16 +122,10 @@ impl<'a> Request for AttoRequest<'a> {
 }
 
 impl<'a> AttoRequest<'a> {
-    pub fn new<'b>(
-        bucket: &'b Bucket,
-        path: &'b str,
-        command: Command<'b>,
-    ) -> Result<AttoRequest<'b>, S3Error> {
-        Ok(AttoRequest {
-            bucket,
-            path,
-            command,
-            datetime: now_utc(),
+    pub fn new(request: http::Request<Cow<'a, [u8]>>, bucket: &Bucket) -> Result<Self, S3Error> {
+        Ok(Self {
+            request,
+            request_timeout: bucket.request_timeout,
             sync: false,
         })
     }
@@ -162,8 +135,7 @@ impl<'a> AttoRequest<'a> {
 mod tests {
     use crate::bucket::Bucket;
     use crate::command::Command;
-    use crate::request::Request;
-    use crate::request::blocking::AttoRequest;
+    use crate::request::request_trait::build_request;
     use anyhow::Result;
     use awscreds::Credentials;
 
@@ -180,11 +152,11 @@ mod tests {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         let path = "/my-first/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = build_request(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url()?.scheme(), "https");
+        assert_eq!(request.uri().scheme_str().unwrap(), "https");
 
-        let headers = request.headers().unwrap();
+        let headers = request.headers();
         let host = headers.get("Host").unwrap();
 
         assert_eq!(*host, "my-first-bucket.custom-region".to_string());
@@ -197,11 +169,11 @@ mod tests {
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
         bucket.with_path_style();
         let path = "/my-first/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = build_request(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url()?.scheme(), "https");
+        assert_eq!(request.uri().scheme_str().unwrap(), "https");
 
-        let headers = request.headers().unwrap();
+        let headers = request.headers();
         let host = headers.get("Host").unwrap();
 
         assert_eq!(*host, "custom-region".to_string());
@@ -213,11 +185,11 @@ mod tests {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         let path = "/my-second/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = build_request(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url()?.scheme(), "http");
+        assert_eq!(request.uri().scheme_str().unwrap(), "http");
 
-        let headers = request.headers().unwrap();
+        let headers = request.headers();
         let host = headers.get("Host").unwrap();
         assert_eq!(*host, "my-second-bucket.custom-region".to_string());
         Ok(())
@@ -229,11 +201,11 @@ mod tests {
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
         bucket.with_path_style();
         let path = "/my-second/path";
-        let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
+        let request = build_request(&bucket, path, Command::GetObject).unwrap();
 
-        assert_eq!(request.url()?.scheme(), "http");
+        assert_eq!(request.uri().scheme_str().unwrap(), "http");
 
-        let headers = request.headers().unwrap();
+        let headers = request.headers();
         let host = headers.get("Host").unwrap();
         assert_eq!(*host, "custom-region".to_string());
 

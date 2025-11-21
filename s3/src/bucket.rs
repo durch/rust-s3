@@ -50,7 +50,7 @@ use crate::request::ResponseDataStream;
 use crate::request::tokio_backend::ClientOptions;
 #[cfg(feature = "with-tokio")]
 use crate::request::tokio_backend::client;
-use crate::request::{Request as _, ResponseData};
+use crate::request::{Request as _, ResponseData, build_presigned, build_request};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -173,12 +173,19 @@ impl Bucket {
 
     #[maybe_async::maybe_async]
     pub(crate) async fn make_request<'a>(
-        &'a self,
-        path: &'a str,
+        &self,
+        path: &str,
         command: Command<'a>,
     ) -> Result<RequestImpl<'a>, S3Error> {
         self.credentials_refresh().await?;
-        RequestImpl::new(self, path, command)
+        let http_request = build_request(self, path, command).await?;
+        RequestImpl::new(http_request, self)
+    }
+
+    #[maybe_async::maybe_async]
+    async fn make_presigned(&self, path: &str, command: Command<'_>) -> Result<String, S3Error> {
+        self.credentials_refresh().await?;
+        build_presigned(self, path, command).await
     }
 }
 
@@ -230,16 +237,14 @@ impl Bucket {
         custom_queries: Option<HashMap<String, String>>,
     ) -> Result<String, S3Error> {
         validate_expiry(expiry_secs)?;
-        let request = self
-            .make_request(
-                path.as_ref(),
-                Command::PresignGet {
-                    expiry_secs,
-                    custom_queries,
-                },
-            )
-            .await?;
-        request.presigned().await
+        self.make_presigned(
+            path.as_ref(),
+            Command::PresignGet {
+                expiry_secs,
+                custom_queries,
+            },
+        )
+        .await
     }
 
     /// Get a presigned url for posting an object to a given path
@@ -313,17 +318,15 @@ impl Bucket {
         custom_queries: Option<HashMap<String, String>>,
     ) -> Result<String, S3Error> {
         validate_expiry(expiry_secs)?;
-        let request = self
-            .make_request(
-                path.as_ref(),
-                Command::PresignPut {
-                    expiry_secs,
-                    custom_headers,
-                    custom_queries,
-                },
-            )
-            .await?;
-        request.presigned().await
+        self.make_presigned(
+            path.as_ref(),
+            Command::PresignPut {
+                expiry_secs,
+                custom_headers,
+                custom_queries,
+            },
+        )
+        .await
     }
 
     /// Get a presigned url for deleting object on a given path
@@ -353,10 +356,8 @@ impl Bucket {
         expiry_secs: u32,
     ) -> Result<String, S3Error> {
         validate_expiry(expiry_secs)?;
-        let request = self
-            .make_request(path.as_ref(), Command::PresignDelete { expiry_secs })
-            .await?;
-        request.presigned().await
+        self.make_presigned(path.as_ref(), Command::PresignDelete { expiry_secs })
+            .await
     }
 
     /// Create a new `Bucket` and instantiate it
