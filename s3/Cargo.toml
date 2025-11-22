@@ -55,6 +55,8 @@ futures-util = { version = "0.3", optional = true, default-features = false }
 hex = "0.4"
 hmac = "0.12"
 http = "1"
+http-body = { version = "1.0.1", optional = true }
+http-body-util = { version = "0.1.3", optional = true }
 log = "0.4"
 maybe-async = { version = "0.2" }
 md5 = "0.8"
@@ -86,8 +88,8 @@ default = ["fail-on-err", "tags", "tokio-native-tls"]
 
 sync = ["attohttpc", "maybe-async/is_sync"]
 with-async-std-hyper = ["with-async-std", "surf/hyper-client"]
-with-async-std = ["async-std", "futures-util", "surf", "sysinfo"]
-with-tokio = ["futures-util", "reqwest", "tokio", "tokio/fs", "tokio-stream", "sysinfo"]
+with-async-std = ["dep:http-body", "dep:http-body-util", "async-std", "futures-util", "surf", "sysinfo"]
+with-tokio = ["dep:http-body", "dep:http-body-util", "futures-util", "reqwest", "tokio", "tokio/fs", "tokio-stream", "sysinfo"]
 
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]
 fail-on-err = []
@@ -120,7 +122,6 @@ sync-rustls-tls = ["attohttpc/tls-rustls", "aws-creds/rustls-tls", "sync"]
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs"] }
 async-std = { version = "1", features = ["attributes"] }
-http-body-util = "0.1.3"
 uuid = { version = "1", features = ["v4"] }
 env_logger = "0.11"
 anyhow = "1"

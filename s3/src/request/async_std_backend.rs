@@ -1,17 +1,15 @@
-use async_std::io::Write as AsyncWrite;
-use async_std::io::{ReadExt, WriteExt};
-use async_std::stream::StreamExt;
 use bytes::Bytes;
-use futures_util::FutureExt;
+use futures_util::AsyncBufRead as _;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use crate::bucket::Bucket;
 use crate::error::S3Error;
 
-use crate::request::{Request, ResponseData, ResponseDataStream};
+use crate::request::Request;
 
-use http::HeaderMap;
+use http_body::Frame;
 use maybe_async::maybe_async;
 use surf::http::Method;
 use surf::http::headers::{HeaderName, HeaderValue};
@@ -53,13 +51,40 @@ impl SurfRequest<'_> {
     }
 }
 
+pub struct SurfBody(surf::Body);
+
+impl http_body::Body for SurfBody {
+    type Data = Bytes;
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, std::io::Error>>> {
+        let mut inner = Pin::new(&mut self.0);
+        match inner.as_mut().poll_fill_buf(cx) {
+            Poll::Ready(Ok(sliceu8)) => {
+                if sliceu8.is_empty() {
+                    Poll::Ready(None)
+                } else {
+                    let len = sliceu8.len();
+                    let frame = Frame::data(Bytes::copy_from_slice(sliceu8));
+                    inner.as_mut().consume(len);
+                    Poll::Ready(Some(Ok(frame)))
+                }
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e))),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 #[maybe_async]
 impl<'a> Request for SurfRequest<'a> {
-    type Response = surf::Response;
-    type HeaderMap = HeaderMap;
+    type ResponseBody = SurfBody;
 
-    async fn response(&self) -> Result<surf::Response, S3Error> {
-        let response = self
+    async fn response(&self) -> Result<http::Response<SurfBody>, S3Error> {
+        let mut response = self
             .build()?
             .send()
             .await
@@ -69,105 +94,14 @@ impl<'a> Request for SurfRequest<'a> {
             return Err(S3Error::HttpFail);
         }
 
-        Ok(response)
-    }
-
-    async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
-        let mut response = crate::retry! {self.response().await}?;
-        let status_code = response.status();
-
-        let response_headers = response
-            .header_names()
-            .zip(response.header_values())
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect::<HashMap<String, String>>();
-
-        // When etag=true, we extract the ETag header and return it as the body.
-        // This is used for PUT operations (regular puts, multipart chunks) where:
-        // 1. S3 returns an empty or non-useful response body
-        // 2. The ETag header contains the essential information we need
-        // 3. The calling code expects to get the ETag via response_data.as_str()
-        //
-        // Note: This approach means we discard any actual response body when etag=true,
-        // but for the operations that use this (PUTs), the body is typically empty
-        // or contains redundant information already available in headers.
-        //
-        // TODO: Refactor this to properly return the response body and access ETag
-        // from headers instead of replacing the body. This would be a breaking change.
-        let body_vec = if etag {
-            if let Some(etag) = response.header("ETag") {
-                Bytes::from(etag.as_str().to_string())
-            } else {
-                Bytes::from("")
+        let mut builder =
+            http::Response::builder().status(http::StatusCode::from_u16(response.status().into())?);
+        for (name, values) in response.iter() {
+            for value in values {
+                builder = builder.header(name.as_str(), value.as_str());
             }
-        } else {
-            let body = match response.body_bytes().await {
-                Ok(bytes) => Ok(Bytes::from(bytes)),
-                Err(e) => Err(S3Error::Surf(e.to_string())),
-            };
-            body?
-        };
-        Ok(ResponseData::new(
-            body_vec,
-            status_code.into(),
-            response_headers,
-        ))
-    }
-
-    async fn response_data_to_writer<T: AsyncWrite + Send + Unpin + ?Sized>(
-        &self,
-        writer: &mut T,
-    ) -> Result<u16, S3Error> {
-        let mut buffer = Vec::new();
-
-        let response = crate::retry! {self.response().await}?;
-
-        let status_code = response.status();
-
-        let mut stream = surf::http::Body::from_reader(response, None);
-
-        stream.read_to_end(&mut buffer).await?;
-
-        writer.write_all(&buffer).await?;
-
-        Ok(status_code.into())
-    }
-
-    async fn response_header(&self) -> Result<(HeaderMap, u16), S3Error> {
-        let mut header_map = HeaderMap::new();
-        let response = crate::retry! {self.response().await}?;
-        let status_code = response.status();
-
-        for (name, value) in response.iter() {
-            header_map.insert(
-                http::header::HeaderName::from_lowercase(
-                    name.to_string().to_ascii_lowercase().as_ref(),
-                )?,
-                value.as_str().parse()?,
-            );
         }
-        Ok((header_map, status_code.into()))
-    }
-
-    async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
-        let mut response = crate::retry! {self.response().await}?;
-        let status_code = response.status();
-
-        let body = response
-            .take_body()
-            .bytes()
-            .filter_map(|n| n.ok())
-            .fold(vec![], |mut b, n| {
-                b.push(n);
-                b
-            })
-            .then(|b| async move { Ok(Bytes::from(b)) })
-            .into_stream();
-
-        Ok(ResponseDataStream {
-            bytes: Box::pin(body),
-            status_code: status_code.into(),
-        })
+        Ok(builder.body(SurfBody(response.take_body()))?)
     }
 }
 

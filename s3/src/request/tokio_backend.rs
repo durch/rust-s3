@@ -1,18 +1,12 @@
 extern crate base64;
 extern crate md5;
 
-use bytes::Bytes;
-use futures_util::TryStreamExt;
 use maybe_async::maybe_async;
 use std::borrow::Cow;
-use std::collections::HashMap;
 
-use super::request_trait::{Request, ResponseData, ResponseDataStream};
+use super::request_trait::Request;
 use crate::bucket::Bucket;
 use crate::error::S3Error;
-use crate::retry;
-
-use tokio_stream::StreamExt;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ClientOptions {
@@ -69,10 +63,9 @@ impl ReqwestRequest<'_> {
 
 #[maybe_async]
 impl<'a> Request for ReqwestRequest<'a> {
-    type Response = reqwest::Response;
-    type HeaderMap = reqwest::header::HeaderMap;
+    type ResponseBody = reqwest::Body;
 
-    async fn response(&self) -> Result<Self::Response, S3Error> {
+    async fn response(&self) -> Result<http::Response<reqwest::Body>, S3Error> {
         let response = self.client.execute(self.build()?).await?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
@@ -81,82 +74,7 @@ impl<'a> Request for ReqwestRequest<'a> {
             return Err(S3Error::HttpFailWithBody(status, text));
         }
 
-        Ok(response)
-    }
-
-    async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
-        let response = retry! {self.response().await }?;
-        let status_code = response.status().as_u16();
-        let mut headers = response.headers().clone();
-        let response_headers = headers
-            .clone()
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.to_string(),
-                    v.to_str()
-                        .unwrap_or("could-not-decode-header-value")
-                        .to_string(),
-                )
-            })
-            .collect::<HashMap<String, String>>();
-        // When etag=true, we extract the ETag header and return it as the body.
-        // This is used for PUT operations (regular puts, multipart chunks) where:
-        // 1. S3 returns an empty or non-useful response body
-        // 2. The ETag header contains the essential information we need
-        // 3. The calling code expects to get the ETag via response_data.as_str()
-        //
-        // Note: This approach means we discard any actual response body when etag=true,
-        // but for the operations that use this (PUTs), the body is typically empty
-        // or contains redundant information already available in headers.
-        //
-        // TODO: Refactor this to properly return the response body and access ETag
-        // from headers instead of replacing the body. This would be a breaking change.
-        let body_vec = if etag {
-            if let Some(etag) = headers.remove("ETag") {
-                Bytes::from(etag.to_str()?.to_string())
-            } else {
-                Bytes::from("")
-            }
-        } else {
-            response.bytes().await?
-        };
-        Ok(ResponseData::new(body_vec, status_code, response_headers))
-    }
-
-    async fn response_data_to_writer<T: tokio::io::AsyncWrite + Send + Unpin + ?Sized>(
-        &self,
-        writer: &mut T,
-    ) -> Result<u16, S3Error> {
-        use tokio::io::AsyncWriteExt;
-        let response = retry! {self.response().await}?;
-
-        let status_code = response.status();
-        let mut stream = response.bytes_stream();
-
-        while let Some(item) = stream.next().await {
-            writer.write_all(&item?).await?;
-        }
-
-        Ok(status_code.as_u16())
-    }
-
-    async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
-        let response = retry! {self.response().await}?;
-        let status_code = response.status();
-        let stream = response.bytes_stream().map_err(S3Error::Reqwest);
-
-        Ok(ResponseDataStream {
-            bytes: Box::pin(stream),
-            status_code: status_code.as_u16(),
-        })
-    }
-
-    async fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error> {
-        let response = retry! {self.response().await}?;
-        let status_code = response.status().as_u16();
-        let headers = response.headers().clone();
-        Ok((headers, status_code))
+        Ok(response.into())
     }
 }
 

@@ -1,18 +1,13 @@
 extern crate base64;
 extern crate md5;
 
-use std::io;
-use std::io::Write;
-
 use attohttpc::header::HeaderName;
 
 use crate::bucket::Bucket;
 use crate::error::S3Error;
-use bytes::Bytes;
 use std::borrow::Cow;
-use std::collections::HashMap;
 
-use crate::request::{Request, ResponseData};
+use crate::request::Request;
 
 // Temporary structure for making a request
 pub struct AttoRequest<'a> {
@@ -52,10 +47,9 @@ impl AttoRequest<'_> {
 }
 
 impl<'a> Request for AttoRequest<'a> {
-    type Response = attohttpc::Response;
-    type HeaderMap = attohttpc::header::HeaderMap;
+    type ResponseBody = attohttpc::ResponseReader;
 
-    fn response(&self) -> Result<Self::Response, S3Error> {
+    fn response(&self) -> Result<http::Response<attohttpc::ResponseReader>, S3Error> {
         let response = self.build()?.send()?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
@@ -64,69 +58,12 @@ impl<'a> Request for AttoRequest<'a> {
             return Err(S3Error::HttpFailWithBody(status, text));
         }
 
-        Ok(response)
-    }
+        let (status, headers, body) = response.split();
+        let mut builder =
+            http::Response::builder().status(http::StatusCode::from_u16(status.into())?);
+        *builder.headers_mut().unwrap() = headers;
 
-    fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
-        let response = crate::retry! {self.response()}?;
-        let status_code = response.status().as_u16();
-
-        let response_headers = response
-            .headers()
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.to_string(),
-                    v.to_str()
-                        .unwrap_or("could-not-decode-header-value")
-                        .to_string(),
-                )
-            })
-            .collect::<HashMap<String, String>>();
-
-        // When etag=true, we extract the ETag header and return it as the body.
-        // This is used for PUT operations (regular puts, multipart chunks) where:
-        // 1. S3 returns an empty or non-useful response body
-        // 2. The ETag header contains the essential information we need
-        // 3. The calling code expects to get the ETag via response_data.as_str()
-        //
-        // Note: This approach means we discard any actual response body when etag=true,
-        // but for the operations that use this (PUTs), the body is typically empty
-        // or contains redundant information already available in headers.
-        //
-        // TODO: Refactor this to properly return the response body and access ETag
-        // from headers instead of replacing the body. This would be a breaking change.
-        let body_vec = if etag {
-            if let Some(etag) = response.headers().get("ETag") {
-                Bytes::from(etag.to_str()?.to_string())
-            } else {
-                Bytes::from("")
-            }
-        } else {
-            // HEAD requests don't have a response body
-            if *self.request.method() == http::Method::HEAD {
-                Bytes::from("")
-            } else {
-                Bytes::from(response.bytes()?)
-            }
-        };
-        Ok(ResponseData::new(body_vec, status_code, response_headers))
-    }
-
-    fn response_data_to_writer<T: Write + ?Sized>(&self, writer: &mut T) -> Result<u16, S3Error> {
-        let mut response = crate::retry! {self.response()}?;
-
-        let status_code = response.status();
-        io::copy(&mut response, writer)?;
-
-        Ok(status_code.as_u16())
-    }
-
-    fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error> {
-        let response = crate::retry! {self.response()}?;
-        let status_code = response.status().as_u16();
-        let headers = response.headers().clone();
-        Ok((headers, status_code))
+        Ok(builder.body(body)?)
     }
 }
 

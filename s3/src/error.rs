@@ -44,6 +44,8 @@ pub enum S3Error {
     #[cfg(feature = "with-async-std")]
     #[error("surf: {0}")]
     Surf(String),
+    #[error("{0}")]
+    InvalidStatusCode(#[from] http::status::InvalidStatusCode),
     #[cfg(feature = "sync")]
     #[error("attohttpc: {0}")]
     Atto(#[from] attohttpc::Error),
