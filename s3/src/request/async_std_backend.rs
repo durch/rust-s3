@@ -22,12 +22,8 @@ pub struct SurfRequest<'a> {
     pub sync: bool,
 }
 
-#[maybe_async]
-impl<'a> Request for SurfRequest<'a> {
-    type Response = surf::Response;
-    type HeaderMap = HeaderMap;
-
-    async fn response(&self) -> Result<surf::Response, S3Error> {
+impl SurfRequest<'_> {
+    fn build(&self) -> Result<surf::RequestBuilder, S3Error> {
         let url = format!("{}", self.request.uri()).parse()?;
         let mut request = match *self.request.method() {
             http::Method::GET => surf::Request::builder(Method::Get, url),
@@ -53,7 +49,18 @@ impl<'a> Request for SurfRequest<'a> {
             );
         }
 
-        let response = request
+        Ok(request)
+    }
+}
+
+#[maybe_async]
+impl<'a> Request for SurfRequest<'a> {
+    type Response = surf::Response;
+    type HeaderMap = HeaderMap;
+
+    async fn response(&self) -> Result<surf::Response, S3Error> {
+        let response = self
+            .build()?
             .send()
             .await
             .map_err(|e| S3Error::Surf(e.to_string()))?;
@@ -175,11 +182,9 @@ impl<'a> SurfRequest<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::bucket::Bucket;
-    use crate::command::Command;
-    use crate::request::request_trait::build_request;
-    use anyhow::Result;
-    use awscreds::Credentials;
+    use super::*;
+    use crate::Bucket;
+    use crate::creds::Credentials;
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
@@ -190,73 +195,28 @@ mod tests {
     }
 
     #[async_std::test]
-    async fn url_uses_https_by_default() -> Result<()> {
-        let region = "custom-region".parse()?;
-        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
-        let path = "/my-first/path";
-        let request = build_request(&bucket, path, Command::GetObject)
-            .await
+    async fn test_build() {
+        let http_request = http::Request::builder()
+            .uri("https://example.com/foo?bar=1")
+            .method(http::Method::POST)
+            .header("h1", "v1")
+            .header("h2", "v2")
+            .body(b"sneaky".into())
             .unwrap();
+        let region = "custom-region".parse().unwrap();
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials()).unwrap();
 
-        assert_eq!(request.uri().scheme_str().unwrap(), "https");
+        let mut r = SurfRequest::new(http_request, &bucket)
+            .unwrap()
+            .build()
+            .unwrap()
+            .build();
 
-        let headers = request.headers();
-        let host = headers.get("Host").unwrap();
-
-        assert_eq!(*host, "my-first-bucket.custom-region".to_string());
-        Ok(())
-    }
-
-    #[async_std::test]
-    async fn url_uses_https_by_default_path_style() -> Result<()> {
-        let region = "custom-region".parse()?;
-        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?.with_path_style();
-        let path = "/my-first/path";
-        let request = build_request(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
-
-        assert_eq!(request.uri().scheme_str().unwrap(), "https");
-
-        let headers = request.headers();
-        let host = headers.get("Host").unwrap();
-
-        assert_eq!(*host, "custom-region".to_string());
-        Ok(())
-    }
-
-    #[async_std::test]
-    async fn url_uses_scheme_from_custom_region_if_defined() -> Result<()> {
-        let region = "http://custom-region".parse()?;
-        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
-        let path = "/my-second/path";
-        let request = build_request(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
-
-        assert_eq!(request.uri().scheme_str().unwrap(), "http");
-
-        let headers = request.headers();
-        let host = headers.get("Host").unwrap();
-        assert_eq!(*host, "my-second-bucket.custom-region".to_string());
-        Ok(())
-    }
-
-    #[async_std::test]
-    async fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
-        let region = "http://custom-region".parse()?;
-        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?.with_path_style();
-        let path = "/my-second/path";
-        let request = build_request(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
-
-        assert_eq!(request.uri().scheme_str().unwrap(), "http");
-
-        let headers = request.headers();
-        let host = headers.get("Host").unwrap();
-        assert_eq!(*host, "custom-region".to_string());
-
-        Ok(())
+        assert_eq!(r.method(), Method::Post);
+        assert_eq!(r.url().as_str(), "https://example.com/foo?bar=1");
+        assert_eq!(r.header("h1").unwrap(), "v1");
+        assert_eq!(r.header("h2").unwrap(), "v2");
+        let body = r.take_body().into_bytes().await.unwrap();
+        assert_eq!(body.as_slice(), b"sneaky");
     }
 }

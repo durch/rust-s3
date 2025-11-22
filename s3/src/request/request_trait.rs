@@ -1135,3 +1135,152 @@ mod async_std_tests {
         assert_eq!(output, b"First chunk\nSecond chunk\nThird chunk\n");
     }
 }
+
+#[cfg(test)]
+mod request_tests {
+    use super::build_request;
+    use crate::bucket::Bucket;
+    use crate::command::Command;
+    use awscreds::Credentials;
+    use http::header::{HOST, RANGE};
+
+    /// A trivial spinning async executor we can use to be independent
+    /// of tokio or async-std
+    #[cfg(not(feature = "sync"))]
+    mod test_executor {
+        #[derive(Default)]
+        pub(super) struct TestWaker(pub std::sync::atomic::AtomicBool);
+
+        impl std::task::Wake for TestWaker {
+            fn wake(self: std::sync::Arc<Self>) {
+                self.0.store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
+    }
+
+    #[cfg(not(feature = "sync"))]
+    fn testawait<F: Future>(fut: F) -> F::Output {
+        let w = std::sync::Arc::new(test_executor::TestWaker::default());
+        let waker: std::task::Waker = w.clone().into();
+        let mut cx = std::task::Context::from_waker(&waker);
+        let mut fut = std::pin::pin!(fut);
+        loop {
+            if let std::task::Poll::Ready(o) = fut.as_mut().poll(&mut cx) {
+                return o;
+            }
+            if !w.0.swap(false, std::sync::atomic::Ordering::AcqRel) {
+                panic!("Future made no progress");
+            }
+        }
+    }
+
+    #[cfg(feature = "sync")]
+    fn testawait<T>(val: T) -> T {
+        val
+    }
+
+    // Fake keys - otherwise using Credentials::default will use actual user
+    // credentials if they exist.
+    fn fake_credentials() -> Credentials {
+        let access_key = "AKIAIOSFODNN7EXAMPLE";
+        let secert_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        Credentials::new(Some(access_key), Some(secert_key), None, None, None).unwrap()
+    }
+
+    #[test]
+    fn url_uses_https_by_default() {
+        let region = "custom-region".parse().unwrap();
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials()).unwrap();
+        let path = "/my-first/path";
+        let request = testawait(build_request(&bucket, path, Command::GetObject)).unwrap();
+
+        assert_eq!(request.uri().scheme_str().unwrap(), "https");
+
+        let headers = request.headers();
+        let host = headers.get(HOST).unwrap();
+
+        assert_eq!(*host, "my-first-bucket.custom-region".to_string());
+    }
+
+    #[test]
+    fn url_uses_https_by_default_path_style() {
+        let region = "custom-region".parse().unwrap();
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())
+            .unwrap()
+            .with_path_style();
+        let path = "/my-first/path";
+        let request = testawait(build_request(&bucket, path, Command::GetObject)).unwrap();
+
+        assert_eq!(request.uri().scheme_str().unwrap(), "https");
+
+        let headers = request.headers();
+        let host = headers.get(HOST).unwrap();
+
+        assert_eq!(*host, "custom-region".to_string());
+    }
+
+    #[test]
+    fn url_uses_scheme_from_custom_region_if_defined() {
+        let region = "http://custom-region".parse().unwrap();
+        let bucket = Bucket::new("my-second-bucket", region, fake_credentials()).unwrap();
+        let path = "/my-second/path";
+        let request = testawait(build_request(&bucket, path, Command::GetObject)).unwrap();
+
+        assert_eq!(request.uri().scheme_str().unwrap(), "http");
+
+        let headers = request.headers();
+        let host = headers.get(HOST).unwrap();
+        assert_eq!(*host, "my-second-bucket.custom-region".to_string());
+    }
+
+    #[test]
+    fn url_uses_scheme_from_custom_region_if_defined_with_path_style() {
+        let region = "http://custom-region".parse().unwrap();
+        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())
+            .unwrap()
+            .with_path_style();
+        let path = "/my-second/path";
+        let request = testawait(build_request(&bucket, path, Command::GetObject)).unwrap();
+
+        assert_eq!(request.uri().scheme_str().unwrap(), "http");
+
+        let headers = request.headers();
+        let host = headers.get(HOST).unwrap();
+        assert_eq!(*host, "custom-region".to_string());
+    }
+
+    #[test]
+    fn test_get_object_range_header() {
+        let region = "http://custom-region".parse().unwrap();
+        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())
+            .unwrap()
+            .with_path_style();
+        let path = "/my-second/path";
+
+        let request = testawait(build_request(
+            &bucket,
+            path,
+            Command::GetObjectRange {
+                start: 0,
+                end: None,
+            },
+        ))
+        .unwrap();
+        let headers = request.headers();
+        let range = headers.get(RANGE).unwrap();
+        assert_eq!(range, "bytes=0-");
+
+        let request = testawait(build_request(
+            &bucket,
+            path,
+            Command::GetObjectRange {
+                start: 0,
+                end: Some(1),
+            },
+        ))
+        .unwrap();
+        let headers = request.headers();
+        let range = headers.get(RANGE).unwrap();
+        assert_eq!(range, "bytes=0-1");
+    }
+}

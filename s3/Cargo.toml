@@ -120,6 +120,7 @@ sync-rustls-tls = ["attohttpc/tls-rustls", "aws-creds/rustls-tls", "sync"]
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs"] }
 async-std = { version = "1", features = ["attributes"] }
+http-body-util = "0.1.3"
 uuid = { version = "1", features = ["v4"] }
 env_logger = "0.11"
 anyhow = "1"

@@ -61,14 +61,19 @@ pub struct ReqwestRequest<'a> {
     pub sync: bool,
 }
 
+impl ReqwestRequest<'_> {
+    fn build(&self) -> Result<reqwest::Request, S3Error> {
+        Ok(self.request.clone().map(|b| b.into_owned()).try_into()?)
+    }
+}
+
 #[maybe_async]
 impl<'a> Request for ReqwestRequest<'a> {
     type Response = reqwest::Response;
     type HeaderMap = reqwest::header::HeaderMap;
 
     async fn response(&self) -> Result<Self::Response, S3Error> {
-        let request = self.request.clone().map(|b| b.into_owned()).try_into()?;
-        let response = self.client.execute(request).await?;
+        let response = self.client.execute(self.build()?).await?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             let status = response.status().as_u16();
@@ -167,11 +172,10 @@ impl<'a> ReqwestRequest<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::bucket::Bucket;
-    use crate::command::Command;
-    use crate::request::request_trait::build_request;
-    use awscreds::Credentials;
-    use http::header::{HOST, RANGE};
+    use super::*;
+    use crate::Bucket;
+    use crate::creds::Credentials;
+    use http_body_util::BodyExt;
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
@@ -182,109 +186,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn url_uses_https_by_default() {
+    async fn test_build() {
+        let http_request = http::Request::builder()
+            .uri("https://example.com/foo?bar=1")
+            .method(http::Method::POST)
+            .header("h1", "v1")
+            .header("h2", "v2")
+            .body(b"sneaky".into())
+            .unwrap();
         let region = "custom-region".parse().unwrap();
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials()).unwrap();
-        let path = "/my-first/path";
-        let request = build_request(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
 
-        assert_eq!(request.uri().scheme_str().unwrap(), "https");
-
-        let headers = request.headers();
-        let host = headers.get(HOST).unwrap();
-
-        assert_eq!(*host, "my-first-bucket.custom-region".to_string());
-    }
-
-    #[tokio::test]
-    async fn url_uses_https_by_default_path_style() {
-        let region = "custom-region".parse().unwrap();
-        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())
+        let mut r = ReqwestRequest::new(http_request, &bucket)
             .unwrap()
-            .with_path_style();
-        let path = "/my-first/path";
-        let request = build_request(&bucket, path, Command::GetObject)
-            .await
+            .build()
             .unwrap();
 
-        assert_eq!(request.uri().scheme_str().unwrap(), "https");
-
-        let headers = request.headers();
-        let host = headers.get(HOST).unwrap();
-
-        assert_eq!(*host, "custom-region".to_string());
-    }
-
-    #[tokio::test]
-    async fn url_uses_scheme_from_custom_region_if_defined() {
-        let region = "http://custom-region".parse().unwrap();
-        let bucket = Bucket::new("my-second-bucket", region, fake_credentials()).unwrap();
-        let path = "/my-second/path";
-        let request = build_request(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
-
-        assert_eq!(request.uri().scheme_str().unwrap(), "http");
-
-        let headers = request.headers();
-        let host = headers.get(HOST).unwrap();
-        assert_eq!(*host, "my-second-bucket.custom-region".to_string());
-    }
-
-    #[tokio::test]
-    async fn url_uses_scheme_from_custom_region_if_defined_with_path_style() {
-        let region = "http://custom-region".parse().unwrap();
-        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())
-            .unwrap()
-            .with_path_style();
-        let path = "/my-second/path";
-        let request = build_request(&bucket, path, Command::GetObject)
-            .await
-            .unwrap();
-
-        assert_eq!(request.uri().scheme_str().unwrap(), "http");
-
-        let headers = request.headers();
-        let host = headers.get(HOST).unwrap();
-        assert_eq!(*host, "custom-region".to_string());
-    }
-
-    #[tokio::test]
-    async fn test_get_object_range_header() {
-        let region = "http://custom-region".parse().unwrap();
-        let bucket = Bucket::new("my-second-bucket", region, fake_credentials())
-            .unwrap()
-            .with_path_style();
-        let path = "/my-second/path";
-
-        let request = build_request(
-            &bucket,
-            path,
-            Command::GetObjectRange {
-                start: 0,
-                end: None,
-            },
-        )
-        .await
-        .unwrap();
-        let headers = request.headers();
-        let range = headers.get(RANGE).unwrap();
-        assert_eq!(range, "bytes=0-");
-
-        let request = build_request(
-            &bucket,
-            path,
-            Command::GetObjectRange {
-                start: 0,
-                end: Some(1),
-            },
-        )
-        .await
-        .unwrap();
-        let headers = request.headers();
-        let range = headers.get(RANGE).unwrap();
-        assert_eq!(range, "bytes=0-1");
+        assert_eq!(r.method(), http::Method::POST);
+        assert_eq!(r.url().as_str(), "https://example.com/foo?bar=1");
+        assert_eq!(r.headers().get("h1").unwrap(), "v1");
+        assert_eq!(r.headers().get("h2").unwrap(), "v2");
+        let body = r.body_mut().take().unwrap().collect().await;
+        assert_eq!(body.unwrap().to_bytes().as_ref(), b"sneaky");
     }
 }
