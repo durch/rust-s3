@@ -46,7 +46,11 @@ use crate::region::Region;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use crate::request::ResponseDataStream;
 use crate::request::backend::DefaultBackend;
-use crate::request::{Request, ResponseData, build_presigned, build_request};
+use crate::request::{
+    Request, ResponseBody, ResponseData, build_presigned, build_request, response_data,
+    response_data_to_writer,
+};
+use crate::retry;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -62,9 +66,11 @@ use std::sync::RwLock;
 pub type Query = HashMap<String, String>;
 
 #[cfg(feature = "with-async-std")]
-use async_std::io::Write as AsyncWrite;
+use async_std::{io::Write as AsyncWrite, stream::StreamExt as _};
 #[cfg(feature = "with-tokio")]
 use tokio::io::AsyncWrite;
+#[cfg(feature = "with-tokio")]
+use tokio_stream::StreamExt as _;
 
 use std::io::Read;
 
@@ -133,6 +139,18 @@ pub struct Bucket {
     backend: DefaultBackend,
 }
 
+#[maybe_async::async_impl]
+async fn exec_request<R: Request>(
+    request: R,
+) -> Result<http::Response<impl ResponseBody>, S3Error> {
+    retry! { request.response().await }
+}
+
+#[maybe_async::sync_impl]
+fn exec_request<R: Request>(request: R) -> Result<http::Response<impl ResponseBody>, S3Error> {
+    retry! { request.response() }
+}
+
 impl Bucket {
     #[maybe_async::async_impl]
     /// Credential refreshing is done automatically, but can be manually triggered.
@@ -154,14 +172,14 @@ impl Bucket {
     }
 
     #[maybe_async::maybe_async]
-    pub(crate) async fn make_request<'a>(
+    pub(crate) async fn make_request(
         &self,
         path: &str,
-        command: Command<'a>,
-    ) -> Result<impl Request + 'a, S3Error> {
+        command: Command<'_>,
+    ) -> Result<http::Response<impl ResponseBody>, S3Error> {
         self.credentials_refresh().await?;
         let http_request = build_request(self, path, command).await?;
-        Ok(self.backend.request(http_request))
+        exec_request(self.backend.request(http_request)).await
     }
 
     #[maybe_async::maybe_async]
@@ -396,13 +414,13 @@ impl Bucket {
 
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new(name, region, credentials)?;
-        let request = bucket.make_request("", command).await?;
-        let response_data = request.response_data(false).await?;
-        let response_text = response_data.as_str()?;
+        let response = bucket.make_request("", command).await?;
+        let data = response_data(response, false).await?;
+        let response_text = data.as_str()?;
         Ok(CreateBucketResponse {
             bucket,
             response_text: response_text.to_string(),
-            response_code: response_data.status_code(),
+            response_code: data.status_code(),
         })
     }
 
@@ -452,12 +470,12 @@ impl Bucket {
     /// Used by the public `list_buckets` method to retrieve the list of buckets for the configured client.
     #[maybe_async::maybe_async]
     async fn _list_buckets(&self) -> Result<crate::bucket_ops::ListBucketsResponse, S3Error> {
-        let request = self.make_request("", Command::ListBuckets).await?;
-        let response = request.response_data(false).await?;
+        let response = self.make_request("", Command::ListBuckets).await?;
+        let data = response_data(response, false).await?;
 
         Ok(quick_xml::de::from_str::<
             crate::bucket_ops::ListBucketsResponse,
-        >(response.as_str()?)?)
+        >(data.as_str()?)?)
     }
 
     /// Determine whether the instantiated bucket exists.
@@ -558,8 +576,8 @@ impl Bucket {
 
         let command = Command::CreateBucket { config };
         let bucket = Bucket::new(name, region, credentials)?.with_path_style();
-        let request = bucket.make_request("", command).await?;
-        let response_data = request.response_data(false).await?;
+        let response = bucket.make_request("", command).await?;
+        let response_data = response_data(response, false).await?;
         let response_text = response_data.to_string()?;
 
         Ok(CreateBucketResponse {
@@ -602,8 +620,8 @@ impl Bucket {
     #[maybe_async::maybe_async]
     pub async fn delete(&self) -> Result<u16, S3Error> {
         let command = Command::DeleteBucket;
-        let request = self.make_request("", command).await?;
-        let response_data = request.response_data(false).await?;
+        let response = self.make_request("", command).await?;
+        let response_data = response_data(response, false).await?;
         Ok(response_data.status_code())
     }
 
@@ -780,8 +798,8 @@ impl Bucket {
         let command = Command::CopyObject {
             from: from.as_ref(),
         };
-        let request = self.make_request(to.as_ref(), command).await?;
-        let response_data = request.response_data(false).await?;
+        let response = self.make_request(to.as_ref(), command).await?;
+        let response_data = response_data(response, false).await?;
         Ok(response_data.status_code())
     }
 
@@ -819,8 +837,8 @@ impl Bucket {
     #[maybe_async::maybe_async]
     pub async fn get_object<S: AsRef<str>>(&self, path: S) -> Result<ResponseData, S3Error> {
         let command = Command::GetObject;
-        let request = self.make_request(path.as_ref(), command).await?;
-        request.response_data(false).await
+        let response = self.make_request(path.as_ref(), command).await?;
+        response_data(response, false).await
     }
 
     #[maybe_async::maybe_async]
@@ -834,12 +852,12 @@ impl Bucket {
             expected_bucket_owner: expected_bucket_owner.to_string(),
             version_id,
         };
-        let request = self.make_request(path.as_ref(), command).await?;
+        let response = self.make_request(path.as_ref(), command).await?;
 
-        let response = request.response_data(false).await?;
+        let response_data = response_data(response, false).await?;
 
         Ok(quick_xml::de::from_str::<GetObjectAttributesOutput>(
-            response.as_str()?,
+            response_data.as_str()?,
         )?)
     }
 
@@ -888,8 +906,8 @@ impl Bucket {
     #[maybe_async::maybe_async]
     pub async fn object_exists<S: AsRef<str>>(&self, path: S) -> Result<bool, S3Error> {
         let command = Command::HeadObject;
-        let request = self.make_request(path.as_ref(), command).await?;
-        let response_data = match request.response_data(false).await {
+        let response = self.make_request(path.as_ref(), command).await?;
+        let response_data = match response_data(response, false).await {
             Ok(response_data) => response_data,
             Err(S3Error::HttpFailWithBody(status_code, error)) => {
                 if status_code == 404 {
@@ -912,8 +930,8 @@ impl Bucket {
             expected_bucket_owner: expected_bucket_owner.to_string(),
             configuration: cors_config.clone(),
         };
-        let request = self.make_request("", command).await?;
-        request.response_data(false).await
+        let response = self.make_request("", command).await?;
+        response_data(response, false).await
     }
 
     #[maybe_async::maybe_async]
@@ -924,10 +942,10 @@ impl Bucket {
         let command = Command::GetBucketCors {
             expected_bucket_owner: expected_bucket_owner.to_string(),
         };
-        let request = self.make_request("", command).await?;
-        let response = request.response_data(false).await?;
+        let response = self.make_request("", command).await?;
+        let response_data = response_data(response, false).await?;
         Ok(quick_xml::de::from_str::<CorsConfiguration>(
-            response.as_str()?,
+            response_data.as_str()?,
         )?)
     }
 
@@ -939,16 +957,16 @@ impl Bucket {
         let command = Command::DeleteBucketCors {
             expected_bucket_owner: expected_bucket_owner.to_string(),
         };
-        let request = self.make_request("", command).await?;
-        request.response_data(false).await
+        let response = self.make_request("", command).await?;
+        response_data(response, false).await
     }
 
     #[maybe_async::maybe_async]
     pub async fn get_bucket_lifecycle(&self) -> Result<BucketLifecycleConfiguration, S3Error> {
-        let request = self.make_request("", Command::GetBucketLifecycle).await?;
-        let response = request.response_data(false).await?;
+        let response = self.make_request("", Command::GetBucketLifecycle).await?;
+        let response_data = response_data(response, false).await?;
         Ok(quick_xml::de::from_str::<BucketLifecycleConfiguration>(
-            response.as_str()?,
+            response_data.as_str()?,
         )?)
     }
 
@@ -960,16 +978,16 @@ impl Bucket {
         let command = Command::PutBucketLifecycle {
             configuration: lifecycle_config,
         };
-        let request = self.make_request("", command).await?;
-        request.response_data(false).await
+        let response = self.make_request("", command).await?;
+        response_data(response, false).await
     }
 
     #[maybe_async::maybe_async]
     pub async fn delete_bucket_lifecycle(&self) -> Result<ResponseData, S3Error> {
-        let request = self
+        let response = self
             .make_request("", Command::DeleteBucketLifecycle)
             .await?;
-        request.response_data(false).await
+        response_data(response, false).await
     }
 
     /// Gets torrent from an S3 path.
@@ -1009,8 +1027,8 @@ impl Bucket {
         path: S,
     ) -> Result<ResponseData, S3Error> {
         let command = Command::GetObjectTorrent;
-        let request = self.make_request(path.as_ref(), command).await?;
-        request.response_data(false).await
+        let response = self.make_request(path.as_ref(), command).await?;
+        response_data(response, false).await
     }
 
     /// Gets specified inclusive byte range of file from an S3 path.
@@ -1057,8 +1075,8 @@ impl Bucket {
         }
 
         let command = Command::GetObjectRange { start, end };
-        let request = self.make_request(path.as_ref(), command).await?;
-        request.response_data(false).await
+        let response = self.make_request(path.as_ref(), command).await?;
+        response_data(response, false).await
     }
 
     /// Stream range of bytes from S3 path to a local file, generic over T: Write.
@@ -1118,8 +1136,8 @@ impl Bucket {
         }
 
         let command = Command::GetObjectRange { start, end };
-        let request = self.make_request(path.as_ref(), command).await?;
-        request.response_data_to_writer(writer).await
+        let response = self.make_request(path.as_ref(), command).await?;
+        response_data_to_writer(response, writer).await
     }
 
     #[maybe_async::sync_impl]
@@ -1135,8 +1153,8 @@ impl Bucket {
         }
 
         let command = Command::GetObjectRange { start, end };
-        let request = self.make_request(path.as_ref(), command)?;
-        request.response_data_to_writer(writer)
+        let response = self.make_request(path.as_ref(), command)?;
+        response_data_to_writer(response, writer)
     }
 
     /// Stream file from S3 path to a local file, generic over T: Write.
@@ -1183,8 +1201,8 @@ impl Bucket {
         writer: &mut T,
     ) -> Result<u16, S3Error> {
         let command = Command::GetObject;
-        let request = self.make_request(path.as_ref(), command).await?;
-        request.response_data_to_writer(writer).await
+        let response = self.make_request(path.as_ref(), command).await?;
+        response_data_to_writer(response, writer).await
     }
 
     #[maybe_async::sync_impl]
@@ -1194,8 +1212,8 @@ impl Bucket {
         writer: &mut T,
     ) -> Result<u16, S3Error> {
         let command = Command::GetObject;
-        let request = self.make_request(path.as_ref(), command)?;
-        request.response_data_to_writer(writer)
+        let response = self.make_request(path.as_ref(), command)?;
+        response_data_to_writer(response, writer)
     }
 
     /// Stream file from S3 path to a local file using an async stream.
@@ -1244,9 +1262,19 @@ impl Bucket {
         &self,
         path: S,
     ) -> Result<ResponseDataStream, S3Error> {
+        use http_body_util::BodyExt;
         let command = Command::GetObject;
-        let request = self.make_request(path.as_ref(), command).await?;
-        request.response_data_to_stream().await
+        let response = self.make_request(path.as_ref(), command).await?;
+        let status_code = response.status();
+        let stream = response.into_body().into_data_stream().map(|i| match i {
+            Ok(data) => Ok(data.into()),
+            Err(e) => Err(e.into()),
+        });
+
+        Ok(ResponseDataStream {
+            bytes: Box::pin(stream),
+            status_code: status_code.as_u16(),
+        })
     }
 
     /// Stream file from local path to s3, generic over T: Write.
@@ -1448,8 +1476,8 @@ impl Bucket {
             custom_headers: None,
             content_type,
         };
-        let request = self.make_request(path, command).await?;
-        request.response_data(true).await
+        let response = self.make_request(path, command).await?;
+        response_data(response, true).await
     }
 
     #[maybe_async::async_impl]
@@ -1541,7 +1569,7 @@ impl Bucket {
 
         // Use FuturesUnordered for bounded parallelism
         use futures_util::FutureExt;
-        use futures_util::stream::{FuturesUnordered, StreamExt};
+        use futures_util::stream::FuturesUnordered;
 
         let mut part_number: u32 = 0;
         let mut total_size = 0;
@@ -1728,14 +1756,13 @@ impl Bucket {
         content_type: &str,
     ) -> Result<InitiateMultipartUploadResponse, S3Error> {
         let command = Command::InitiateMultipartUpload { content_type };
-        let request = self.make_request(s3_path, command).await?;
-        let response_data = request.response_data(false).await?;
-        if response_data.status_code() >= 300 {
-            return Err(error_from_response_data(response_data)?);
+        let response = self.make_request(s3_path, command).await?;
+        let data = response_data(response, false).await?;
+        if data.status_code() >= 300 {
+            return Err(error_from_response_data(data)?);
         }
 
-        let msg: InitiateMultipartUploadResponse =
-            quick_xml::de::from_str(response_data.as_str()?)?;
+        let msg: InitiateMultipartUploadResponse = quick_xml::de::from_str(data.as_str()?)?;
         Ok(msg)
     }
 
@@ -1746,14 +1773,13 @@ impl Bucket {
         content_type: &str,
     ) -> Result<InitiateMultipartUploadResponse, S3Error> {
         let command = Command::InitiateMultipartUpload { content_type };
-        let request = self.make_request(s3_path, command)?;
-        let response_data = request.response_data(false)?;
-        if response_data.status_code() >= 300 {
-            return Err(error_from_response_data(response_data)?);
+        let response = self.make_request(s3_path, command)?;
+        let data = response_data(response, false)?;
+        if data.status_code() >= 300 {
+            return Err(error_from_response_data(data)?);
         }
 
-        let msg: InitiateMultipartUploadResponse =
-            quick_xml::de::from_str(response_data.as_str()?)?;
+        let msg: InitiateMultipartUploadResponse = quick_xml::de::from_str(data.as_str()?)?;
         Ok(msg)
     }
 
@@ -1802,8 +1828,8 @@ impl Bucket {
             custom_headers: None,
             content_type,
         };
-        let request = self.make_request(path, command).await?;
-        let response_data = request.response_data(true).await?;
+        let response = self.make_request(path, command).await?;
+        let response_data = response_data(response, true).await?;
         if !(200..300).contains(&response_data.status_code()) {
             // if chunk upload failed - abort the upload
             match self.abort_upload(path, upload_id).await {
@@ -1838,20 +1864,20 @@ impl Bucket {
             custom_headers: None,
             content_type,
         };
-        let request = self.make_request(path, command)?;
-        let response_data = request.response_data(true)?;
-        if !(200..300).contains(&response_data.status_code()) {
+        let response = self.make_request(path, command)?;
+        let data = response_data(response, true)?;
+        if !(200..300).contains(&data.status_code()) {
             // if chunk upload failed - abort the upload
             match self.abort_upload(path, upload_id) {
                 Ok(_) => {
-                    return Err(error_from_response_data(response_data)?);
+                    return Err(error_from_response_data(data)?);
                 }
                 Err(error) => {
                     return Err(error);
                 }
             }
         }
-        let etag = response_data.as_str()?;
+        let etag = data.as_str()?;
         Ok(Part {
             etag: etag.to_string(),
             part_number,
@@ -1868,8 +1894,8 @@ impl Bucket {
     ) -> Result<ResponseData, S3Error> {
         let data = CompleteMultipartUploadData { parts };
         let complete = Command::CompleteMultipartUpload { upload_id, data };
-        let complete_request = self.make_request(path, complete).await?;
-        complete_request.response_data(false).await
+        let complete_response = self.make_request(path, complete).await?;
+        response_data(complete_response, false).await
     }
 
     #[maybe_async::sync_impl]
@@ -1881,8 +1907,8 @@ impl Bucket {
     ) -> Result<ResponseData, S3Error> {
         let data = CompleteMultipartUploadData { parts };
         let complete = Command::CompleteMultipartUpload { upload_id, data };
-        let complete_request = self.make_request(path, complete)?;
-        complete_request.response_data(false)
+        let complete_response = self.make_request(path, complete)?;
+        response_data(complete_response, false)
     }
 
     /// Get Bucket location.
@@ -1919,10 +1945,10 @@ impl Bucket {
     /// ```
     #[maybe_async::maybe_async]
     pub async fn location(&self) -> Result<(Region, u16), S3Error> {
-        let request = self
+        let response = self
             .make_request("?location", Command::GetBucketLocation)
             .await?;
-        let response_data = request.response_data(false).await?;
+        let response_data = response_data(response, false).await?;
         let region_string = String::from_utf8_lossy(response_data.as_slice());
         let region = match quick_xml::de::from_reader(region_string.as_bytes()) {
             Ok(r) => {
@@ -1981,8 +2007,8 @@ impl Bucket {
     #[maybe_async::maybe_async]
     pub async fn delete_object<S: AsRef<str>>(&self, path: S) -> Result<ResponseData, S3Error> {
         let command = Command::DeleteObject;
-        let request = self.make_request(path.as_ref(), command).await?;
-        request.response_data(false).await
+        let response = self.make_request(path.as_ref(), command).await?;
+        response_data(response, false).await
     }
 
     /// Head object from S3.
@@ -2023,10 +2049,10 @@ impl Bucket {
         path: S,
     ) -> Result<(HeadObjectResult, u16), S3Error> {
         let command = Command::HeadObject;
-        let request = self.make_request(path.as_ref(), command).await?;
-        let (headers, status) = request.response_header().await?;
-        let header_object = HeadObjectResult::from(&headers);
-        Ok((header_object, status))
+        let response = self.make_request(path.as_ref(), command).await?;
+        let (head, _) = response.into_parts();
+        let header_object = HeadObjectResult::from(&head.headers);
+        Ok((header_object, head.status.as_u16()))
     }
 
     /// Put into an S3 bucket, with explicit content-type.
@@ -2075,8 +2101,8 @@ impl Bucket {
             custom_headers: None,
             multipart: None,
         };
-        let request = self.make_request(path.as_ref(), command).await?;
-        request.response_data(true).await
+        let response = self.make_request(path.as_ref(), command).await?;
+        response_data(response, true).await
     }
 
     /// Put into an S3 bucket, with explicit content-type and custom headers for the request.
@@ -2135,8 +2161,8 @@ impl Bucket {
             custom_headers,
             multipart: None,
         };
-        let request = self.make_request(path.as_ref(), command).await?;
-        request.response_data(true).await
+        let response = self.make_request(path.as_ref(), command).await?;
+        response_data(response, true).await
     }
 
     /// Put into an S3 bucket, with custom headers for the request.
@@ -2329,8 +2355,8 @@ impl Bucket {
     ) -> Result<ResponseData, S3Error> {
         let content = self._tags_xml(tags);
         let command = Command::PutObjectTagging { tags: &content };
-        let request = self.make_request(path, command).await?;
-        request.response_data(false).await
+        let response = self.make_request(path, command).await?;
+        response_data(response, false).await
     }
 
     /// Delete tags from an S3 object.
@@ -2371,8 +2397,8 @@ impl Bucket {
         path: S,
     ) -> Result<ResponseData, S3Error> {
         let command = Command::DeleteObjectTagging;
-        let request = self.make_request(path.as_ref(), command).await?;
-        request.response_data(false).await
+        let response = self.make_request(path.as_ref(), command).await?;
+        response_data(response, false).await
     }
 
     /// Retrieve an S3 object list of tags.
@@ -2414,8 +2440,8 @@ impl Bucket {
         path: S,
     ) -> Result<(Vec<Tag>, u16), S3Error> {
         let command = Command::GetObjectTagging {};
-        let request = self.make_request(path.as_ref(), command).await?;
-        let result = request.response_data(false).await?;
+        let response = self.make_request(path.as_ref(), command).await?;
+        let result = response_data(response, false).await?;
 
         let mut tags = Vec::new();
 
@@ -2487,8 +2513,8 @@ impl Bucket {
                 max_keys,
             }
         };
-        let request = self.make_request("/", command).await?;
-        let response_data = request.response_data(false).await?;
+        let response = self.make_request("/", command).await?;
+        let response_data = response_data(response, false).await?;
         let list_bucket_result = quick_xml::de::from_reader(response_data.as_slice())?;
 
         Ok((list_bucket_result, response_data.status_code()))
@@ -2571,8 +2597,8 @@ impl Bucket {
             key_marker,
             max_uploads,
         };
-        let request = self.make_request("/", command).await?;
-        let response_data = request.response_data(false).await?;
+        let response = self.make_request("/", command).await?;
+        let response_data = response_data(response, false).await?;
         let list_bucket_result = quick_xml::de::from_reader(response_data.as_slice())?;
 
         Ok((list_bucket_result, response_data.status_code()))
@@ -2675,8 +2701,8 @@ impl Bucket {
     #[maybe_async::maybe_async]
     pub async fn abort_upload(&self, key: &str, upload_id: &str) -> Result<(), S3Error> {
         let abort = Command::AbortMultipartUpload { upload_id };
-        let abort_request = self.make_request(key, abort).await?;
-        let response_data = abort_request.response_data(false).await?;
+        let abort_response = self.make_request(key, abort).await?;
+        let response_data = response_data(abort_response, false).await?;
 
         if (200..300).contains(&response_data.status_code()) {
             Ok(())

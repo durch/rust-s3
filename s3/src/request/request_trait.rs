@@ -17,8 +17,8 @@ use crate::LONG_DATETIME;
 use crate::bucket::Bucket;
 use crate::command::{Command, HttpMethod};
 use crate::error::S3Error;
+use crate::signing;
 use crate::utils::now_utc;
-use crate::{retry, signing};
 use bytes::Bytes;
 use http::HeaderMap;
 use http::header::{
@@ -255,108 +255,85 @@ pub trait Request {
     type ResponseBody: ResponseBody;
 
     async fn response(&self) -> Result<http::Response<Self::ResponseBody>, S3Error>;
+}
 
-    #[maybe_async::async_impl]
-    async fn response_with_retry(&self) -> Result<http::Response<Self::ResponseBody>, S3Error> {
-        retry! { self.response().await }
-    }
-
-    #[maybe_async::sync_impl]
-    fn response_with_retry(&self) -> Result<http::Response<Self::ResponseBody>, S3Error> {
-        retry! { self.response() }
-    }
-
-    async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
-        let response = self.response_with_retry().await?;
-        let (mut head, body) = response.into_parts();
-        let status_code = head.status.as_u16();
-        // When etag=true, we extract the ETag header and return it as the body.
-        // This is used for PUT operations (regular puts, multipart chunks) where:
-        // 1. S3 returns an empty or non-useful response body
-        // 2. The ETag header contains the essential information we need
-        // 3. The calling code expects to get the ETag via response_data.as_str()
-        //
-        // Note: This approach means we discard any actual response body when etag=true,
-        // but for the operations that use this (PUTs), the body is typically empty
-        // or contains redundant information already available in headers.
-        //
-        // TODO: Refactor this to properly return the response body and access ETag
-        // from headers instead of replacing the body. This would be a breaking change.
-        let body_vec = if etag {
-            if let Some(etag) = head.headers.remove("ETag") {
-                Bytes::from(etag.to_str()?.to_string())
-            } else {
-                Bytes::from("")
-            }
+#[maybe_async::maybe_async]
+pub(crate) async fn response_data<R: ResponseBody>(
+    response: http::Response<R>,
+    etag: bool,
+) -> Result<ResponseData, S3Error> {
+    let (mut head, body) = response.into_parts();
+    let status_code = head.status.as_u16();
+    // When etag=true, we extract the ETag header and return it as the body.
+    // This is used for PUT operations (regular puts, multipart chunks) where:
+    // 1. S3 returns an empty or non-useful response body
+    // 2. The ETag header contains the essential information we need
+    // 3. The calling code expects to get the ETag via response_data.as_str()
+    //
+    // Note: This approach means we discard any actual response body when etag=true,
+    // but for the operations that use this (PUTs), the body is typically empty
+    // or contains redundant information already available in headers.
+    //
+    // TODO: Refactor this to properly return the response body and access ETag
+    // from headers instead of replacing the body. This would be a breaking change.
+    let body_vec = if etag {
+        if let Some(etag) = head.headers.remove("ETag") {
+            Bytes::from(etag.to_str()?.to_string())
         } else {
-            body.into_bytes().await.map_err(Into::<S3Error>::into)?
-        };
-        let response_headers = head
-            .headers
-            .into_iter()
-            .filter_map(|(k, v)| {
-                k.map(|k| {
-                    (
-                        k.to_string(),
-                        v.to_str()
-                            .unwrap_or("could-not-decode-header-value")
-                            .to_string(),
-                    )
-                })
-            })
-            .collect::<HashMap<String, String>>();
-        Ok(ResponseData::new(body_vec, status_code, response_headers))
-    }
-
-    #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-    async fn response_data_to_writer<T: AsyncWrite + Send + Unpin + ?Sized>(
-        &self,
-        writer: &mut T,
-    ) -> Result<u16, S3Error> {
-        let response = self.response_with_retry().await?;
-
-        let status_code = response.status();
-        let mut stream = pin!(response.into_body().into_data_stream());
-
-        while let Some(item) = stream.next().await {
-            writer.write_all(item.map_err(Into::into)?.as_ref()).await?;
+            Bytes::from("")
         }
-
-        Ok(status_code.as_u16())
-    }
-
-    #[cfg(feature = "sync")]
-    fn response_data_to_writer<T: std::io::Write + Send + ?Sized>(
-        &self,
-        writer: &mut T,
-    ) -> Result<u16, S3Error> {
-        let response = self.response_with_retry().await?;
-        let status_code = response.status();
-        let mut body = response.into_body();
-        std::io::copy(&mut body, writer)?;
-        Ok(status_code.as_u16())
-    }
-
-    #[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
-    async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
-        let response = self.response_with_retry().await?;
-        let status_code = response.status();
-        let stream = response.into_body().into_data_stream().map(|i| match i {
-            Ok(data) => Ok(data.into()),
-            Err(e) => Err(e.into()),
-        });
-
-        Ok(ResponseDataStream {
-            bytes: Box::pin(stream),
-            status_code: status_code.as_u16(),
+    } else {
+        body.into_bytes().await.map_err(Into::<S3Error>::into)?
+    };
+    let response_headers = head
+        .headers
+        .into_iter()
+        .filter_map(|(k, v)| {
+            k.map(|k| {
+                (
+                    k.to_string(),
+                    v.to_str()
+                        .unwrap_or("could-not-decode-header-value")
+                        .to_string(),
+                )
+            })
         })
+        .collect::<HashMap<String, String>>();
+    Ok(ResponseData::new(body_vec, status_code, response_headers))
+}
+
+#[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+pub(crate) async fn response_data_to_writer<R, T>(
+    response: http::Response<R>,
+    writer: &mut T,
+) -> Result<u16, S3Error>
+where
+    R: ResponseBody,
+    T: AsyncWrite + Send + Unpin + ?Sized,
+{
+    let status_code = response.status();
+    let mut stream = pin!(response.into_body().into_data_stream());
+
+    while let Some(item) = stream.next().await {
+        writer.write_all(item.map_err(Into::into)?.as_ref()).await?;
     }
 
-    async fn response_header(&self) -> Result<(http::HeaderMap, u16), S3Error> {
-        let response = self.response_with_retry().await?;
-        let (head, _) = response.into_parts();
-        Ok((head.headers, head.status.as_u16()))
-    }
+    Ok(status_code.as_u16())
+}
+
+#[cfg(feature = "sync")]
+pub(crate) fn response_data_to_writer<R, T>(
+    response: http::Response<R>,
+    writer: &mut T,
+) -> Result<u16, S3Error>
+where
+    R: ResponseBody,
+    T: std::io::Write + Send + ?Sized,
+{
+    let status_code = response.status();
+    let mut body = response.into_body();
+    std::io::copy(&mut body, writer)?;
+    Ok(status_code.as_u16())
 }
 
 struct BuildHelper<'temp, 'body> {

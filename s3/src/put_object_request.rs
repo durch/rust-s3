@@ -4,7 +4,7 @@
 //! various options including custom headers, content type, and other metadata.
 
 use crate::error::S3Error;
-use crate::request::{Request as _, ResponseData};
+use crate::request::{ResponseData, response_data};
 use crate::{Bucket, command::Command};
 use http::{HeaderMap, HeaderName, HeaderValue};
 
@@ -188,8 +188,8 @@ impl<'a> PutObjectRequest<'a> {
             multipart: None,
         };
 
-        let request = self.bucket.make_request(&self.path, command).await?;
-        request.response_data(true).await
+        let response = self.bucket.make_request(&self.path, command).await?;
+        response_data(response, true).await
     }
 }
 
