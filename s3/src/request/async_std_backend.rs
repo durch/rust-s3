@@ -4,7 +4,6 @@ use std::borrow::Cow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use crate::bucket::Bucket;
 use crate::error::S3Error;
 
 use crate::request::Request;
@@ -105,28 +104,21 @@ impl<'a> Request for SurfRequest<'a> {
     }
 }
 
-impl<'a> SurfRequest<'a> {
-    pub fn new(request: http::Request<Cow<'a, [u8]>>, _: &Bucket) -> Result<Self, S3Error> {
-        Ok(Self {
+impl SurfBackend {
+    pub(crate) fn request<'a>(&self, request: http::Request<Cow<'a, [u8]>>) -> SurfRequest<'a> {
+        SurfRequest {
             request,
             sync: false,
-        })
+        }
     }
 }
+
+#[derive(Clone, Debug, Default)]
+pub struct SurfBackend {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Bucket;
-    use crate::creds::Credentials;
-
-    // Fake keys - otherwise using Credentials::default will use actual user
-    // credentials if they exist.
-    fn fake_credentials() -> Credentials {
-        let access_key = "AKIAIOSFODNN7EXAMPLE";
-        let secert_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-        Credentials::new(Some(access_key), Some(secert_key), None, None, None).unwrap()
-    }
 
     #[async_std::test]
     async fn test_build() {
@@ -137,11 +129,9 @@ mod tests {
             .header("h2", "v2")
             .body(b"sneaky".into())
             .unwrap();
-        let region = "custom-region".parse().unwrap();
-        let bucket = Bucket::new("my-first-bucket", region, fake_credentials()).unwrap();
 
-        let mut r = SurfRequest::new(http_request, &bucket)
-            .unwrap()
+        let mut r = SurfBackend::default()
+            .request(http_request)
             .build()
             .unwrap()
             .build();

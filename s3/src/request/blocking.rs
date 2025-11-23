@@ -2,8 +2,8 @@ extern crate base64;
 extern crate md5;
 
 use attohttpc::header::HeaderName;
+use std::time::Duration;
 
-use crate::bucket::Bucket;
 use crate::error::S3Error;
 use std::borrow::Cow;
 
@@ -12,7 +12,7 @@ use crate::request::Request;
 // Temporary structure for making a request
 pub struct AttoRequest<'a> {
     request: http::Request<Cow<'a, [u8]>>,
-    request_timeout: Option<std::time::Duration>,
+    request_timeout: Option<Duration>,
     pub sync: bool,
 }
 
@@ -67,29 +67,42 @@ impl<'a> Request for AttoRequest<'a> {
     }
 }
 
-impl<'a> AttoRequest<'a> {
-    pub fn new(request: http::Request<Cow<'a, [u8]>>, bucket: &Bucket) -> Result<Self, S3Error> {
-        Ok(Self {
+impl AttoBackend {
+    pub(crate) fn request<'a>(&self, request: http::Request<Cow<'a, [u8]>>) -> AttoRequest<'a> {
+        AttoRequest {
             request,
-            request_timeout: bucket.request_timeout,
+            request_timeout: self.request_timeout,
             sync: false,
-        })
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct AttoBackend {
+    request_timeout: Option<Duration>,
+}
+
+impl Default for AttoBackend {
+    fn default() -> Self {
+        Self {
+            request_timeout: crate::request::backend::DEFAULT_REQUEST_TIMEOUT,
+        }
+    }
+}
+
+impl AttoBackend {
+    pub fn with_request_timeout(&self, request_timeout: Option<Duration>) -> Result<Self, S3Error> {
+        Ok(Self { request_timeout })
+    }
+
+    pub fn request_timeout(&self) -> Option<Duration> {
+        self.request_timeout
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bucket::Bucket;
-    use awscreds::Credentials;
-
-    // Fake keys - otherwise using Credentials::default will use actual user
-    // credentials if they exist.
-    fn fake_credentials() -> Credentials {
-        let access_key = "AKIAIOSFODNN7EXAMPLE";
-        let secert_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-        Credentials::new(Some(access_key), Some(secert_key), None, None, None).unwrap()
-    }
 
     #[test]
     fn test_build() {
@@ -100,10 +113,8 @@ mod tests {
             .header("h2", "v2")
             .body(b"sneaky".into())
             .unwrap();
-        let region = "custom-region".parse().unwrap();
-        let bucket = Bucket::new("my-first-bucket", region, fake_credentials()).unwrap();
 
-        let req = AttoRequest::new(http_request, &bucket).unwrap();
+        let req = AttoBackend::default().request(http_request);
         let mut r = req.build().unwrap();
 
         assert_eq!(r.inspect().method(), http::Method::POST);

@@ -3,9 +3,9 @@ extern crate md5;
 
 use maybe_async::maybe_async;
 use std::borrow::Cow;
+use std::time::Duration;
 
 use super::request_trait::Request;
-use crate::bucket::Bucket;
 use crate::error::S3Error;
 
 #[derive(Clone, Debug, Default)]
@@ -18,8 +18,7 @@ pub(crate) struct ClientOptions {
     pub accept_invalid_hostnames: bool,
 }
 
-#[cfg(feature = "with-tokio")]
-pub(crate) fn client(options: &ClientOptions) -> Result<reqwest::Client, S3Error> {
+fn client(options: &ClientOptions) -> Result<reqwest::Client, S3Error> {
     let client = reqwest::Client::builder();
 
     let client = if let Some(timeout) = options.request_timeout {
@@ -78,12 +77,95 @@ impl<'a> Request for ReqwestRequest<'a> {
     }
 }
 
-impl<'a> ReqwestRequest<'a> {
-    pub fn new(request: http::Request<Cow<'a, [u8]>>, bucket: &Bucket) -> Result<Self, S3Error> {
-        Ok(Self {
+impl ReqwestBackend {
+    pub(crate) fn request<'a>(&self, request: http::Request<Cow<'a, [u8]>>) -> ReqwestRequest<'a> {
+        ReqwestRequest {
             request,
-            client: bucket.http_client(),
+            client: self.http_client.clone(),
             sync: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ReqwestBackend {
+    http_client: reqwest::Client,
+    client_options: ClientOptions,
+}
+
+impl ReqwestBackend {
+    pub fn with_request_timeout(&self, request_timeout: Option<Duration>) -> Result<Self, S3Error> {
+        let client_options = ClientOptions {
+            request_timeout,
+            ..self.client_options.clone()
+        };
+        Ok(Self {
+            http_client: client(&client_options)?,
+            client_options,
+        })
+    }
+
+    pub fn request_timeout(&self) -> Option<Duration> {
+        self.client_options.request_timeout
+    }
+
+    /// Configures a bucket to accept invalid SSL certificates and hostnames.
+    ///
+    /// This method is available only when either the `tokio-native-tls` or `tokio-rustls-tls` feature is enabled.
+    ///
+    /// # Parameters
+    ///
+    /// - `accept_invalid_certs`: A boolean flag that determines whether the client should accept invalid SSL certificates.
+    /// - `accept_invalid_hostnames`: A boolean flag that determines whether the client should accept invalid hostnames.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the newly configured `Bucket` instance if successful, or an `S3Error` if an error occurs during client configuration.
+    ///
+    /// # Errors
+    ///
+    /// This function returns an `S3Error` if the HTTP client configuration fails.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use s3::bucket::Bucket;
+    /// # use s3::error::S3Error;
+    /// # use s3::creds::Credentials;
+    /// # use s3::Region;
+    /// # use std::str::FromStr;
+    ///
+    /// # fn example() -> Result<(), S3Error> {
+    /// let bucket = Bucket::new("my-bucket", Region::from_str("us-east-1")?, Credentials::default()?)?
+    ///     .set_dangereous_config(true, true)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    pub fn with_dangereous_config(
+        &self,
+        accept_invalid_certs: bool,
+        accept_invalid_hostnames: bool,
+    ) -> Result<Self, S3Error> {
+        let client_options = ClientOptions {
+            accept_invalid_certs,
+            accept_invalid_hostnames,
+            ..self.client_options.clone()
+        };
+        Ok(Self {
+            http_client: client(&client_options)?,
+            client_options,
+        })
+    }
+
+    pub fn with_proxy(&self, proxy: reqwest::Proxy) -> Result<Self, S3Error> {
+        let client_options = ClientOptions {
+            proxy: Some(proxy),
+            ..self.client_options.clone()
+        };
+        Ok(Self {
+            http_client: client(&client_options)?,
+            client_options,
         })
     }
 }
@@ -91,17 +173,7 @@ impl<'a> ReqwestRequest<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Bucket;
-    use crate::creds::Credentials;
     use http_body_util::BodyExt;
-
-    // Fake keys - otherwise using Credentials::default will use actual user
-    // credentials if they exist.
-    fn fake_credentials() -> Credentials {
-        let access_key = "AKIAIOSFODNN7EXAMPLE";
-        let secert_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-        Credentials::new(Some(access_key), Some(secert_key), None, None, None).unwrap()
-    }
 
     #[tokio::test]
     async fn test_build() {
@@ -112,11 +184,9 @@ mod tests {
             .header("h2", "v2")
             .body(b"sneaky".into())
             .unwrap();
-        let region = "custom-region".parse().unwrap();
-        let bucket = Bucket::new("my-first-bucket", region, fake_credentials()).unwrap();
 
-        let mut r = ReqwestRequest::new(http_request, &bucket)
-            .unwrap()
+        let mut r = ReqwestBackend::default()
+            .request(http_request)
             .build()
             .unwrap();
 

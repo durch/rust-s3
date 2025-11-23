@@ -38,7 +38,6 @@ use block_on_proc::block_on;
 #[cfg(feature = "tags")]
 use minidom::Element;
 use std::collections::HashMap;
-use std::time::Duration;
 
 use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
 use crate::command::{Command, Multipart};
@@ -46,11 +45,8 @@ use crate::creds::Credentials;
 use crate::region::Region;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use crate::request::ResponseDataStream;
-#[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::ClientOptions;
-#[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::client;
-use crate::request::{Request as _, ResponseData, build_presigned, build_request};
+use crate::request::backend::DefaultBackend;
+use crate::request::{Request, ResponseData, build_presigned, build_request};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -66,17 +62,10 @@ use std::sync::RwLock;
 pub type Query = HashMap<String, String>;
 
 #[cfg(feature = "with-async-std")]
-use crate::request::async_std_backend::SurfRequest as RequestImpl;
-#[cfg(feature = "with-tokio")]
-use crate::request::tokio_backend::ReqwestRequest as RequestImpl;
-
-#[cfg(feature = "with-async-std")]
 use async_std::io::Write as AsyncWrite;
 #[cfg(feature = "with-tokio")]
 use tokio::io::AsyncWrite;
 
-#[cfg(feature = "sync")]
-use crate::request::blocking::AttoRequest as RequestImpl;
 use std::io::Read;
 
 #[cfg(feature = "with-tokio")]
@@ -101,8 +90,6 @@ use http::header::HeaderName;
 use sysinfo::{MemoryRefreshKind, System};
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
-
-const DEFAULT_REQUEST_TIMEOUT: Option<Duration> = Some(Duration::from_secs(60));
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Tag {
@@ -141,13 +128,9 @@ pub struct Bucket {
     credentials: Arc<RwLock<Credentials>>,
     pub extra_headers: HeaderMap,
     pub extra_query: Query,
-    pub request_timeout: Option<Duration>,
     path_style: bool,
     listobjects_v2: bool,
-    #[cfg(feature = "with-tokio")]
-    http_client: reqwest::Client,
-    #[cfg(feature = "with-tokio")]
-    client_options: crate::request::tokio_backend::ClientOptions,
+    backend: DefaultBackend,
 }
 
 impl Bucket {
@@ -166,9 +149,8 @@ impl Bucket {
         }
     }
 
-    #[cfg(feature = "with-tokio")]
-    pub fn http_client(&self) -> reqwest::Client {
-        self.http_client.clone()
+    pub fn backend(&self) -> &DefaultBackend {
+        &self.backend
     }
 
     #[maybe_async::maybe_async]
@@ -176,10 +158,10 @@ impl Bucket {
         &self,
         path: &str,
         command: Command<'a>,
-    ) -> Result<RequestImpl<'a>, S3Error> {
+    ) -> Result<impl Request + 'a, S3Error> {
         self.credentials_refresh().await?;
         let http_request = build_request(self, path, command).await?;
-        RequestImpl::new(http_request, self)
+        Ok(self.backend.request(http_request))
     }
 
     #[maybe_async::maybe_async]
@@ -644,22 +626,15 @@ impl Bucket {
         region: Region,
         credentials: Credentials,
     ) -> Result<Box<Bucket>, S3Error> {
-        #[cfg(feature = "with-tokio")]
-        let options = ClientOptions::default();
-
         Ok(Box::new(Bucket {
             name: name.into(),
             region,
             credentials: Arc::new(RwLock::new(credentials)),
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
-            request_timeout: DEFAULT_REQUEST_TIMEOUT,
             path_style: false,
             listobjects_v2: true,
-            #[cfg(feature = "with-tokio")]
-            http_client: client(&options)?,
-            #[cfg(feature = "with-tokio")]
-            client_options: options,
+            backend: DefaultBackend::default(),
         }))
     }
 
@@ -675,22 +650,15 @@ impl Bucket {
     /// let bucket = Bucket::new_public(bucket_name, region).unwrap();
     /// ```
     pub fn new_public(name: &str, region: Region) -> Result<Bucket, S3Error> {
-        #[cfg(feature = "with-tokio")]
-        let options = ClientOptions::default();
-
         Ok(Bucket {
             name: name.into(),
             region,
             credentials: Arc::new(RwLock::new(Credentials::anonymous()?)),
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
-            request_timeout: DEFAULT_REQUEST_TIMEOUT,
             path_style: false,
             listobjects_v2: true,
-            #[cfg(feature = "with-tokio")]
-            http_client: client(&options)?,
-            #[cfg(feature = "with-tokio")]
-            client_options: options,
+            backend: DefaultBackend::default(),
         })
     }
 
@@ -701,13 +669,9 @@ impl Bucket {
             credentials: self.credentials.clone(),
             extra_headers: self.extra_headers.clone(),
             extra_query: self.extra_query.clone(),
-            request_timeout: self.request_timeout,
             path_style: true,
             listobjects_v2: self.listobjects_v2,
-            #[cfg(feature = "with-tokio")]
-            http_client: self.http_client(),
-            #[cfg(feature = "with-tokio")]
-            client_options: self.client_options.clone(),
+            backend: self.backend.clone(),
         })
     }
 
@@ -718,13 +682,9 @@ impl Bucket {
             credentials: self.credentials.clone(),
             extra_headers,
             extra_query: self.extra_query.clone(),
-            request_timeout: self.request_timeout,
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
-            #[cfg(feature = "with-tokio")]
-            http_client: self.http_client(),
-            #[cfg(feature = "with-tokio")]
-            client_options: self.client_options.clone(),
+            backend: self.backend.clone(),
         })
     }
 
@@ -738,51 +698,23 @@ impl Bucket {
             credentials: self.credentials.clone(),
             extra_headers: self.extra_headers.clone(),
             extra_query,
-            request_timeout: self.request_timeout,
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
-            #[cfg(feature = "with-tokio")]
-            http_client: self.http_client(),
-            #[cfg(feature = "with-tokio")]
-            client_options: self.client_options.clone(),
+            backend: self.backend.clone(),
         })
     }
 
-    #[cfg(not(feature = "with-tokio"))]
-    pub fn with_request_timeout(&self, request_timeout: Duration) -> Result<Box<Bucket>, S3Error> {
-        Ok(Box::new(Bucket {
+    pub fn with_backend(&self, backend: DefaultBackend) -> Bucket {
+        Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
             extra_headers: self.extra_headers.clone(),
             extra_query: self.extra_query.clone(),
-            request_timeout: Some(request_timeout),
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
-        }))
-    }
-
-    #[cfg(feature = "with-tokio")]
-    pub fn with_request_timeout(&self, request_timeout: Duration) -> Result<Box<Bucket>, S3Error> {
-        let options = ClientOptions {
-            request_timeout: Some(request_timeout),
-            ..Default::default()
-        };
-
-        Ok(Box::new(Bucket {
-            name: self.name.clone(),
-            region: self.region.clone(),
-            credentials: self.credentials.clone(),
-            extra_headers: self.extra_headers.clone(),
-            extra_query: self.extra_query.clone(),
-            request_timeout: Some(request_timeout),
-            path_style: self.path_style,
-            listobjects_v2: self.listobjects_v2,
-            #[cfg(feature = "with-tokio")]
-            http_client: client(&options)?,
-            #[cfg(feature = "with-tokio")]
-            client_options: options,
-        }))
+            backend,
+        }
     }
 
     pub fn with_listobjects_v1(&self) -> Bucket {
@@ -792,89 +724,10 @@ impl Bucket {
             credentials: self.credentials.clone(),
             extra_headers: self.extra_headers.clone(),
             extra_query: self.extra_query.clone(),
-            request_timeout: self.request_timeout,
             path_style: self.path_style,
             listobjects_v2: false,
-            #[cfg(feature = "with-tokio")]
-            http_client: self.http_client(),
-            #[cfg(feature = "with-tokio")]
-            client_options: self.client_options.clone(),
+            backend: self.backend.clone(),
         }
-    }
-
-    /// Configures a bucket to accept invalid SSL certificates and hostnames.
-    ///
-    /// This method is available only when either the `tokio-native-tls` or `tokio-rustls-tls` feature is enabled.
-    ///
-    /// # Parameters
-    ///
-    /// - `accept_invalid_certs`: A boolean flag that determines whether the client should accept invalid SSL certificates.
-    /// - `accept_invalid_hostnames`: A boolean flag that determines whether the client should accept invalid hostnames.
-    ///
-    /// # Returns
-    ///
-    /// Returns a `Result` containing the newly configured `Bucket` instance if successful, or an `S3Error` if an error occurs during client configuration.
-    ///
-    /// # Errors
-    ///
-    /// This function returns an `S3Error` if the HTTP client configuration fails.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # use s3::bucket::Bucket;
-    /// # use s3::error::S3Error;
-    /// # use s3::creds::Credentials;
-    /// # use s3::Region;
-    /// # use std::str::FromStr;
-    ///
-    /// # fn example() -> Result<(), S3Error> {
-    /// let bucket = Bucket::new("my-bucket", Region::from_str("us-east-1")?, Credentials::default()?)?
-    ///     .set_dangereous_config(true, true)?;
-    /// # Ok(())
-    /// # }
-    ///
-    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
-    pub fn set_dangereous_config(
-        &self,
-        accept_invalid_certs: bool,
-        accept_invalid_hostnames: bool,
-    ) -> Result<Bucket, S3Error> {
-        let mut options = self.client_options.clone();
-        options.accept_invalid_certs = accept_invalid_certs;
-        options.accept_invalid_hostnames = accept_invalid_hostnames;
-
-        Ok(Bucket {
-            name: self.name.clone(),
-            region: self.region.clone(),
-            credentials: self.credentials.clone(),
-            extra_headers: self.extra_headers.clone(),
-            extra_query: self.extra_query.clone(),
-            request_timeout: self.request_timeout,
-            path_style: self.path_style,
-            listobjects_v2: self.listobjects_v2,
-            http_client: client(&options)?,
-            client_options: options,
-        })
-    }
-
-    #[cfg(feature = "with-tokio")]
-    pub fn set_proxy(&self, proxy: reqwest::Proxy) -> Result<Bucket, S3Error> {
-        let mut options = self.client_options.clone();
-        options.proxy = Some(proxy);
-
-        Ok(Bucket {
-            name: self.name.clone(),
-            region: self.region.clone(),
-            credentials: self.credentials.clone(),
-            extra_headers: self.extra_headers.clone(),
-            extra_query: self.extra_query.clone(),
-            request_timeout: self.request_timeout,
-            path_style: self.path_style,
-            listobjects_v2: self.listobjects_v2,
-            http_client: client(&options)?,
-            client_options: options,
-        })
     }
 
     /// Copy file from an S3 path, internally within the same bucket.
@@ -2856,16 +2709,6 @@ impl Bucket {
         self.path_style = false;
     }
 
-    /// Configure bucket to apply this request timeout to all HTTP
-    /// requests, or no (infinity) timeout if `None`.  Defaults to
-    /// 30 seconds.
-    ///
-    /// Only the [`attohttpc`] and the [`hyper`] backends obey this option;
-    /// async code may instead await with a timeout.
-    pub fn set_request_timeout(&mut self, timeout: Option<Duration>) {
-        self.request_timeout = timeout;
-    }
-
     /// Configure bucket to use the older ListObjects API
     ///
     /// If your provider doesn't support the ListObjectsV2 interface, set this to
@@ -3015,10 +2858,6 @@ impl Bucket {
     /// API.
     pub fn extra_query_mut(&mut self) -> &mut Query {
         &mut self.extra_query
-    }
-
-    pub fn request_timeout(&self) -> Option<Duration> {
-        self.request_timeout
     }
 }
 
@@ -4036,6 +3875,7 @@ mod test {
 
     #[test]
     #[ignore]
+    #[cfg(any(feature = "with-tokio", feature = "sync"))]
     fn test_builder_composition() {
         use std::time::Duration;
 
@@ -4044,11 +3884,18 @@ mod test {
             "eu-central-1".parse().unwrap(),
             test_aws_credentials(),
         )
-        .unwrap()
-        .with_request_timeout(Duration::from_secs(10))
         .unwrap();
+        let bucket = bucket.with_backend(
+            bucket
+                .backend()
+                .with_request_timeout(Some(Duration::from_secs(10)))
+                .unwrap(),
+        );
 
-        assert_eq!(bucket.request_timeout(), Some(Duration::from_secs(10)));
+        assert_eq!(
+            bucket.backend().request_timeout(),
+            Some(Duration::from_secs(10))
+        );
     }
 
     #[maybe_async::test(
@@ -4118,7 +3965,8 @@ mod test {
             .with_path_style();
 
         // Set dangerous config (allow invalid certs, allow invalid hostnames)
-        let bucket = bucket.set_dangereous_config(true, true).unwrap();
+        let bucket =
+            bucket.with_backend(bucket.backend().with_dangereous_config(true, true).unwrap());
 
         // Test that exists() works with the dangerous config
         // This should not panic or fail due to SSL certificate issues
