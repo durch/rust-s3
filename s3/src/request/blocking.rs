@@ -7,50 +7,46 @@ use std::time::Duration;
 use crate::error::S3Error;
 use std::borrow::Cow;
 
-use crate::request::Request;
+use crate::request::backend::{BackendRequestBody, SyncService};
 
-// Temporary structure for making a request
-pub struct AttoRequest<'a> {
-    request: http::Request<Cow<'a, [u8]>>,
+fn http_request_to_atto_request(
+    request: http::Request<BackendRequestBody<'_>>,
     request_timeout: Option<Duration>,
-    pub sync: bool,
-}
+) -> Result<attohttpc::RequestBuilder<attohttpc::body::Bytes<Cow<'_, [u8]>>>, S3Error> {
+    let mut session = attohttpc::Session::new();
 
-impl AttoRequest<'_> {
-    fn build(
-        &self,
-    ) -> Result<attohttpc::RequestBuilder<attohttpc::body::Bytes<Cow<'_, [u8]>>>, S3Error> {
-        let mut session = attohttpc::Session::new();
-
-        for (name, value) in self.request.headers().iter() {
-            session.header(HeaderName::from_bytes(name.as_ref())?, value.to_str()?);
-        }
-
-        if let Some(timeout) = self.request_timeout {
-            session.timeout(timeout)
-        }
-
-        let url = format!("{}", self.request.uri());
-        let request = match *self.request.method() {
-            http::Method::GET => session.get(url),
-            http::Method::DELETE => session.delete(url),
-            http::Method::PUT => session.put(url),
-            http::Method::POST => session.post(url),
-            http::Method::HEAD => session.head(url),
-            _ => {
-                return Err(S3Error::HttpFailWithBody(405, "".into()));
-            }
-        };
-
-        Ok(request.bytes(self.request.body().clone()))
+    for (name, value) in request.headers().iter() {
+        session.header(HeaderName::from_bytes(name.as_ref())?, value.to_str()?);
     }
+
+    if let Some(timeout) = request_timeout {
+        session.timeout(timeout)
+    }
+
+    let url = format!("{}", request.uri());
+    let builder = match *request.method() {
+        http::Method::GET => session.get(url),
+        http::Method::DELETE => session.delete(url),
+        http::Method::PUT => session.put(url),
+        http::Method::POST => session.post(url),
+        http::Method::HEAD => session.head(url),
+        _ => {
+            return Err(S3Error::HttpFailWithBody(405, "".into()));
+        }
+    };
+
+    Ok(builder.bytes(request.body().clone()))
 }
 
-impl<'a> Request for AttoRequest<'a> {
-    type ResponseBody = attohttpc::ResponseReader;
+impl SyncService<http::Request<BackendRequestBody<'_>>> for AttoBackend {
+    type Response = http::Response<attohttpc::ResponseReader>;
+    type Error = S3Error;
 
-    fn response(&self) -> Result<http::Response<attohttpc::ResponseReader>, S3Error> {
-        let response = self.build()?.send()?;
+    fn call(
+        &mut self,
+        request: http::Request<BackendRequestBody<'_>>,
+    ) -> Result<http::Response<attohttpc::ResponseReader>, S3Error> {
+        let response = http_request_to_atto_request(request, self.request_timeout)?.send()?;
 
         if cfg!(feature = "fail-on-err") && !response.status().is_success() {
             let status = response.status().as_u16();
@@ -64,16 +60,6 @@ impl<'a> Request for AttoRequest<'a> {
         *builder.headers_mut().unwrap() = headers;
 
         Ok(builder.body(body)?)
-    }
-}
-
-impl AttoBackend {
-    pub(crate) fn request<'a>(&self, request: http::Request<Cow<'a, [u8]>>) -> AttoRequest<'a> {
-        AttoRequest {
-            request,
-            request_timeout: self.request_timeout,
-            sync: false,
-        }
     }
 }
 
@@ -114,8 +100,7 @@ mod tests {
             .body(b"sneaky".into())
             .unwrap();
 
-        let req = AttoBackend::default().request(http_request);
-        let mut r = req.build().unwrap();
+        let mut r = http_request_to_atto_request(http_request, None).unwrap();
 
         assert_eq!(r.inspect().method(), http::Method::POST);
         assert_eq!(r.inspect().url().as_str(), "https://example.com/foo?bar=1");

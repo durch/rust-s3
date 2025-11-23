@@ -81,6 +81,7 @@ tokio = { version = "1", features = [
     "io-util",
 ], optional = true, default-features = false }
 tokio-stream = { version = "0.1", optional = true }
+tower-service = { version = "0.3.3", optional = true }
 url = "2"
 
 [features]
@@ -88,8 +89,8 @@ default = ["fail-on-err", "tags", "tokio-native-tls"]
 
 sync = ["attohttpc", "maybe-async/is_sync"]
 with-async-std-hyper = ["with-async-std", "surf/hyper-client"]
-with-async-std = ["dep:http-body", "dep:http-body-util", "async-std", "futures-util", "surf", "sysinfo"]
-with-tokio = ["dep:http-body", "dep:http-body-util", "futures-util", "reqwest", "tokio", "tokio/fs", "tokio-stream", "sysinfo"]
+with-async-std = ["dep:http-body", "dep:http-body-util", "dep:tower-service", "async-std", "futures-util", "surf", "sysinfo"]
+with-tokio = ["dep:http-body", "dep:http-body-util", "dep:tower-service", "futures-util", "reqwest", "tokio", "tokio/fs", "tokio-stream", "sysinfo"]
 
 blocking = ["block_on_proc", "tokio/rt", "tokio/rt-multi-thread"]
 fail-on-err = []

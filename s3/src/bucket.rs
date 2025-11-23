@@ -37,6 +37,7 @@
 use block_on_proc::block_on;
 #[cfg(feature = "tags")]
 use minidom::Element;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
@@ -47,7 +48,7 @@ use crate::region::Region;
 use crate::request::ResponseDataStream;
 use crate::request::backend::DefaultBackend;
 use crate::request::{
-    Request, ResponseBody, ResponseData, build_presigned, build_request, response_data,
+    ResponseBody, ResponseData, build_presigned, build_request, response_data,
     response_data_to_writer,
 };
 use crate::retry;
@@ -139,18 +140,6 @@ pub struct Bucket {
     backend: DefaultBackend,
 }
 
-#[maybe_async::async_impl]
-async fn exec_request<R: Request>(
-    request: R,
-) -> Result<http::Response<impl ResponseBody>, S3Error> {
-    retry! { request.response().await }
-}
-
-#[maybe_async::sync_impl]
-fn exec_request<R: Request>(request: R) -> Result<http::Response<impl ResponseBody>, S3Error> {
-    retry! { request.response() }
-}
-
 impl Bucket {
     #[maybe_async::async_impl]
     /// Credential refreshing is done automatically, but can be manually triggered.
@@ -171,6 +160,26 @@ impl Bucket {
         &self.backend
     }
 
+    #[maybe_async::async_impl]
+    async fn exec_request(
+        &self,
+        request: http::Request<Cow<'_, [u8]>>,
+    ) -> Result<http::Response<impl ResponseBody>, S3Error> {
+        use tower_service::Service as _;
+        let mut backend = self.backend.clone();
+        retry! { crate::utils::service_ready::Ready::new(&mut backend).await?.call(request.clone()).await }
+    }
+
+    #[maybe_async::sync_impl]
+    fn exec_request(
+        &self,
+        request: http::Request<Cow<'_, [u8]>>,
+    ) -> Result<http::Response<impl ResponseBody>, S3Error> {
+        use crate::request::backend::SyncService as _;
+        let mut backend = self.backend.clone();
+        retry! { backend.call(request.clone()) }
+    }
+
     #[maybe_async::maybe_async]
     pub(crate) async fn make_request(
         &self,
@@ -179,7 +188,7 @@ impl Bucket {
     ) -> Result<http::Response<impl ResponseBody>, S3Error> {
         self.credentials_refresh().await?;
         let http_request = build_request(self, path, command).await?;
-        exec_request(self.backend.request(http_request)).await
+        self.exec_request(http_request).await
     }
 
     #[maybe_async::maybe_async]

@@ -251,13 +251,6 @@ impl<T: std::io::Read> ResponseBody for T {
 }
 
 #[maybe_async::maybe_async]
-pub trait Request {
-    type ResponseBody: ResponseBody;
-
-    async fn response(&self) -> Result<http::Response<Self::ResponseBody>, S3Error>;
-}
-
-#[maybe_async::maybe_async]
 pub(crate) async fn response_data<R: ResponseBody>(
     response: http::Response<R>,
     etag: bool,

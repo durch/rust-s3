@@ -427,6 +427,40 @@ macro_rules! retry {
     }};
 }
 
+/// Like tower::util::ServiceExt::ready but avoiding a dependency on tower.
+#[cfg(not(feature = "sync"))]
+pub(crate) mod service_ready {
+    use std::marker::PhantomData;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use tower_service::Service;
+
+    pub struct Ready<'a, T, R>(pub Option<&'a mut T>, pub PhantomData<fn() -> R>);
+
+    impl<'a, T, R> Ready<'a, T, R> {
+        pub fn new(inner: &'a mut T) -> Self {
+            Self(Some(inner), PhantomData)
+        }
+    }
+
+    impl<'a, T: Service<R>, R> Future for Ready<'a, T, R> {
+        type Output = Result<&'a mut T, T::Error>;
+
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            match self
+                .0
+                .as_mut()
+                .expect("poll after Poll::Ready")
+                .poll_ready(cx)
+            {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                Poll::Ready(Ok(())) => Poll::Ready(Ok(self.0.take().unwrap())),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::utils::etag_for_path;

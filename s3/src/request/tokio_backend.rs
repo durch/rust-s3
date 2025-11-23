@@ -1,11 +1,12 @@
 extern crate base64;
 extern crate md5;
 
-use maybe_async::maybe_async;
-use std::borrow::Cow;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
+use tower_service::Service;
 
-use super::request_trait::Request;
+use super::backend::BackendRequestBody;
 use crate::error::S3Error;
 
 #[derive(Clone, Debug, Default)]
@@ -47,53 +48,48 @@ fn client(options: &ClientOptions) -> Result<reqwest::Client, S3Error> {
 
     Ok(client.build()?)
 }
-// Temporary structure for making a request
-pub struct ReqwestRequest<'a> {
-    request: http::Request<Cow<'a, [u8]>>,
-    client: reqwest::Client,
-    pub sync: bool,
-}
 
-impl ReqwestRequest<'_> {
-    fn build(&self) -> Result<reqwest::Request, S3Error> {
-        Ok(self.request.clone().map(|b| b.into_owned()).try_into()?)
+impl<T> Service<http::Request<BackendRequestBody<'_>>> for ReqwestBackend<T>
+where
+    T: Service<reqwest::Request, Response = reqwest::Response, Error = reqwest::Error>
+        + Send
+        + 'static,
+    T::Future: Send,
+{
+    type Response = http::Response<reqwest::Body>;
+    type Error = S3Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, S3Error>> + Send>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.http_client.poll_ready(cx).map_err(Into::into)
     }
-}
 
-#[maybe_async]
-impl<'a> Request for ReqwestRequest<'a> {
-    type ResponseBody = reqwest::Body;
-
-    async fn response(&self) -> Result<http::Response<reqwest::Body>, S3Error> {
-        let response = self.client.execute(self.build()?).await?;
-
-        if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-            let status = response.status().as_u16();
-            let text = response.text().await?;
-            return Err(S3Error::HttpFailWithBody(status, text));
-        }
-
-        Ok(response.into())
-    }
-}
-
-impl ReqwestBackend {
-    pub(crate) fn request<'a>(&self, request: http::Request<Cow<'a, [u8]>>) -> ReqwestRequest<'a> {
-        ReqwestRequest {
-            request,
-            client: self.http_client.clone(),
-            sync: false,
+    fn call(&mut self, request: http::Request<BackendRequestBody<'_>>) -> Self::Future {
+        match request.map(|b| b.into_owned()).try_into() {
+            Ok::<reqwest::Request, _>(request) => {
+                let fut = self.http_client.call(request);
+                Box::pin(async move {
+                    let response = fut.await?;
+                    if cfg!(feature = "fail-on-err") && !response.status().is_success() {
+                        let status = response.status().as_u16();
+                        let text = response.text().await?;
+                        return Err(S3Error::HttpFailWithBody(status, text));
+                    }
+                    Ok(response.into())
+                })
+            }
+            Err(e) => Box::pin(std::future::ready(Err(e.into()))),
         }
     }
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct ReqwestBackend {
-    http_client: reqwest::Client,
+pub struct ReqwestBackend<T = reqwest::Client> {
+    http_client: T,
     client_options: ClientOptions,
 }
 
-impl ReqwestBackend {
+impl ReqwestBackend<reqwest::Client> {
     pub fn with_request_timeout(&self, request_timeout: Option<Duration>) -> Result<Self, S3Error> {
         let client_options = ClientOptions {
             request_timeout,
@@ -175,6 +171,35 @@ mod tests {
     use super::*;
     use http_body_util::BodyExt;
 
+    #[derive(Clone, Default)]
+    struct MockReqwestClient;
+
+    impl Service<reqwest::Request> for MockReqwestClient {
+        type Response = reqwest::Response;
+        type Error = reqwest::Error;
+        type Future =
+            Pin<Box<dyn Future<Output = Result<reqwest::Response, reqwest::Error>> + Send>>;
+
+        fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, mut r: reqwest::Request) -> Self::Future {
+            assert_eq!(r.method(), http::Method::POST);
+            assert_eq!(r.url().as_str(), "https://example.com/foo?bar=1");
+            assert_eq!(r.headers().get("h1").unwrap(), "v1");
+            assert_eq!(r.headers().get("h2").unwrap(), "v2");
+            Box::pin(async move {
+                let body = r.body_mut().take().unwrap().collect().await;
+                assert_eq!(body.unwrap().to_bytes().as_ref(), b"sneaky");
+                Ok(http::Response::builder()
+                    .body(reqwest::Body::from(""))
+                    .unwrap()
+                    .into())
+            })
+        }
+    }
+
     #[tokio::test]
     async fn test_build() {
         let http_request = http::Request::builder()
@@ -185,16 +210,15 @@ mod tests {
             .body(b"sneaky".into())
             .unwrap();
 
-        let mut r = ReqwestBackend::default()
-            .request(http_request)
-            .build()
+        let mut backend = ReqwestBackend {
+            http_client: MockReqwestClient,
+            ..Default::default()
+        };
+        crate::utils::service_ready::Ready::new(&mut backend)
+            .await
+            .unwrap()
+            .call(http_request)
+            .await
             .unwrap();
-
-        assert_eq!(r.method(), http::Method::POST);
-        assert_eq!(r.url().as_str(), "https://example.com/foo?bar=1");
-        assert_eq!(r.headers().get("h1").unwrap(), "v1");
-        assert_eq!(r.headers().get("h2").unwrap(), "v2");
-        let body = r.body_mut().take().unwrap().collect().await;
-        assert_eq!(body.unwrap().to_bytes().as_ref(), b"sneaky");
     }
 }
