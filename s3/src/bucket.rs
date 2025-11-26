@@ -160,6 +160,84 @@ impl Bucket {
         &self.backend
     }
 
+    #[maybe_async::maybe_async]
+    async fn make_presigned(&self, path: &str, command: Command<'_>) -> Result<String, S3Error> {
+        self.credentials_refresh().await?;
+        build_presigned(self, path, command).await
+    }
+
+    pub fn with_backend(&self, backend: DefaultBackend) -> Bucket {
+        Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query: self.extra_query.clone(),
+            path_style: self.path_style,
+            listobjects_v2: self.listobjects_v2,
+            backend,
+        }
+    }
+}
+
+impl Bucket {
+    pub fn with_path_style(&self) -> Box<Bucket> {
+        Box::new(Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query: self.extra_query.clone(),
+            path_style: true,
+            listobjects_v2: self.listobjects_v2,
+            backend: self.backend.clone(),
+        })
+    }
+
+    pub fn with_extra_headers(&self, extra_headers: HeaderMap) -> Result<Bucket, S3Error> {
+        Ok(Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers,
+            extra_query: self.extra_query.clone(),
+            path_style: self.path_style,
+            listobjects_v2: self.listobjects_v2,
+            backend: self.backend.clone(),
+        })
+    }
+
+    pub fn with_extra_query(
+        &self,
+        extra_query: HashMap<String, String>,
+    ) -> Result<Bucket, S3Error> {
+        Ok(Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query,
+            path_style: self.path_style,
+            listobjects_v2: self.listobjects_v2,
+            backend: self.backend.clone(),
+        })
+    }
+
+    pub fn with_listobjects_v1(&self) -> Bucket {
+        Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query: self.extra_query.clone(),
+            path_style: self.path_style,
+            listobjects_v2: false,
+            backend: self.backend.clone(),
+        }
+    }
+}
+
+impl Bucket {
     #[maybe_async::async_impl]
     async fn exec_request(
         &self,
@@ -190,12 +268,6 @@ impl Bucket {
         let http_request = build_request(self, path, command).await?;
         self.exec_request(http_request).await
     }
-
-    #[maybe_async::maybe_async]
-    async fn make_presigned(&self, path: &str, command: Command<'_>) -> Result<String, S3Error> {
-        self.credentials_refresh().await?;
-        build_presigned(self, path, command).await
-    }
 }
 
 fn validate_expiry(expiry_secs: u32) -> Result<(), S3Error> {
@@ -211,164 +283,6 @@ fn validate_expiry(expiry_secs: u32) -> Result<(), S3Error> {
     block_on("async-std")
 )]
 impl Bucket {
-    /// Get a presigned url for getting object on a given path
-    ///
-    /// # Example:
-    ///
-    /// ```no_run
-    /// use std::collections::HashMap;
-    /// use s3::bucket::Bucket;
-    /// use s3::creds::Credentials;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default().unwrap();
-    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
-    ///
-    /// // Add optional custom queries
-    /// let mut custom_queries = HashMap::new();
-    /// custom_queries.insert(
-    ///    "response-content-disposition".into(),
-    ///    "attachment; filename=\"test.png\"".into(),
-    /// );
-    ///
-    /// let url = bucket.presign_get("/test.file", 86400, Some(custom_queries)).await.unwrap();
-    /// println!("Presigned url: {}", url);
-    /// }
-    /// ```
-    #[maybe_async::maybe_async]
-    pub async fn presign_get<S: AsRef<str>>(
-        &self,
-        path: S,
-        expiry_secs: u32,
-        custom_queries: Option<HashMap<String, String>>,
-    ) -> Result<String, S3Error> {
-        validate_expiry(expiry_secs)?;
-        self.make_presigned(
-            path.as_ref(),
-            Command::PresignGet {
-                expiry_secs,
-                custom_queries,
-            },
-        )
-        .await
-    }
-
-    /// Get a presigned url for posting an object to a given path
-    ///
-    /// # Example:
-    ///
-    /// ```no_run
-    /// use s3::bucket::Bucket;
-    /// use s3::creds::Credentials;
-    /// use s3::post_policy::*;
-    /// use std::borrow::Cow;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default().unwrap();
-    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
-    ///
-    /// let post_policy = PostPolicy::new(86400).condition(
-    ///     PostPolicyField::Key,
-    ///     PostPolicyValue::StartsWith(Cow::from("user/user1/"))
-    /// ).unwrap();
-    ///
-    /// let presigned_post = bucket.presign_post(post_policy).await.unwrap();
-    /// println!("Presigned url: {}, fields: {:?}", presigned_post.url, presigned_post.fields);
-    /// }
-    /// ```
-    #[maybe_async::maybe_async]
-    #[allow(clippy::needless_lifetimes)]
-    pub async fn presign_post<'a>(
-        &self,
-        post_policy: PostPolicy<'a>,
-    ) -> Result<PresignedPost, S3Error> {
-        post_policy.sign(Box::new(self.clone())).await
-    }
-
-    /// Get a presigned url for putting object to a given path
-    ///
-    /// # Example:
-    ///
-    /// ```no_run
-    /// use s3::bucket::Bucket;
-    /// use s3::creds::Credentials;
-    /// use http::HeaderMap;
-    /// use http::header::HeaderName;
-    /// #[tokio::main]
-    /// async fn main() {
-    /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default().unwrap();
-    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
-    ///
-    /// // Add optional custom headers
-    /// let mut custom_headers = HeaderMap::new();
-    /// custom_headers.insert(
-    ///    HeaderName::from_static("custom_header"),
-    ///    "custom_value".parse().unwrap(),
-    /// );
-    ///
-    /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers), None).await.unwrap();
-    /// println!("Presigned url: {}", url);
-    /// }
-    /// ```
-    #[maybe_async::maybe_async]
-    pub async fn presign_put<S: AsRef<str>>(
-        &self,
-        path: S,
-        expiry_secs: u32,
-        custom_headers: Option<HeaderMap>,
-        custom_queries: Option<HashMap<String, String>>,
-    ) -> Result<String, S3Error> {
-        validate_expiry(expiry_secs)?;
-        self.make_presigned(
-            path.as_ref(),
-            Command::PresignPut {
-                expiry_secs,
-                custom_headers,
-                custom_queries,
-            },
-        )
-        .await
-    }
-
-    /// Get a presigned url for deleting object on a given path
-    ///
-    /// # Example:
-    ///
-    /// ```no_run
-    /// use s3::bucket::Bucket;
-    /// use s3::creds::Credentials;
-    ///
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default().unwrap();
-    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
-    ///
-    /// let url = bucket.presign_delete("/test.file", 86400).await.unwrap();
-    /// println!("Presigned url: {}", url);
-    /// }
-    /// ```
-    #[maybe_async::maybe_async]
-    pub async fn presign_delete<S: AsRef<str>>(
-        &self,
-        path: S,
-        expiry_secs: u32,
-    ) -> Result<String, S3Error> {
-        validate_expiry(expiry_secs)?;
-        self.make_presigned(path.as_ref(), Command::PresignDelete { expiry_secs })
-            .await
-    }
-
     /// Create a new `Bucket` and instantiate it
     ///
     /// ```no_run
@@ -596,44 +510,6 @@ impl Bucket {
         })
     }
 
-    /// Delete existing `Bucket`
-    ///
-    /// # Example
-    /// ```rust,no_run
-    /// use s3::Bucket;
-    /// use s3::creds::Credentials;
-    /// use anyhow::Result;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<()> {
-    /// let bucket_name = "rust-s3-test";
-    /// let region = "us-east-1".parse().unwrap();
-    /// let credentials = Credentials::default().unwrap();
-    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
-    ///
-    /// // Async variant with `tokio` or `async-std` features
-    /// bucket.delete().await.unwrap();
-    /// // `sync` fature will produce an identical method
-    ///
-    /// #[cfg(feature = "sync")]
-    /// bucket.delete().unwrap();
-    /// // Blocking variant, generated with `blocking` feature in combination
-    /// // with `tokio` or `async-std` features.
-    ///
-    /// #[cfg(feature = "blocking")]
-    /// bucket.delete_blocking().unwrap();
-    ///
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[maybe_async::maybe_async]
-    pub async fn delete(&self) -> Result<u16, S3Error> {
-        let command = Command::DeleteBucket;
-        let response = self.make_request("", command).await?;
-        let response_data = response_data(response, false).await?;
-        Ok(response_data.status_code())
-    }
-
     /// Instantiate an existing `Bucket`.
     ///
     /// # Example
@@ -688,73 +564,208 @@ impl Bucket {
             backend: DefaultBackend::default(),
         })
     }
+}
 
-    pub fn with_path_style(&self) -> Box<Bucket> {
-        Box::new(Bucket {
-            name: self.name.clone(),
-            region: self.region.clone(),
-            credentials: self.credentials.clone(),
-            extra_headers: self.extra_headers.clone(),
-            extra_query: self.extra_query.clone(),
-            path_style: true,
-            listobjects_v2: self.listobjects_v2,
-            backend: self.backend.clone(),
-        })
-    }
-
-    pub fn with_extra_headers(&self, extra_headers: HeaderMap) -> Result<Bucket, S3Error> {
-        Ok(Bucket {
-            name: self.name.clone(),
-            region: self.region.clone(),
-            credentials: self.credentials.clone(),
-            extra_headers,
-            extra_query: self.extra_query.clone(),
-            path_style: self.path_style,
-            listobjects_v2: self.listobjects_v2,
-            backend: self.backend.clone(),
-        })
-    }
-
-    pub fn with_extra_query(
+#[cfg_attr(all(feature = "with-tokio", feature = "blocking"), block_on("tokio"))]
+#[cfg_attr(
+    all(feature = "with-async-std", feature = "blocking"),
+    block_on("async-std")
+)]
+impl Bucket {
+    /// Get a presigned url for getting object on a given path
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use std::collections::HashMap;
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default().unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// // Add optional custom queries
+    /// let mut custom_queries = HashMap::new();
+    /// custom_queries.insert(
+    ///    "response-content-disposition".into(),
+    ///    "attachment; filename=\"test.png\"".into(),
+    /// );
+    ///
+    /// let url = bucket.presign_get("/test.file", 86400, Some(custom_queries)).await.unwrap();
+    /// println!("Presigned url: {}", url);
+    /// }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn presign_get<S: AsRef<str>>(
         &self,
-        extra_query: HashMap<String, String>,
-    ) -> Result<Bucket, S3Error> {
-        Ok(Bucket {
-            name: self.name.clone(),
-            region: self.region.clone(),
-            credentials: self.credentials.clone(),
-            extra_headers: self.extra_headers.clone(),
-            extra_query,
-            path_style: self.path_style,
-            listobjects_v2: self.listobjects_v2,
-            backend: self.backend.clone(),
-        })
+        path: S,
+        expiry_secs: u32,
+        custom_queries: Option<HashMap<String, String>>,
+    ) -> Result<String, S3Error> {
+        validate_expiry(expiry_secs)?;
+        self.make_presigned(
+            path.as_ref(),
+            Command::PresignGet {
+                expiry_secs,
+                custom_queries,
+            },
+        )
+        .await
     }
 
-    pub fn with_backend(&self, backend: DefaultBackend) -> Bucket {
-        Bucket {
-            name: self.name.clone(),
-            region: self.region.clone(),
-            credentials: self.credentials.clone(),
-            extra_headers: self.extra_headers.clone(),
-            extra_query: self.extra_query.clone(),
-            path_style: self.path_style,
-            listobjects_v2: self.listobjects_v2,
-            backend,
-        }
+    /// Get a presigned url for posting an object to a given path
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use s3::post_policy::*;
+    /// use std::borrow::Cow;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default().unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// let post_policy = PostPolicy::new(86400).condition(
+    ///     PostPolicyField::Key,
+    ///     PostPolicyValue::StartsWith(Cow::from("user/user1/"))
+    /// ).unwrap();
+    ///
+    /// let presigned_post = bucket.presign_post(post_policy).await.unwrap();
+    /// println!("Presigned url: {}, fields: {:?}", presigned_post.url, presigned_post.fields);
+    /// }
+    /// ```
+    #[maybe_async::maybe_async]
+    #[allow(clippy::needless_lifetimes)]
+    pub async fn presign_post<'a>(
+        &self,
+        post_policy: PostPolicy<'a>,
+    ) -> Result<PresignedPost, S3Error> {
+        post_policy.sign(Box::new(self.clone())).await
     }
 
-    pub fn with_listobjects_v1(&self) -> Bucket {
-        Bucket {
-            name: self.name.clone(),
-            region: self.region.clone(),
-            credentials: self.credentials.clone(),
-            extra_headers: self.extra_headers.clone(),
-            extra_query: self.extra_query.clone(),
-            path_style: self.path_style,
-            listobjects_v2: false,
-            backend: self.backend.clone(),
-        }
+    /// Get a presigned url for putting object to a given path
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use http::HeaderMap;
+    /// use http::header::HeaderName;
+    /// #[tokio::main]
+    /// async fn main() {
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default().unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// // Add optional custom headers
+    /// let mut custom_headers = HeaderMap::new();
+    /// custom_headers.insert(
+    ///    HeaderName::from_static("custom_header"),
+    ///    "custom_value".parse().unwrap(),
+    /// );
+    ///
+    /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers), None).await.unwrap();
+    /// println!("Presigned url: {}", url);
+    /// }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn presign_put<S: AsRef<str>>(
+        &self,
+        path: S,
+        expiry_secs: u32,
+        custom_headers: Option<HeaderMap>,
+        custom_queries: Option<HashMap<String, String>>,
+    ) -> Result<String, S3Error> {
+        validate_expiry(expiry_secs)?;
+        self.make_presigned(
+            path.as_ref(),
+            Command::PresignPut {
+                expiry_secs,
+                custom_headers,
+                custom_queries,
+            },
+        )
+        .await
+    }
+
+    /// Get a presigned url for deleting object on a given path
+    ///
+    /// # Example:
+    ///
+    /// ```no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    ///
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default().unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// let url = bucket.presign_delete("/test.file", 86400).await.unwrap();
+    /// println!("Presigned url: {}", url);
+    /// }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn presign_delete<S: AsRef<str>>(
+        &self,
+        path: S,
+        expiry_secs: u32,
+    ) -> Result<String, S3Error> {
+        validate_expiry(expiry_secs)?;
+        self.make_presigned(path.as_ref(), Command::PresignDelete { expiry_secs })
+            .await
+    }
+
+    /// Delete existing `Bucket`
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use s3::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse().unwrap();
+    /// let credentials = Credentials::default().unwrap();
+    /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// bucket.delete().await.unwrap();
+    /// // `sync` fature will produce an identical method
+    ///
+    /// #[cfg(feature = "sync")]
+    /// bucket.delete().unwrap();
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    ///
+    /// #[cfg(feature = "blocking")]
+    /// bucket.delete_blocking().unwrap();
+    ///
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn delete(&self) -> Result<u16, S3Error> {
+        let command = Command::DeleteBucket;
+        let response = self.make_request("", command).await?;
+        let response_data = response_data(response, false).await?;
+        Ok(response_data.status_code())
     }
 
     /// Copy file from an S3 path, internally within the same bucket.
