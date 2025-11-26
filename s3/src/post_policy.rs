@@ -58,10 +58,10 @@ impl<'a> PostPolicy<'a> {
 
     /// Build a finalized post policy with credentials
     #[maybe_async::maybe_async]
-    async fn build(
+    async fn build<B>(
         &self,
         now: &OffsetDateTime,
-        bucket: &Bucket,
+        bucket: &Bucket<B>,
     ) -> Result<PostPolicy<'_>, S3Error> {
         let access_key = bucket.access_key().await?.ok_or(S3Error::Credentials(
             CredentialsError::ConfigMissingAccessKeyId,
@@ -110,7 +110,7 @@ impl<'a> PostPolicy<'a> {
     }
 
     #[maybe_async::maybe_async]
-    pub async fn sign(&self, bucket: Box<Bucket>) -> Result<PresignedPost, S3Error> {
+    pub async fn sign<B>(&self, bucket: Box<Bucket<B>>) -> Result<PresignedPost, S3Error> {
         use hmac::Mac;
 
         bucket.credentials_refresh().await?;
@@ -457,11 +457,12 @@ mod test {
 
     use crate::creds::Credentials;
     use crate::region::Region;
+    use crate::utils::testing::AlwaysFailBackend;
     use crate::utils::with_timestamp;
 
     use serde_json::json;
 
-    fn test_bucket() -> Box<Bucket> {
+    fn test_bucket() -> Bucket<AlwaysFailBackend> {
         Bucket::new(
             "rust-s3",
             Region::UsEast1,
@@ -475,9 +476,10 @@ mod test {
             .unwrap(),
         )
         .unwrap()
+        .with_backend(AlwaysFailBackend)
     }
 
-    fn test_bucket_with_security_token() -> Box<Bucket> {
+    fn test_bucket_with_security_token() -> Bucket<AlwaysFailBackend> {
         Bucket::new(
             "rust-s3",
             Region::UsEast1,
@@ -491,6 +493,7 @@ mod test {
             .unwrap(),
         )
         .unwrap()
+        .with_backend(AlwaysFailBackend)
     }
 
     mod conditions {
@@ -769,7 +772,7 @@ mod test {
             let bucket = test_bucket();
 
             let _ts = with_timestamp(1_451_347_200);
-            let post = policy.sign(bucket).await.unwrap();
+            let post = policy.sign(Box::new(bucket)).await.unwrap();
 
             assert_eq!(post.url, "https://rust-s3.s3.amazonaws.com");
             assert_eq!(

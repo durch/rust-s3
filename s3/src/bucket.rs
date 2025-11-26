@@ -46,7 +46,7 @@ use crate::creds::Credentials;
 use crate::region::Region;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use crate::request::ResponseDataStream;
-use crate::request::backend::DefaultBackend;
+use crate::request::backend::{Backend, DefaultBackend};
 use crate::request::{
     ResponseBody, ResponseData, build_presigned, build_request, response_data,
     response_data_to_writer,
@@ -129,7 +129,7 @@ impl Tag {
 /// let bucket = Bucket::new(bucket_name, region, credentials);
 /// ```
 #[derive(Clone, Debug)]
-pub struct Bucket {
+pub struct Bucket<B> {
     pub name: String,
     pub region: Region,
     credentials: Arc<RwLock<Credentials>>,
@@ -137,10 +137,10 @@ pub struct Bucket {
     pub extra_query: Query,
     path_style: bool,
     listobjects_v2: bool,
-    backend: DefaultBackend,
+    backend: B,
 }
 
-impl Bucket {
+impl<B> Bucket<B> {
     #[maybe_async::async_impl]
     /// Credential refreshing is done automatically, but can be manually triggered.
     pub async fn credentials_refresh(&self) -> Result<(), S3Error> {
@@ -156,7 +156,7 @@ impl Bucket {
         }
     }
 
-    pub fn backend(&self) -> &DefaultBackend {
+    pub fn backend(&self) -> &B {
         &self.backend
     }
 
@@ -166,7 +166,7 @@ impl Bucket {
         build_presigned(self, path, command).await
     }
 
-    pub fn with_backend(&self, backend: DefaultBackend) -> Bucket {
+    pub fn with_backend<T>(&self, backend: T) -> Bucket<T> {
         Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
@@ -180,9 +180,9 @@ impl Bucket {
     }
 }
 
-impl Bucket {
-    pub fn with_path_style(&self) -> Box<Bucket> {
-        Box::new(Bucket {
+impl<B: Clone> Bucket<B> {
+    pub fn with_path_style(&self) -> Box<Self> {
+        Box::new(Self {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
@@ -194,8 +194,8 @@ impl Bucket {
         })
     }
 
-    pub fn with_extra_headers(&self, extra_headers: HeaderMap) -> Result<Bucket, S3Error> {
-        Ok(Bucket {
+    pub fn with_extra_headers(&self, extra_headers: HeaderMap) -> Result<Self, S3Error> {
+        Ok(Self {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
@@ -207,11 +207,8 @@ impl Bucket {
         })
     }
 
-    pub fn with_extra_query(
-        &self,
-        extra_query: HashMap<String, String>,
-    ) -> Result<Bucket, S3Error> {
-        Ok(Bucket {
+    pub fn with_extra_query(&self, extra_query: HashMap<String, String>) -> Result<Self, S3Error> {
+        Ok(Self {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
@@ -223,8 +220,8 @@ impl Bucket {
         })
     }
 
-    pub fn with_listobjects_v1(&self) -> Bucket {
-        Bucket {
+    pub fn with_listobjects_v1(&self) -> Self {
+        Self {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
@@ -237,15 +234,21 @@ impl Bucket {
     }
 }
 
-impl Bucket {
+impl<B: Backend<Response = http::Response<RB>>, RB: ResponseBody> Bucket<B> {
     #[maybe_async::async_impl]
     async fn exec_request(
         &self,
         request: http::Request<Cow<'_, [u8]>>,
     ) -> Result<http::Response<impl ResponseBody>, S3Error> {
-        use tower_service::Service as _;
         let mut backend = self.backend.clone();
-        retry! { crate::utils::service_ready::Ready::new(&mut backend).await?.call(request.clone()).await }
+        retry! {
+            crate::utils::service_ready::Ready::new(&mut backend)
+                .await
+                .map_err(Into::into)?
+                .call(request.clone())
+                .await
+                .map_err(Into::into)
+        }
     }
 
     #[maybe_async::sync_impl]
@@ -253,9 +256,8 @@ impl Bucket {
         &self,
         request: http::Request<Cow<'_, [u8]>>,
     ) -> Result<http::Response<impl ResponseBody>, S3Error> {
-        use crate::request::backend::SyncService as _;
         let mut backend = self.backend.clone();
-        retry! { backend.call(request.clone()) }
+        retry! { backend.call(request.clone()).map_err(Into::into) }
     }
 
     #[maybe_async::maybe_async]
@@ -282,7 +284,7 @@ fn validate_expiry(expiry_secs: u32) -> Result<(), S3Error> {
     all(feature = "with-async-std", feature = "blocking"),
     block_on("async-std")
 )]
-impl Bucket {
+impl Bucket<DefaultBackend> {
     /// Create a new `Bucket` and instantiate it
     ///
     /// ```no_run
@@ -321,7 +323,7 @@ impl Bucket {
         region: Region,
         credentials: Credentials,
         config: BucketConfiguration,
-    ) -> Result<CreateBucketResponse, S3Error> {
+    ) -> Result<CreateBucketResponse<DefaultBackend>, S3Error> {
         let mut config = config;
 
         // Check if we should skip location constraint for LocalStack/Minio compatibility
@@ -336,7 +338,7 @@ impl Bucket {
         }
 
         let command = Command::CreateBucket { config };
-        let bucket = Bucket::new(name, region, credentials)?;
+        let bucket = Self::new(name, region, credentials)?;
         let response = bucket.make_request("", command).await?;
         let data = response_data(response, false).await?;
         let response_text = data.as_str()?;
@@ -385,7 +387,7 @@ impl Bucket {
         region: Region,
         credentials: Credentials,
     ) -> Result<crate::bucket_ops::ListBucketsResponse, S3Error> {
-        let dummy_bucket = Bucket::new("", region, credentials)?.with_path_style();
+        let dummy_bucket = Self::new("", region, credentials)?.with_path_style();
         dummy_bucket._list_buckets().await
     }
 
@@ -483,7 +485,7 @@ impl Bucket {
         region: Region,
         credentials: Credentials,
         config: BucketConfiguration,
-    ) -> Result<CreateBucketResponse, S3Error> {
+    ) -> Result<CreateBucketResponse<DefaultBackend>, S3Error> {
         let mut config = config;
 
         // Check if we should skip location constraint for LocalStack/Minio compatibility
@@ -498,7 +500,7 @@ impl Bucket {
         }
 
         let command = Command::CreateBucket { config };
-        let bucket = Bucket::new(name, region, credentials)?.with_path_style();
+        let bucket = Self::new(name, region, credentials)?.with_path_style();
         let response = bucket.make_request("", command).await?;
         let response_data = response_data(response, false).await?;
         let response_text = response_data.to_string()?;
@@ -524,12 +526,8 @@ impl Bucket {
     ///
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// ```
-    pub fn new(
-        name: &str,
-        region: Region,
-        credentials: Credentials,
-    ) -> Result<Box<Bucket>, S3Error> {
-        Ok(Box::new(Bucket {
+    pub fn new(name: &str, region: Region, credentials: Credentials) -> Result<Box<Self>, S3Error> {
+        Ok(Box::new(Self {
             name: name.into(),
             region,
             credentials: Arc::new(RwLock::new(credentials)),
@@ -552,8 +550,8 @@ impl Bucket {
     ///
     /// let bucket = Bucket::new_public(bucket_name, region).unwrap();
     /// ```
-    pub fn new_public(name: &str, region: Region) -> Result<Bucket, S3Error> {
-        Ok(Bucket {
+    pub fn new_public(name: &str, region: Region) -> Result<Self, S3Error> {
+        Ok(Self {
             name: name.into(),
             region,
             credentials: Arc::new(RwLock::new(Credentials::anonymous()?)),
@@ -571,7 +569,7 @@ impl Bucket {
     all(feature = "with-async-std", feature = "blocking"),
     block_on("async-std")
 )]
-impl Bucket {
+impl<B: Backend<Response = http::Response<RB>>, RB: ResponseBody> Bucket<B> {
     /// Get a presigned url for getting object on a given path
     ///
     /// # Example:
@@ -1393,7 +1391,7 @@ impl Bucket {
     pub fn put_object_stream_builder<S: AsRef<str>>(
         &self,
         path: S,
-    ) -> crate::put_object_request::PutObjectStreamRequest<'_> {
+    ) -> crate::put_object_request::PutObjectStreamRequest<'_, B> {
         crate::put_object_request::PutObjectStreamRequest::new(self, path)
     }
 
@@ -2310,7 +2308,7 @@ impl Bucket {
         &self,
         path: S,
         content: &[u8],
-    ) -> crate::put_object_request::PutObjectRequest<'_> {
+    ) -> crate::put_object_request::PutObjectRequest<'_, B> {
         crate::put_object_request::PutObjectRequest::new(self, path, content)
     }
 
@@ -2734,7 +2732,14 @@ impl Bucket {
             ))
         }
     }
+}
 
+#[cfg_attr(all(feature = "with-tokio", feature = "blocking"), block_on("tokio"))]
+#[cfg_attr(
+    all(feature = "with-async-std", feature = "blocking"),
+    block_on("async-std")
+)]
+impl<B> Bucket<B> {
     /// Get path_style field of the Bucket struct
     pub fn is_path_style(&self) -> bool {
         self.path_style
@@ -2909,14 +2914,17 @@ impl Bucket {
 
 #[cfg(test)]
 mod test {
-
+    use super::DefaultBackend;
     use crate::BucketConfiguration;
     use crate::Tag;
     use crate::creds::Credentials;
     use crate::post_policy::{PostPolicyField, PostPolicyValue};
     use crate::region::Region;
+    use crate::request::ResponseBody;
+    use crate::request::backend::Backend;
     use crate::serde_types::CorsConfiguration;
     use crate::serde_types::CorsRule;
+    use crate::utils::testing::AlwaysFailBackend;
     use crate::{Bucket, PostPolicy};
     use http::header::{HeaderMap, HeaderName, HeaderValue, CACHE_CONTROL};
     use std::env;
@@ -2991,7 +2999,7 @@ mod test {
         .unwrap()
     }
 
-    fn test_aws_bucket() -> Box<Bucket> {
+    fn test_aws_bucket() -> Box<Bucket<DefaultBackend>> {
         Bucket::new(
             "rust-s3-test",
             "eu-central-1".parse().unwrap(),
@@ -3000,7 +3008,7 @@ mod test {
         .unwrap()
     }
 
-    fn test_wasabi_bucket() -> Box<Bucket> {
+    fn test_wasabi_bucket() -> Box<Bucket<DefaultBackend>> {
         Bucket::new(
             "rust-s3",
             "wa-eu-central-1".parse().unwrap(),
@@ -3009,7 +3017,7 @@ mod test {
         .unwrap()
     }
 
-    fn test_gc_bucket() -> Box<Bucket> {
+    fn test_gc_bucket() -> Box<Bucket<DefaultBackend>> {
         let mut bucket = Bucket::new(
             "rust-s3",
             Region::Custom {
@@ -3023,7 +3031,7 @@ mod test {
         bucket
     }
 
-    fn test_minio_bucket() -> Box<Bucket> {
+    fn test_minio_bucket() -> Box<Bucket<DefaultBackend>> {
         Bucket::new(
             "rust-s3",
             Region::Custom {
@@ -3037,11 +3045,11 @@ mod test {
     }
 
     #[allow(dead_code)]
-    fn test_digital_ocean_bucket() -> Box<Bucket> {
+    fn test_digital_ocean_bucket() -> Box<Bucket<DefaultBackend>> {
         Bucket::new("rust-s3", Region::DoFra1, test_digital_ocean_credentials()).unwrap()
     }
 
-    fn test_r2_bucket() -> Box<Bucket> {
+    fn test_r2_bucket() -> Box<Bucket<DefaultBackend>> {
         Bucket::new(
             "rust-s3",
             Region::R2 {
@@ -3057,7 +3065,11 @@ mod test {
     }
 
     #[maybe_async::maybe_async]
-    async fn put_head_get_delete_object(bucket: Bucket, head: bool) {
+    async fn put_head_get_delete_object<B, RB>(bucket: Bucket<B>, head: bool)
+    where
+        B: Backend<Response = http::Response<RB>>,
+        RB: ResponseBody,
+    {
         let s3_path = "/+test.file";
         let non_existant_path = "/+non_existant.file";
         let test: Vec<u8> = object(3072);
@@ -3098,7 +3110,11 @@ mod test {
     }
 
     #[maybe_async::maybe_async]
-    async fn put_head_delete_object_with_headers(bucket: Bucket) {
+    async fn put_head_delete_object_with_headers<B, RB>(bucket: Bucket<B>)
+    where
+        B: Backend<Response = http::Response<RB>>,
+        RB: ResponseBody,
+    {
         let s3_path = "/+test.file";
         let non_existant_path = "/+non_existant.file";
         let test: Vec<u8> = object(3072);
@@ -3283,7 +3299,11 @@ mod test {
 
     // Test multi-part upload
     #[maybe_async::maybe_async]
-    async fn streaming_test_put_get_delete_big_object(bucket: Bucket) {
+    async fn streaming_test_put_get_delete_big_object<B, RB>(bucket: Bucket<B>)
+    where
+        B: Backend<Response = http::Response<RB>>,
+        RB: ResponseBody,
+    {
         #[cfg(feature = "with-async-std")]
         use async_std::fs::File;
         #[cfg(feature = "with-async-std")]
@@ -3407,7 +3427,7 @@ mod test {
     }
 
     #[maybe_async::maybe_async]
-    async fn streaming_test_put_get_delete_small_object(bucket: Box<Bucket>) {
+    async fn streaming_test_put_get_delete_small_object(bucket: Box<Bucket<DefaultBackend>>) {
         init();
         let remote_path = "+stream_test_small";
         let content: Vec<u8> = object(1000);
@@ -4065,5 +4085,27 @@ mod test {
         );
         let exists = exists_result.unwrap();
         assert!(exists, "Test bucket should exist");
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn test_always_fail_backend() {
+        init();
+
+        let credentials = Credentials::anonymous().unwrap();
+        let region = "eu-central-1".parse().unwrap();
+        let bucket_name = "rust-s3-test";
+
+        let bucket = Bucket::new(bucket_name, region, credentials)
+            .unwrap()
+            .with_backend(AlwaysFailBackend);
+        let response_data = bucket.get_object("foo").await.unwrap();
+        assert_eq!(response_data.status_code(), 418);
     }
 }

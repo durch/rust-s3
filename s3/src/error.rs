@@ -74,3 +74,9 @@ pub enum S3Error {
     #[error("xml serialization error: {0}")]
     XmlSeError(#[from] quick_xml::SeError),
 }
+
+impl From<std::convert::Infallible> for S3Error {
+    fn from(_: std::convert::Infallible) -> Self {
+        unreachable!();
+    }
+}

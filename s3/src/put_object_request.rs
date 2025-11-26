@@ -4,7 +4,8 @@
 //! various options including custom headers, content type, and other metadata.
 
 use crate::error::S3Error;
-use crate::request::{ResponseData, response_data};
+use crate::request::backend::Backend;
+use crate::request::{ResponseBody, ResponseData, response_data};
 use crate::{Bucket, command::Command};
 use http::{HeaderMap, HeaderName, HeaderValue};
 
@@ -37,17 +38,17 @@ use async_std::io::Read as AsyncRead;
 /// # }
 /// ```
 #[derive(Debug, Clone)]
-pub struct PutObjectRequest<'a> {
-    bucket: &'a Bucket,
+pub struct PutObjectRequest<'a, B> {
+    bucket: &'a Bucket<B>,
     path: String,
     content: Vec<u8>,
     content_type: String,
     custom_headers: HeaderMap,
 }
 
-impl<'a> PutObjectRequest<'a> {
+impl<'a, B: Backend<Response = http::Response<RB>>, RB: ResponseBody> PutObjectRequest<'a, B> {
     /// Create a new PUT object request builder
-    pub(crate) fn new<S: AsRef<str>>(bucket: &'a Bucket, path: S, content: &[u8]) -> Self {
+    pub(crate) fn new<S: AsRef<str>>(bucket: &'a Bucket<B>, path: S, content: &[u8]) -> Self {
         Self {
             bucket,
             path: path.as_ref().to_string(),
@@ -196,17 +197,19 @@ impl<'a> PutObjectRequest<'a> {
 /// Builder for streaming PUT operations
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 #[derive(Debug, Clone)]
-pub struct PutObjectStreamRequest<'a> {
-    bucket: &'a Bucket,
+pub struct PutObjectStreamRequest<'a, B> {
+    bucket: &'a Bucket<B>,
     path: String,
     content_type: String,
     custom_headers: HeaderMap,
 }
 
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
-impl<'a> PutObjectStreamRequest<'a> {
+impl<'a, B: Backend<Response = http::Response<RB>>, RB: ResponseBody>
+    PutObjectStreamRequest<'a, B>
+{
     /// Create a new streaming PUT request builder
-    pub(crate) fn new<S: AsRef<str>>(bucket: &'a Bucket, path: S) -> Self {
+    pub(crate) fn new<S: AsRef<str>>(bucket: &'a Bucket<B>, path: S) -> Self {
         Self {
             bucket,
             path: path.as_ref().to_string(),

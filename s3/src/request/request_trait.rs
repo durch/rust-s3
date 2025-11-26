@@ -329,15 +329,15 @@ where
     Ok(status_code.as_u16())
 }
 
-struct BuildHelper<'temp, 'body> {
-    bucket: &'temp Bucket,
+struct BuildHelper<'temp, 'body, B> {
+    bucket: &'temp Bucket<B>,
     path: &'temp str,
     command: Command<'body>,
     datetime: OffsetDateTime,
 }
 
 #[maybe_async::maybe_async]
-impl<'temp, 'body> BuildHelper<'temp, 'body> {
+impl<'temp, 'body, B> BuildHelper<'temp, 'body, B> {
     async fn signing_key(&self) -> Result<Vec<u8>, S3Error> {
         signing::signing_key(
             &self.datetime,
@@ -963,8 +963,8 @@ fn make_body(command: Command<'_>) -> Result<Cow<'_, [u8]>, S3Error> {
 }
 
 #[maybe_async::maybe_async]
-pub(crate) async fn build_request<'body>(
-    bucket: &Bucket,
+pub(crate) async fn build_request<'body, B>(
+    bucket: &Bucket<B>,
     path: &str,
     command: Command<'body>,
 ) -> Result<http::Request<Cow<'body, [u8]>>, S3Error> {
@@ -1001,8 +1001,8 @@ pub(crate) async fn build_request<'body>(
 }
 
 #[maybe_async::maybe_async]
-pub(crate) async fn build_presigned(
-    bucket: &Bucket,
+pub(crate) async fn build_presigned<B>(
+    bucket: &Bucket<B>,
     path: &str,
     command: Command<'_>,
 ) -> Result<String, S3Error> {

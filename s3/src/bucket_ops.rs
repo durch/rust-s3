@@ -231,13 +231,13 @@ impl BucketConfiguration {
 }
 
 #[allow(dead_code)]
-pub struct CreateBucketResponse {
-    pub bucket: Box<Bucket>,
+pub struct CreateBucketResponse<B> {
+    pub bucket: Box<Bucket<B>>,
     pub response_text: String,
     pub response_code: u16,
 }
 
-impl CreateBucketResponse {
+impl<B> CreateBucketResponse<B> {
     pub fn success(&self) -> bool {
         self.response_code == 200
     }
