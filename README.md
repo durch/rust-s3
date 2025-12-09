@@ -26,7 +26,7 @@ a `PUT` presigned URL, meaning they can upload to a specific key in S3 for the d
 
 ```toml
 [dependencies]
-rust-s3 = "0.37"
+rust-s3 = "0.37.1"
 ```
 
 Read and run examples from the `examples` folder, make sure you have valid credentials for the variant you're running.
