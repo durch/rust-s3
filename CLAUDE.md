@@ -97,6 +97,24 @@ cargo test -- --ignored
 
 5. **Streaming**: Use `get_object_stream` and `put_object_stream` methods for large files to avoid loading entire content in memory.
 
+## PR Review and Merge Workflow
+
+When reviewing and merging external PRs, follow this workflow to preserve contributor credit while testing locally before merging to master:
+
+1. **Review** - `gh pr view <number>` and `gh pr diff <number>`
+2. **Test locally** - `gh pr checkout <number>`, run tests
+3. **Switch to release branch** - `git checkout <release-branch>`
+4. **Cherry-pick with authorship preserved**:
+   ```bash
+   git cherry-pick -x <commit-sha>
+   ```
+   The `-x` flag adds "(cherry picked from commit ...)" and preserves the original author.
+
+5. **Add your changes** (tests, fixes, etc.) as separate commits
+6. **When ready to release** - merge release branch to master. Include "Closes #xxx" in commit messages so PRs auto-close.
+
+**Important**: Don't use `git merge --squash` locally - it loses the PR association. Either cherry-pick (preserves author) or merge via GitHub (`gh pr merge --squash`) which properly closes PRs and credits contributors.
+
 ## Code Conventions
 
 - Use existing error types from `s3/src/error.rs`
