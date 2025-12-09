@@ -770,7 +770,6 @@ pub trait Request {
             let digest = md5::compute(to_string(configuration)?.as_bytes());
             let hash = general_purpose::STANDARD.encode(digest.as_ref());
             headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
-            headers.remove("x-amz-content-sha256");
         } else if let Command::PutBucketCors {
             expected_bucket_owner,
             configuration,
