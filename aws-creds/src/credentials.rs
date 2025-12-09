@@ -296,6 +296,7 @@ impl Credentials {
         #[cfg(feature = "http-credentials")]
         let credentials = credentials
             .or_else(|_| Credentials::from_sts_env("aws-creds"))
+            .or_else(|_| Credentials::from_container_credentials_provider())
             .or_else(|_| Credentials::from_instance_metadata_v2(false))
             .or_else(|_| Credentials::from_instance_metadata(false));
 
@@ -327,37 +328,45 @@ impl Credentials {
     }
 
     #[cfg(feature = "http-credentials")]
+    pub fn from_container_credentials_provider() -> Result<Credentials, CredentialsError> {
+        let Ok(credentials_path) = env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") else {
+            return Err(CredentialsError::NotContainer);
+        };
+
+        let resp: CredentialsFromInstanceMetadata = apply_timeout(attohttpc::get(format!(
+            "http://169.254.170.2{}",
+            credentials_path
+        )))
+        .send()?
+        .json()?;
+
+        Ok(Credentials {
+            access_key: Some(resp.access_key_id),
+            secret_key: Some(resp.secret_access_key),
+            security_token: Some(resp.token),
+            expiration: Some(resp.expiration),
+            session_token: None,
+        })
+    }
+
+    #[cfg(feature = "http-credentials")]
     pub fn from_instance_metadata(not_ec2: bool) -> Result<Credentials, CredentialsError> {
-        let resp: CredentialsFromInstanceMetadata =
-            match env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
-                Ok(credentials_path) => {
-                    // We are on ECS
-                    apply_timeout(attohttpc::get(format!(
-                        "http://169.254.170.2{}",
-                        credentials_path
-                    )))
-                    .send()?
-                    .json()?
-                }
-                Err(_) => {
-                    if !not_ec2 && !is_ec2() {
-                        return Err(CredentialsError::NotEc2);
-                    }
+        if !not_ec2 && !is_ec2() {
+            return Err(CredentialsError::NotEc2);
+        }
 
-                    let role = apply_timeout(attohttpc::get(
-                        "http://169.254.169.254/latest/meta-data/iam/security-credentials",
-                    ))
-                    .send()?
-                    .text()?;
+        let role = apply_timeout(attohttpc::get(
+            "http://169.254.169.254/latest/meta-data/iam/security-credentials",
+        ))
+        .send()?
+        .text()?;
 
-                    apply_timeout(attohttpc::get(format!(
-                        "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
-                        role
-                    )))
-                    .send()?
-                    .json()?
-                }
-            };
+        let resp: CredentialsFromInstanceMetadata = apply_timeout(attohttpc::get(format!(
+            "http://169.254.169.254/latest/meta-data/iam/security-credentials/{}",
+            role
+        )))
+        .send()?
+        .json()?;
 
         Ok(Credentials {
             access_key: Some(resp.access_key_id),

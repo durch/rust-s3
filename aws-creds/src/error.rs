@@ -4,6 +4,8 @@ use thiserror::Error;
 pub enum CredentialsError {
     #[error("Not an AWS instance")]
     NotEc2,
+    #[error("Not a container")]
+    NotContainer,
     #[error("Config not found")]
     ConfigNotFound,
     #[error("Missing aws_access_key_id section in config")]
