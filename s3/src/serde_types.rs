@@ -607,7 +607,7 @@ impl AbortIncompleteMultipartUpload {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Expiration {
     /// Indicates at what date the object is to be moved or deleted. The date value must conform to the ISO 8601 format. The time is always midnight UTC.
     #[serde(rename = "Date", skip_serializing_if = "Option::is_none")]
@@ -638,7 +638,7 @@ impl Expiration {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct LifecycleFilter {
     #[serde(rename = "And", skip_serializing_if = "Option::is_none")]
     pub and: Option<And>,

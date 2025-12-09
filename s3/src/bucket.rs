@@ -1186,7 +1186,7 @@ impl Bucket {
         end: Option<u64>,
     ) -> Result<ResponseData, S3Error> {
         if let Some(end) = end {
-            assert!(start < end);
+            assert!(start <= end);
         }
 
         let command = Command::GetObjectRange { start, end };
@@ -1247,7 +1247,7 @@ impl Bucket {
         S: AsRef<str>,
     {
         if let Some(end) = end {
-            assert!(start < end);
+            assert!(start <= end);
         }
 
         let command = Command::GetObjectRange { start, end };
@@ -1264,7 +1264,7 @@ impl Bucket {
         writer: &mut T,
     ) -> Result<u16, S3Error> {
         if let Some(end) = end {
-            assert!(start < end);
+            assert!(start <= end);
         }
 
         let command = Command::GetObjectRange { start, end };
@@ -2316,8 +2316,13 @@ impl Bucket {
         content: &[u8],
         custom_headers: Option<HeaderMap>,
     ) -> Result<ResponseData, S3Error> {
-        self.put_object_with_content_type_and_headers(path, content, "application/octet-stream", custom_headers)
-            .await
+        self.put_object_with_content_type_and_headers(
+            path,
+            content,
+            "application/octet-stream",
+            custom_headers,
+        )
+        .await
     }
 
     /// Put into an S3 bucket.
@@ -3014,10 +3019,12 @@ mod test {
     use crate::creds::Credentials;
     use crate::post_policy::{PostPolicyField, PostPolicyValue};
     use crate::region::Region;
-    use crate::serde_types::CorsConfiguration;
-    use crate::serde_types::CorsRule;
+    use crate::serde_types::{
+        BucketLifecycleConfiguration, CorsConfiguration, CorsRule, Expiration, LifecycleFilter,
+        LifecycleRule,
+    };
     use crate::{Bucket, PostPolicy};
-    use http::header::{HeaderMap, HeaderName, HeaderValue, CACHE_CONTROL};
+    use http::header::{CACHE_CONTROL, HeaderMap, HeaderName, HeaderValue};
     use std::env;
 
     fn init() {
@@ -3185,6 +3192,15 @@ mod test {
             .unwrap();
         assert_eq!(response_data.status_code(), 206);
         assert_eq!(test[100..1001].to_vec(), response_data.as_slice());
+
+        // Test single-byte range read (start == end)
+        let response_data = bucket
+            .get_object_range(s3_path, 100, Some(100))
+            .await
+            .unwrap();
+        assert_eq!(response_data.status_code(), 206);
+        assert_eq!(vec![test[100]], response_data.as_slice());
+
         if head {
             let (_head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
             // println!("{:?}", head_object_result);
@@ -3205,7 +3221,10 @@ mod test {
 
         let mut custom_headers = HeaderMap::new();
         custom_headers.insert(CACHE_CONTROL, HeaderValue::from_static(header_value));
-        custom_headers.insert(HeaderName::from_static("test-key"), "value".parse().unwrap());
+        custom_headers.insert(
+            HeaderName::from_static("test-key"),
+            "value".parse().unwrap(),
+        );
 
         let response_data = bucket
             .put_object_with_headers(s3_path, &test, Some(custom_headers.clone()))
@@ -3233,7 +3252,10 @@ mod test {
         let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
         // println!("{:?}", head_object_result);
         assert_eq!(code, 200);
-        assert_eq!(head_object_result.cache_control, Some(header_value.to_string()));
+        assert_eq!(
+            head_object_result.cache_control,
+            Some(header_value.to_string())
+        );
 
         let response_data = bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 204);
@@ -3559,6 +3581,13 @@ mod test {
             .unwrap();
         assert_eq!(response_data.status_code(), 206);
         assert_eq!(test[100..1001].to_vec(), response_data.as_slice());
+
+        // Test single-byte range read (start == end)
+        let response_data = bucket
+            .get_object_range_blocking(s3_path, 100, Some(100))
+            .unwrap();
+        assert_eq!(response_data.status_code(), 206);
+        assert_eq!(vec![test[100]], response_data.as_slice());
 
         // Test HeadObject
         let (head_object_result, code) = bucket.head_object_blocking(s3_path).unwrap();
@@ -4069,6 +4098,51 @@ mod test {
             .delete_bucket_cors(expected_bucket_owner)
             .await
             .unwrap();
+        assert_eq!(response.status_code(), 204);
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    #[ignore]
+    async fn test_bucket_lifecycle() {
+        let bucket = test_aws_bucket();
+
+        // Create a simple lifecycle rule that expires objects with prefix "test/" after 1 day
+        let rule = LifecycleRule::builder("Enabled")
+            .id("test-rule")
+            .filter(LifecycleFilter {
+                prefix: Some("test/".to_string()),
+                ..Default::default()
+            })
+            .expiration(Expiration {
+                days: Some(1),
+                ..Default::default()
+            })
+            .build();
+
+        let lifecycle_config = BucketLifecycleConfiguration::new(vec![rule]);
+
+        // Test put_bucket_lifecycle
+        let response = bucket
+            .put_bucket_lifecycle(lifecycle_config.clone())
+            .await
+            .unwrap();
+        assert_eq!(response.status_code(), 200);
+
+        // Test get_bucket_lifecycle
+        let retrieved_config = bucket.get_bucket_lifecycle().await.unwrap();
+        assert_eq!(retrieved_config.rules.len(), 1);
+        assert_eq!(retrieved_config.rules[0].id, Some("test-rule".to_string()));
+        assert_eq!(retrieved_config.rules[0].status, "Enabled");
+
+        // Test delete_bucket_lifecycle
+        let response = bucket.delete_bucket_lifecycle().await.unwrap();
         assert_eq!(response.status_code(), 204);
     }
 
