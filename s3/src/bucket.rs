@@ -1186,7 +1186,7 @@ impl Bucket {
         end: Option<u64>,
     ) -> Result<ResponseData, S3Error> {
         if let Some(end) = end {
-            assert!(start < end);
+            assert!(start <= end);
         }
 
         let command = Command::GetObjectRange { start, end };
@@ -1247,7 +1247,7 @@ impl Bucket {
         S: AsRef<str>,
     {
         if let Some(end) = end {
-            assert!(start < end);
+            assert!(start <= end);
         }
 
         let command = Command::GetObjectRange { start, end };
@@ -1264,7 +1264,7 @@ impl Bucket {
         writer: &mut T,
     ) -> Result<u16, S3Error> {
         if let Some(end) = end {
-            assert!(start < end);
+            assert!(start <= end);
         }
 
         let command = Command::GetObjectRange { start, end };
@@ -3185,6 +3185,15 @@ mod test {
             .unwrap();
         assert_eq!(response_data.status_code(), 206);
         assert_eq!(test[100..1001].to_vec(), response_data.as_slice());
+
+        // Test single-byte range read (start == end)
+        let response_data = bucket
+            .get_object_range(s3_path, 100, Some(100))
+            .await
+            .unwrap();
+        assert_eq!(response_data.status_code(), 206);
+        assert_eq!(vec![test[100]], response_data.as_slice());
+
         if head {
             let (_head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
             // println!("{:?}", head_object_result);
@@ -3559,6 +3568,13 @@ mod test {
             .unwrap();
         assert_eq!(response_data.status_code(), 206);
         assert_eq!(test[100..1001].to_vec(), response_data.as_slice());
+
+        // Test single-byte range read (start == end)
+        let response_data = bucket
+            .get_object_range_blocking(s3_path, 100, Some(100))
+            .unwrap();
+        assert_eq!(response_data.status_code(), 206);
+        assert_eq!(vec![test[100]], response_data.as_slice());
 
         // Test HeadObject
         let (head_object_result, code) = bucket.head_object_blocking(s3_path).unwrap();
