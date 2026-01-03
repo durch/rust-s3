@@ -696,6 +696,15 @@ pub trait Request {
             }
         }
 
+        // Append custom headers for InitiateMultipartUpload request if any
+        if let Command::InitiateMultipartUpload { custom_headers, .. } = self.command()
+            && let Some(custom_headers) = custom_headers
+        {
+            for (k, v) in custom_headers.iter() {
+                headers.insert(k.clone(), v.clone());
+            }
+        }
+
         let host_header = self.host_header();
 
         headers.insert(HOST, host_header.parse()?);

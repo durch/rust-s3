@@ -134,6 +134,7 @@ pub enum Command<'a> {
     },
     InitiateMultipartUpload {
         content_type: &'a str,
+        custom_headers: Option<HeaderMap>,
     },
     UploadPart {
         part_number: u32,
@@ -258,7 +259,7 @@ impl<'a> Command<'a> {
 
     pub fn content_type(&self) -> String {
         match self {
-            Command::InitiateMultipartUpload { content_type } => content_type.to_string(),
+            Command::InitiateMultipartUpload { content_type, .. } => content_type.to_string(),
             Command::PutObject { content_type, .. } => content_type.to_string(),
             Command::CompleteMultipartUpload { .. }
             | Command::PutBucketLifecycle { .. }
