@@ -1664,7 +1664,7 @@ impl Bucket {
         }
 
         let msg = self
-            .initiate_multipart_upload(s3_path, content_type)
+            .initiate_multipart_upload(s3_path, content_type, custom_headers)
             .await?;
         let path = msg.key;
         let upload_id = &msg.upload_id;
@@ -1806,7 +1806,7 @@ impl Bucket {
         s3_path: &str,
         content_type: &str,
     ) -> Result<u16, S3Error> {
-        let msg = self.initiate_multipart_upload(s3_path, content_type)?;
+        let msg = self.initiate_multipart_upload(s3_path, content_type, None)?;
         let path = msg.key;
         let upload_id = &msg.upload_id;
 
@@ -1859,8 +1859,12 @@ impl Bucket {
         &self,
         s3_path: &str,
         content_type: &str,
+        custom_headers: Option<HeaderMap>,
     ) -> Result<InitiateMultipartUploadResponse, S3Error> {
-        let command = Command::InitiateMultipartUpload { content_type };
+        let command = Command::InitiateMultipartUpload {
+            content_type,
+            custom_headers,
+        };
         let request = RequestImpl::new(self, s3_path, command).await?;
         let response_data = request.response_data(false).await?;
         if response_data.status_code() >= 300 {
@@ -1877,8 +1881,12 @@ impl Bucket {
         &self,
         s3_path: &str,
         content_type: &str,
+        custom_headers: Option<HeaderMap>,
     ) -> Result<InitiateMultipartUploadResponse, S3Error> {
-        let command = Command::InitiateMultipartUpload { content_type };
+        let command = Command::InitiateMultipartUpload {
+            content_type,
+            custom_headers,
+        };
         let request = RequestImpl::new(self, s3_path, command)?;
         let response_data = request.response_data(false)?;
         if response_data.status_code() >= 300 {
