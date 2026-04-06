@@ -730,24 +730,24 @@ pub trait Request {
 
         headers.insert(HOST, host_header.parse()?);
 
-        match self.command() {
-            Command::CopyObject { from } => {
-                headers.insert(HeaderName::from_static("x-amz-copy-source"), from.parse()?);
-            }
-            Command::ListObjects { .. } => {}
-            Command::ListObjectsV2 { .. } => {}
-            Command::HeadObject => {}
-            Command::GetObject => {}
-            Command::GetObjectTagging => {}
-            Command::GetBucketLocation => {}
-            Command::ListBuckets => {}
-            _ => {
-                headers.insert(
-                    CONTENT_LENGTH,
-                    self.command().content_length()?.to_string().parse()?,
-                );
-                headers.insert(CONTENT_TYPE, self.command().content_type().parse()?);
-            }
+        if let Command::CopyObject { from } = self.command() {
+            headers.insert(HeaderName::from_static("x-amz-copy-source"), from.parse()?);
+        }
+
+        // Include content-length and content-type only for commands that
+        // either carry a request body or are otherwise required by some
+        // providers to advertise these headers (see Command::has_body).
+        // Body-less GET/HEAD/DELETE/CopyObject must not sign these headers,
+        // otherwise Cloudflare R2 rejects the AWS4-HMAC-SHA256 signature
+        // because the empty content-length value corrupts the canonical
+        // request. InitiateMultipartUpload is included because GCS returns
+        // HTTP 411 on a POST without Content-Length, even with an empty body.
+        if self.command().has_body() {
+            headers.insert(
+                CONTENT_LENGTH,
+                self.command().content_length()?.to_string().parse()?,
+            );
+            headers.insert(CONTENT_TYPE, self.command().content_type().parse()?);
         }
         headers.insert(
             HeaderName::from_static("x-amz-content-sha256"),
