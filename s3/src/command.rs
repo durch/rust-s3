@@ -211,6 +211,21 @@ impl<'a> Command<'a> {
         }
     }
 
+    /// Whether this command carries a request body that should be reflected
+    /// in `Content-Length` and `Content-Type` headers during signing.
+    pub fn has_body(&self) -> bool {
+        matches!(
+            self,
+            Command::PutObject { .. }
+                | Command::PutObjectTagging { .. }
+                | Command::UploadPart { .. }
+                | Command::CompleteMultipartUpload { .. }
+                | Command::CreateBucket { .. }
+                | Command::PutBucketLifecycle { .. }
+                | Command::PutBucketCors { .. }
+        )
+    }
+
     pub fn content_length(&self) -> Result<usize, S3Error> {
         let result = match &self {
             Command::CopyObject { from: _ } => 0,

@@ -11,7 +11,7 @@ use url::Url;
 
 use crate::LONG_DATETIME;
 use crate::bucket::Bucket;
-use crate::command::Command;
+use crate::command::{Command, HttpMethod};
 use crate::error::S3Error;
 use crate::signing;
 use bytes::Bytes;
@@ -700,16 +700,17 @@ pub trait Request {
 
         headers.insert(HOST, host_header.parse()?);
 
-        match self.command() {
-            Command::CopyObject { from } => {
-                headers.insert(HeaderName::from_static("x-amz-copy-source"), from.parse()?);
-            }
-            Command::ListObjects { .. } => {}
-            Command::ListObjectsV2 { .. } => {}
-            Command::GetObject => {}
-            Command::GetObjectTagging => {}
-            Command::GetBucketLocation => {}
-            Command::ListBuckets => {}
+        if let Command::CopyObject { from } = self.command() {
+            headers.insert(HeaderName::from_static("x-amz-copy-source"), from.parse()?);
+        }
+
+        // Only include content-length and content-type for methods that carry
+        // a request body. GET and HEAD requests must not have these headers in
+        // the signed request, otherwise providers like Cloudflare R2 reject
+        // the signature (the empty content-length value corrupts the canonical
+        // request).
+        match self.command().http_verb() {
+            HttpMethod::Get | HttpMethod::Head => {}
             _ => {
                 headers.insert(
                     CONTENT_LENGTH,
