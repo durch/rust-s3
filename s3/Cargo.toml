@@ -97,6 +97,7 @@ http-credentials = ["aws-creds/http-credentials"]
 
 tokio-native-tls = ["aws-creds/native-tls", "reqwest/native-tls", "with-tokio"]
 tokio-rustls-tls = ["aws-creds/rustls-tls", "reqwest/rustls-tls", "with-tokio"]
+tokio-rustls-tls-ring = ["aws-creds/rustls-tls-ring", "reqwest/rustls-tls", "with-tokio"]
 
 async-std-native-tls = [
     "aws-creds/native-tls",
