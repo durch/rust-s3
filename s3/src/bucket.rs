@@ -3014,7 +3014,16 @@ impl Bucket {
     any(feature = "with-tokio", feature = "with-async-std")
 ))]
 fn cgroup_available_memory() -> Option<u64> {
-    cgroup_v2_available_memory().or_else(cgroup_v1_available_memory)
+    if let Some(mem) = cgroup_v2_available_memory() {
+        log::debug!("cgroup v2 memory detected: {} bytes available", mem);
+        return Some(mem);
+    }
+    if let Some(mem) = cgroup_v1_available_memory() {
+        log::debug!("cgroup v1 memory detected: {} bytes available", mem);
+        return Some(mem);
+    }
+    log::debug!("no cgroup memory limit detected, falling back to sysinfo");
+    None
 }
 
 #[cfg(all(
@@ -3025,16 +3034,15 @@ fn cgroup_available_memory() -> Option<u64> {
     None
 }
 
-/// Read the process's cgroup path from /proc/self/cgroup.
+/// Parse a cgroup path from the contents of `/proc/self/cgroup`.
 ///
-/// For cgroup v2, looks for the `0::` unified hierarchy entry.
-/// For cgroup v1, looks for the `memory` controller entry.
+/// For cgroup v2 (`controller == "v2"`), looks for the `0::` unified hierarchy entry.
+/// For cgroup v1, looks for the entry whose controllers field contains `controller`.
 #[cfg(all(
     target_os = "linux",
     any(feature = "with-tokio", feature = "with-async-std")
 ))]
-fn read_cgroup_path(controller: &str) -> Option<String> {
-    let content = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+fn parse_cgroup_path(content: &str, controller: &str) -> Option<String> {
     for line in content.lines() {
         let parts: Vec<&str> = line.splitn(3, ':').collect();
         if parts.len() != 3 {
@@ -3063,6 +3071,19 @@ fn read_cgroup_path(controller: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Read the process's cgroup path from /proc/self/cgroup.
+///
+/// For cgroup v2, looks for the `0::` unified hierarchy entry.
+/// For cgroup v1, looks for the `memory` controller entry.
+#[cfg(all(
+    target_os = "linux",
+    any(feature = "with-tokio", feature = "with-async-std")
+))]
+fn read_cgroup_path(controller: &str) -> Option<String> {
+    let content = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+    parse_cgroup_path(&content, controller)
 }
 
 /// Read available memory from cgroup v2 memory controller.
@@ -4344,78 +4365,55 @@ mod test {
 #[cfg(test)]
 #[cfg(target_os = "linux")]
 mod cgroup_tests {
+    use super::parse_cgroup_path;
     use std::fs;
 
     #[test]
-    fn test_read_cgroup_path_v2() {
-        // This test verifies parsing logic; actual /proc/self/cgroup is read,
-        // so we test the parsing helper directly via the public functions
-        // with fake cgroup filesystem trees.
-
-        // Verify that read_cgroup_path correctly parses v2 entries
+    fn test_parse_cgroup_path_v2() {
         let content = "0::/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-podabc.slice/cri-containerd-xyz.scope\n";
-        let mut found = None;
-        for line in content.lines() {
-            let parts: Vec<&str> = line.splitn(3, ':').collect();
-            if parts.len() == 3 && parts[0] == "0" && parts[1].is_empty() {
-                let path = parts[2].trim();
-                if !path.is_empty() && path != "/" {
-                    found = Some(path.to_string());
-                }
-            }
-        }
         assert_eq!(
-            found,
+            parse_cgroup_path(content, "v2"),
             Some("/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-podabc.slice/cri-containerd-xyz.scope".to_string())
         );
     }
 
     #[test]
-    fn test_read_cgroup_path_v1() {
+    fn test_parse_cgroup_path_v1() {
         let content = "12:devices:/kubepods/podabc/xyz\n5:memory:/kubepods/podabc/xyz\n1:name=systemd:/kubepods/podabc/xyz\n";
-        let mut found = None;
-        for line in content.lines() {
-            let parts: Vec<&str> = line.splitn(3, ':').collect();
-            if parts.len() == 3 {
-                let controllers = parts[1];
-                if controllers.split(',').any(|c| c == "memory") {
-                    let path = parts[2].trim();
-                    if !path.is_empty() && path != "/" {
-                        found = Some(path.to_string());
-                    }
-                }
-            }
-        }
-        assert_eq!(found, Some("/kubepods/podabc/xyz".to_string()));
+        assert_eq!(
+            parse_cgroup_path(content, "memory"),
+            Some("/kubepods/podabc/xyz".to_string())
+        );
     }
 
     #[test]
-    fn test_read_cgroup_path_v2_root_returns_root() {
+    fn test_parse_cgroup_path_v2_root_returns_root() {
         // When cgroup path is "/", this is common with private cgroup namespaces
         // (Docker default, Kubernetes since 1.25). The memory files live at
         // /sys/fs/cgroup/ directly, so we return Some("/").
         let content = "0::/\n";
-        let mut found = None;
-        for line in content.lines() {
-            let parts: Vec<&str> = line.splitn(3, ':').collect();
-            if parts.len() == 3 && parts[0] == "0" && parts[1].is_empty() {
-                let path = parts[2].trim();
-                if !path.is_empty() {
-                    found = Some(path.to_string());
-                }
-            }
-        }
-        assert_eq!(found, Some("/".to_string()));
+        assert_eq!(parse_cgroup_path(content, "v2"), Some("/".to_string()));
+    }
+
+    #[test]
+    fn test_parse_cgroup_path_v1_root_returns_none() {
+        // cgroup v1 with root path "/" means no constraint, should return None.
+        let content = "5:memory:/\n";
+        assert_eq!(parse_cgroup_path(content, "memory"), None);
+    }
+
+    #[test]
+    fn test_parse_cgroup_path_no_match() {
+        let content = "0::/some/path\n";
+        assert_eq!(parse_cgroup_path(content, "memory"), None);
     }
 
     #[test]
     fn test_cgroup_v2_available_memory_with_limit() {
-        // Test that cgroup_v2_available_memory works end-to-end when we can
-        // control the filesystem. This test only works if /proc/self/cgroup
-        // has a v2 entry pointing to a path we can create under /tmp.
-        // Since we can't fake /proc/self/cgroup, test the file parsing logic.
-
-        let tmpdir = std::env::temp_dir().join("rust_s3_cgroup_test_v2");
+        let tmpdir = std::env::temp_dir().join(format!(
+            "rust_s3_cgroup_test_v2_{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&tmpdir);
         let cgroup_dir = tmpdir.join("kubepods.slice/test.scope");
         fs::create_dir_all(&cgroup_dir).unwrap();
@@ -4424,10 +4422,16 @@ mod cgroup_tests {
         fs::write(cgroup_dir.join("memory.current"), "57053184\n").unwrap();
 
         // Parse memory.max and memory.current directly (simulating what cgroup_v2 does)
-        let max_str = fs::read_to_string(cgroup_dir.join("memory.max")).unwrap();
-        let max: u64 = max_str.trim().parse().unwrap();
-        let current_str = fs::read_to_string(cgroup_dir.join("memory.current")).unwrap();
-        let current: u64 = current_str.trim().parse().unwrap();
+        let max: u64 = fs::read_to_string(cgroup_dir.join("memory.max"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let current: u64 = fs::read_to_string(cgroup_dir.join("memory.current"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
 
         assert_eq!(max.saturating_sub(current), 77164544);
 
@@ -4437,14 +4441,16 @@ mod cgroup_tests {
     #[test]
     fn test_cgroup_v2_unlimited_returns_none() {
         let max_str = "max\n";
-        let trimmed = max_str.trim();
-        assert_eq!(trimmed, "max");
+        assert_eq!(max_str.trim(), "max");
         // When "max", our function returns None (unlimited)
     }
 
     #[test]
     fn test_cgroup_v1_available_memory_with_limit() {
-        let tmpdir = std::env::temp_dir().join("rust_s3_cgroup_test_v1");
+        let tmpdir = std::env::temp_dir().join(format!(
+            "rust_s3_cgroup_test_v1_{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&tmpdir);
         let cgroup_dir = tmpdir.join("kubepods/podabc/xyz");
         fs::create_dir_all(&cgroup_dir).unwrap();
@@ -4452,10 +4458,16 @@ mod cgroup_tests {
         fs::write(cgroup_dir.join("memory.limit_in_bytes"), "536870912\n").unwrap();
         fs::write(cgroup_dir.join("memory.usage_in_bytes"), "268435456\n").unwrap();
 
-        let limit_str = fs::read_to_string(cgroup_dir.join("memory.limit_in_bytes")).unwrap();
-        let limit: u64 = limit_str.trim().parse().unwrap();
-        let usage_str = fs::read_to_string(cgroup_dir.join("memory.usage_in_bytes")).unwrap();
-        let usage: u64 = usage_str.trim().parse().unwrap();
+        let limit: u64 = fs::read_to_string(cgroup_dir.join("memory.limit_in_bytes"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let usage: u64 = fs::read_to_string(cgroup_dir.join("memory.usage_in_bytes"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
 
         assert_eq!(limit.saturating_sub(usage), 268435456);
 
@@ -4468,18 +4480,6 @@ mod cgroup_tests {
         let limit: u64 = 0x7FFF_FFFF_FFFF_F000;
         assert!(limit >= 0x7FFF_FFFF_FFFF_F000);
         // Our function would return None for this
-    }
-
-    #[test]
-    fn test_cgroup_available_memory_returns_none_when_no_cgroup() {
-        // On a system without cgroup constraints (or when /proc/self/cgroup
-        // shows root path), cgroup_available_memory should return None.
-        // This is inherently tested by the fallback behavior.
-        // Here we verify the non-Linux stub:
-        #[cfg(not(target_os = "linux"))]
-        {
-            assert!(cgroup_available_memory().is_none());
-        }
     }
 
     #[test]
