@@ -1025,17 +1025,8 @@ impl Bucket {
     pub async fn object_exists<S: AsRef<str>>(&self, path: S) -> Result<bool, S3Error> {
         let command = Command::HeadObject;
         let request = RequestImpl::new(self, path.as_ref(), command).await?;
-        let response_data = match request.response_data(false).await {
-            Ok(response_data) => response_data,
-            Err(S3Error::HttpFailWithBody(status_code, error)) => {
-                if status_code == 404 {
-                    return Ok(false);
-                }
-                return Err(S3Error::HttpFailWithBody(status_code, error));
-            }
-            Err(e) => return Err(e),
-        };
-        Ok(response_data.status_code() != 404)
+        let status_code = request.response_status().await?;
+        Ok(status_code != 404)
     }
 
     #[maybe_async::maybe_async]
@@ -3113,9 +3104,73 @@ mod test {
     use crate::{Bucket, PostPolicy};
     use http::header::{CACHE_CONTROL, HeaderMap, HeaderName, HeaderValue};
     use std::env;
+    #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
+    use std::io::{Read, Write};
+    #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
+    use std::net::TcpListener;
+    #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
+    use std::thread;
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
+    #[tokio::test]
+    async fn test_object_exists_404_does_not_retry() {
+        init();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let requests = Arc::new(AtomicUsize::new(0));
+        let request_count = Arc::clone(&requests);
+
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            request_count.fetch_add(1, Ordering::SeqCst);
+
+            let mut buffer = [0; 2048];
+            let _ = stream.read(&mut buffer).unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+        });
+
+        crate::set_retries(1);
+
+        let credentials = Credentials::new(
+            Some("test_access_key"),
+            Some("test_secret_key"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let bucket = Bucket::new(
+            "test-bucket",
+            Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint,
+            },
+            credentials,
+        )
+        .unwrap()
+        .with_path_style();
+
+        let exists = bucket.object_exists("/missing.txt").await.unwrap();
+
+        crate::set_retries(1);
+        server.join().unwrap();
+
+        assert!(!exists);
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
     }
 
     fn test_aws_credentials() -> Credentials {

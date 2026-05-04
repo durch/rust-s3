@@ -79,6 +79,43 @@ impl<'a> Request for AttoRequest<'a> {
         Ok(response)
     }
 
+    fn response_status(&self) -> Result<u16, S3Error> {
+        crate::retry! {
+            {
+                let headers = self.headers()?;
+                let mut session = attohttpc::Session::new();
+
+                for (name, value) in headers.iter() {
+                    session.header(HeaderName::from_bytes(name.as_ref())?, value.to_str()?);
+                }
+
+                if let Some(timeout) = self.bucket.request_timeout {
+                    session.timeout(timeout)
+                }
+
+                let request = match self.command.http_verb() {
+                    HttpMethod::Get => session.get(self.url()?),
+                    HttpMethod::Delete => session.delete(self.url()?),
+                    HttpMethod::Put => session.put(self.url()?),
+                    HttpMethod::Post => session.post(self.url()?),
+                    HttpMethod::Head => session.head(self.url()?),
+                };
+
+                let response = request.bytes(&self.request_body()?).send()?;
+                let status = response.status().as_u16();
+
+                if status == 404 {
+                    Ok(status)
+                } else if cfg!(feature = "fail-on-err") && !response.status().is_success() {
+                    let text = response.text()?;
+                    Err(S3Error::HttpFailWithBody(status, text))
+                } else {
+                    Ok(status)
+                }
+            }
+        }
+    }
+
     fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
         let response = crate::retry! {self.response()}?;
         let status_code = response.status().as_u16();

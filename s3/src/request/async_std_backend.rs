@@ -84,6 +84,47 @@ impl<'a> Request for SurfRequest<'a> {
         Ok(response)
     }
 
+    async fn response_status(&self) -> Result<u16, S3Error> {
+        crate::retry! {
+            async {
+                let headers = self.headers().await?;
+
+                let request = match self.command.http_verb() {
+                    HttpMethod::Get => surf::Request::builder(Method::Get, self.url()?),
+                    HttpMethod::Delete => surf::Request::builder(Method::Delete, self.url()?),
+                    HttpMethod::Put => surf::Request::builder(Method::Put, self.url()?),
+                    HttpMethod::Post => surf::Request::builder(Method::Post, self.url()?),
+                    HttpMethod::Head => surf::Request::builder(Method::Head, self.url()?),
+                };
+
+                let mut request = request.body(self.request_body()?);
+
+                for (name, value) in headers.iter() {
+                    request = request.header(
+                        HeaderName::from_bytes(AsRef::<[u8]>::as_ref(&name).to_vec())
+                            .expect("Could not parse heaeder name"),
+                        HeaderValue::from_bytes(AsRef::<[u8]>::as_ref(&value).to_vec())
+                            .expect("Could not parse header value"),
+                    );
+                }
+
+                let response = request
+                    .send()
+                    .await
+                    .map_err(|e| S3Error::Surf(e.to_string()))?;
+                let status = u16::from(response.status());
+
+                if status == 404 {
+                    Ok(status)
+                } else if cfg!(feature = "fail-on-err") && !response.status().is_success() {
+                    Err(S3Error::HttpFail)
+                } else {
+                    Ok(status)
+                }
+            }.await
+        }
+    }
+
     async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
         let mut response = crate::retry! {self.response().await}?;
         let status_code = response.status();

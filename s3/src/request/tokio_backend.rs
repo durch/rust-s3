@@ -117,6 +117,56 @@ impl<'a> Request for ReqwestRequest<'a> {
         Ok(response)
     }
 
+    async fn response_status(&self) -> Result<u16, S3Error> {
+        retry! {
+            async {
+                let headers = self
+                    .headers()
+                    .await?
+                    .iter()
+                    .map(|(k, v)| {
+                        (
+                            reqwest::header::HeaderName::from_str(k.as_str()),
+                            reqwest::header::HeaderValue::from_str(v.to_str().unwrap_or_default()),
+                        )
+                    })
+                    .filter(|(k, v)| k.is_ok() && v.is_ok())
+                    .map(|(k, v)| (k.unwrap(), v.unwrap()))
+                    .collect();
+
+                let client = self.bucket.http_client();
+
+                let method = match self.command.http_verb() {
+                    HttpMethod::Delete => reqwest::Method::DELETE,
+                    HttpMethod::Get => reqwest::Method::GET,
+                    HttpMethod::Post => reqwest::Method::POST,
+                    HttpMethod::Put => reqwest::Method::PUT,
+                    HttpMethod::Head => reqwest::Method::HEAD,
+                };
+
+                let request = client
+                    .request(method, self.url()?.as_str())
+                    .headers(headers)
+                    .body(self.request_body()?);
+
+                let request = request.build()?;
+                let response = client.execute(request).await?;
+                let status = response.status().as_u16();
+
+                if status == 404 {
+                    return Ok(status);
+                }
+
+                if cfg!(feature = "fail-on-err") && !response.status().is_success() {
+                    let text = response.text().await?;
+                    return Err(S3Error::HttpFailWithBody(status, text));
+                }
+
+                Ok(status)
+            }.await
+        }
+    }
+
     async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
         let response = retry! {self.response().await }?;
         let status_code = response.status().as_u16();

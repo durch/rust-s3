@@ -210,6 +210,10 @@ pub trait Request {
     #[cfg(any(feature = "with-async-std", feature = "with-tokio"))]
     async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error>;
     async fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error>;
+    async fn response_status(&self) -> Result<u16, S3Error> {
+        let (_, status_code) = self.response_header().await?;
+        Ok(status_code)
+    }
     fn datetime(&self) -> OffsetDateTime;
     fn bucket(&self) -> Bucket;
     fn command(&self) -> Command<'_>;
