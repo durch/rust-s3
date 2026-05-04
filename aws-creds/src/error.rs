@@ -6,6 +6,9 @@ pub enum CredentialsError {
     NotEc2,
     #[error("Not a container")]
     NotContainer,
+    #[cfg(feature = "http-credentials")]
+    #[error("invalid AWS_CONTAINER_CREDENTIALS_FULL_URI for authorization token: {0}")]
+    InvalidContainerCredentialsFullUri(String),
     #[error("Config not found")]
     ConfigNotFound,
     #[error("Missing aws_access_key_id section in config")]
