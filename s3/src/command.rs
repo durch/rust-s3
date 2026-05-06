@@ -215,14 +215,31 @@ impl<'a> Command<'a> {
         }
     }
 
-    /// Whether this command carries a request body that should be reflected
-    /// in `Content-Length` and `Content-Type` headers during signing.
+    /// Whether this command should include `Content-Length` and `Content-Type`
+    /// headers in the signed request.
+    ///
+    /// Returns `true` for commands that serialize a request body, plus
+    /// `InitiateMultipartUpload`. The latter is a `POST` with an empty body
+    /// but is included because:
+    ///
+    /// - Google Cloud Storage rejects the request with HTTP 411 if
+    ///   `Content-Length` is omitted from a `POST`, even when the body is
+    ///   empty.
+    /// - The `Content-Type` value carried by `InitiateMultipartUpload` is
+    ///   not a description of the (empty) request body but the content type
+    ///   to associate with the eventual multipart object on the server.
+    ///
+    /// Body-less `GET`, `HEAD`, and `DELETE` commands return `false` so that
+    /// stray `Content-Length: 0` / `Content-Type: text/plain` headers do
+    /// not enter the AWS4-HMAC-SHA256 canonical request, which Cloudflare
+    /// R2 rejects as a signature mismatch (notably for ranged `GET`s).
     pub fn has_body(&self) -> bool {
         matches!(
             self,
             Command::PutObject { .. }
                 | Command::PutObjectTagging { .. }
                 | Command::UploadPart { .. }
+                | Command::InitiateMultipartUpload { .. }
                 | Command::CompleteMultipartUpload { .. }
                 | Command::CreateBucket { .. }
                 | Command::PutBucketLifecycle { .. }
@@ -381,5 +398,67 @@ impl<'a> Command<'a> {
             }
         };
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Body-less `GET`s (notably ranged `GET`) must not advertise body
+    /// headers, otherwise Cloudflare R2 rejects the AWS4-HMAC-SHA256
+    /// signature for ranged downloads.
+    #[test]
+    fn ranged_get_does_not_have_body() {
+        let cmd = Command::GetObjectRange {
+            start: 0,
+            end: Some(1023),
+        };
+        assert!(!cmd.has_body());
+        assert!(!Command::GetObject.has_body());
+        assert!(!Command::HeadObject.has_body());
+        assert!(!Command::ListBuckets.has_body());
+    }
+
+    /// `DELETE` and `CopyObject` carry no request body.
+    #[test]
+    fn delete_and_copy_do_not_have_body() {
+        assert!(!Command::DeleteObject.has_body());
+        assert!(!Command::AbortMultipartUpload { upload_id: "u" }.has_body());
+        assert!(!Command::CopyObject { from: "x" }.has_body());
+    }
+
+    /// `InitiateMultipartUpload` is body-less but must still be reported as
+    /// having a body so that `Content-Length: 0` is sent. GCS returns HTTP
+    /// 411 on `POST` requests without `Content-Length`, even when the body
+    /// is empty.
+    #[test]
+    fn initiate_multipart_upload_has_body_for_gcs_compat() {
+        let cmd = Command::InitiateMultipartUpload {
+            content_type: "application/octet-stream",
+        };
+        assert!(cmd.has_body());
+        assert_eq!(cmd.http_verb(), HttpMethod::Post);
+        assert_eq!(cmd.content_length().unwrap(), 0);
+    }
+
+    /// Body-bearing commands report `has_body() == true` so signing
+    /// includes accurate `Content-Length` / `Content-Type`.
+    #[test]
+    fn body_bearing_commands_have_body() {
+        let put = Command::PutObject {
+            content: b"hello",
+            content_type: "text/plain",
+            custom_headers: None,
+            multipart: None,
+        };
+        assert!(put.has_body());
+
+        let upload = Command::UploadPart {
+            part_number: 1,
+            content: b"data",
+            upload_id: "u",
+        };
+        assert!(upload.has_body());
     }
 }
