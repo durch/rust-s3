@@ -244,6 +244,7 @@ impl<'a> Command<'a> {
                 | Command::CreateBucket { .. }
                 | Command::PutBucketLifecycle { .. }
                 | Command::PutBucketCors { .. }
+                | Command::DeleteObjects { .. }
         )
     }
 
@@ -460,5 +461,27 @@ mod tests {
             upload_id: "u",
         };
         assert!(upload.has_body());
+    }
+
+    /// `DeleteObjects` is a `POST` with an XML body listing the keys to
+    /// delete. It must be reported as body-bearing so `Content-Length`
+    /// reflects the payload size and `Content-Type: application/xml` is
+    /// signed; otherwise providers reject the request or the signature.
+    #[test]
+    fn delete_objects_has_body() {
+        use crate::serde_types::{DeleteObjectsRequest, ObjectIdentifier};
+        let cmd = Command::DeleteObjects {
+            data: DeleteObjectsRequest {
+                objects: vec![ObjectIdentifier {
+                    key: "a".to_string(),
+                    version_id: None,
+                }],
+                quiet: false,
+            },
+        };
+        assert!(cmd.has_body());
+        assert_eq!(cmd.http_verb(), HttpMethod::Post);
+        assert!(cmd.content_length().unwrap() > 0);
+        assert_eq!(cmd.content_type(), "application/xml");
     }
 }
