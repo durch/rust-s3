@@ -233,6 +233,22 @@ impl<'a> Command<'a> {
     /// stray `Content-Length: 0` / `Content-Type: text/plain` headers do
     /// not enter the AWS4-HMAC-SHA256 canonical request, which Cloudflare
     /// R2 rejects as a signature mismatch (notably for ranged `GET`s).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use s3::command::Command;
+    ///
+    /// assert!(Command::PutObject {
+    ///     content: b"hi",
+    ///     content_type: "text/plain",
+    ///     custom_headers: None,
+    ///     multipart: None,
+    /// }
+    /// .has_body());
+    /// assert!(!Command::GetObject.has_body());
+    /// assert!(!Command::GetObjectRange { start: 0, end: Some(1023) }.has_body());
+    /// ```
     pub fn has_body(&self) -> bool {
         matches!(
             self,
