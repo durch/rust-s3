@@ -9,6 +9,7 @@ keywords = ["Amazon", "AWS", "S3", "R2", "Minio"]
 license = "MIT"
 documentation = "https://docs.rs/aws-region/latest/awsregion/"
 edition = "2021"
+rust-version = "1.88.0"
 
 [lib]
 name = "awsregion"

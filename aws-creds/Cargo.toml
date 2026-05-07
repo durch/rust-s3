@@ -9,6 +9,7 @@ keywords = ["AWS", "S3", "Wasabi", "Minio", "R2"]
 license = "MIT"
 documentation = "https://docs.rs/aws-creds/latest/awscreds/"
 edition = "2021"
+rust-version = "1.88.0"
 
 [lib]
 name = "awscreds"
@@ -22,7 +23,7 @@ attohttpc = { version = "0.30", default-features = false, features = [
     "json",
 ], optional = true }
 url = "2"
-quick-xml = { version = "0.38", features = ["serialize"] }
+quick-xml = { version = "0.39", features = ["serialize"] }
 serde = { version = "1", features = ["derive"] }
 time = { version = "^0.3.6", features = ["serde", "serde-well-known"] }
 log = "0.4"

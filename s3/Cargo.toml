@@ -9,6 +9,7 @@ keywords = ["S3", "Wasabi", "Minio", "GCP", "R2"]
 license = "MIT"
 documentation = "https://docs.rs/rust-s3/latest/s3/"
 edition = "2024"
+rust-version = "1.88.0"
 
 [lib]
 name = "s3"
@@ -53,21 +54,21 @@ bytes = { version = "1.2" }
 cfg-if = "1"
 futures-util = { version = "0.3", optional = true, default-features = false }
 hex = "0.4"
-hmac = "0.12"
+hmac = "0.13"
 http = "1"
 log = "0.4"
 maybe-async = { version = "0.2" }
 md5 = "0.8"
-minidom = { version = "0.16", optional = true }
+minidom = { version = "0.18", optional = true }
 percent-encoding = "2"
-quick-xml = { version = "0.38", features = ["serialize"] }
-reqwest = { version = "0.12", optional = true, features = [
+quick-xml = { version = "0.39", features = ["serialize"] }
+reqwest = { version = "0.13", optional = true, features = [
     "stream",
 ], default-features = false }
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 surf = { version = "2", optional = true, default-features = false }
 sysinfo = {version = "0.37.0", optional = true }
 thiserror = { version = "2", default-features = false }
@@ -96,7 +97,7 @@ tags = ["minidom"]
 http-credentials = ["aws-creds/http-credentials"]
 
 tokio-native-tls = ["aws-creds/native-tls", "reqwest/native-tls", "with-tokio"]
-tokio-rustls-tls = ["aws-creds/rustls-tls", "reqwest/rustls-tls", "with-tokio"]
+tokio-rustls-tls = ["aws-creds/rustls-tls", "reqwest/rustls-no-provider", "with-tokio"]
 
 async-std-native-tls = [
     "aws-creds/native-tls",
