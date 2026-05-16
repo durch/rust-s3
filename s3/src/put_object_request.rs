@@ -208,6 +208,7 @@ pub struct PutObjectStreamRequest<'a> {
     path: String,
     content_type: String,
     custom_headers: HeaderMap,
+    max_concurrent_chunks: Option<std::num::NonZeroUsize>,
 }
 
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
@@ -219,6 +220,7 @@ impl<'a> PutObjectStreamRequest<'a> {
             path: path.as_ref().to_string(),
             content_type: "application/octet-stream".to_string(),
             custom_headers: HeaderMap::new(),
+            max_concurrent_chunks: None,
         }
     }
 
@@ -286,6 +288,12 @@ impl<'a> PutObjectStreamRequest<'a> {
         Ok(self)
     }
 
+    /// Set the maximum number of concurrent chunks for multipart upload, setting it to 0 falls back to the default value based on available memory
+    pub fn with_max_concurrent_chunks(mut self, max: usize) -> Self {
+        self.max_concurrent_chunks = std::num::NonZeroUsize::new(max);
+        self
+    }
+
     /// Execute the streaming PUT request
     #[cfg(feature = "with-tokio")]
     pub async fn execute_stream<R: AsyncRead + Unpin + ?Sized>(
@@ -304,6 +312,7 @@ impl<'a> PutObjectStreamRequest<'a> {
                 } else {
                     Some(self.custom_headers)
                 },
+                self.max_concurrent_chunks,
             )
             .await
     }
@@ -323,6 +332,7 @@ impl<'a> PutObjectStreamRequest<'a> {
                 } else {
                     Some(self.custom_headers)
                 },
+                self.max_concurrent_chunks,
             )
             .await
     }
