@@ -741,6 +741,16 @@ pub trait Request {
             Command::GetObjectTagging => {}
             Command::GetBucketLocation => {}
             Command::ListBuckets => {}
+            // Bodyless DELETE requests must not sign Content-Length/Content-Type:
+            // the HTTP client never transmits them, so strict SigV4 validators
+            // (e.g. Cloudflare R2) reconstruct a different canonical request and
+            // reject with SignatureDoesNotMatch (see issue #466).
+            Command::DeleteObject
+            | Command::DeleteObjectTagging
+            | Command::AbortMultipartUpload { .. }
+            | Command::DeleteBucket
+            | Command::DeleteBucketCors { .. }
+            | Command::DeleteBucketLifecycle => {}
             _ => {
                 headers.insert(
                     CONTENT_LENGTH,
