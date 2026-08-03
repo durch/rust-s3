@@ -1670,7 +1670,7 @@ impl Bucket {
         }
 
         let msg = self
-            .initiate_multipart_upload(s3_path, content_type)
+            .initiate_multipart_upload_with_headers(s3_path, content_type, custom_headers)
             .await?;
         let path = msg.key;
         let upload_id = &msg.upload_id;
@@ -1866,8 +1866,55 @@ impl Bucket {
         s3_path: &str,
         content_type: &str,
     ) -> Result<InitiateMultipartUploadResponse, S3Error> {
+        self.initiate_multipart_upload_with_headers(s3_path, content_type, None)
+            .await
+    }
+
+    /// Initiate a multipart upload with headers that configure the completed object.
+    ///
+    /// Headers such as object metadata, cache control, storage class, and server-side
+    /// encryption using S3-managed or KMS keys must be supplied when the multipart upload is
+    /// initiated.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use anyhow::Result;
+    /// use http::{HeaderMap, HeaderValue};
+    /// use s3::{Bucket, creds::Credentials};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let bucket = Bucket::new("my-bucket", "us-east-1".parse()?, Credentials::default()?)?;
+    /// let mut headers = HeaderMap::new();
+    /// headers.insert(
+    ///     "x-amz-meta-uploaded-by",
+    ///     HeaderValue::from_static("multipart-client"),
+    /// );
+    ///
+    /// bucket
+    ///     .initiate_multipart_upload_with_headers(
+    ///         "/large-file.zip",
+    ///         "application/zip",
+    ///         Some(headers),
+    ///     )
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::async_impl]
+    pub async fn initiate_multipart_upload_with_headers(
+        &self,
+        s3_path: &str,
+        content_type: &str,
+        custom_headers: Option<HeaderMap>,
+    ) -> Result<InitiateMultipartUploadResponse, S3Error> {
+        let mut request_bucket = self.clone();
+        if let Some(custom_headers) = custom_headers {
+            request_bucket.extra_headers.extend(custom_headers);
+        }
         let command = Command::InitiateMultipartUpload { content_type };
-        let request = RequestImpl::new(self, s3_path, command).await?;
+        let request = RequestImpl::new(&request_bucket, s3_path, command).await?;
         let response_data = request.response_data(false).await?;
         if response_data.status_code() >= 300 {
             return Err(error_from_response_data(response_data)?);
@@ -1884,8 +1931,51 @@ impl Bucket {
         s3_path: &str,
         content_type: &str,
     ) -> Result<InitiateMultipartUploadResponse, S3Error> {
+        self.initiate_multipart_upload_with_headers(s3_path, content_type, None)
+    }
+
+    /// Initiate a multipart upload with headers that configure the completed object.
+    ///
+    /// Headers such as object metadata, cache control, storage class, and server-side
+    /// encryption using S3-managed or KMS keys must be supplied when the multipart upload is
+    /// initiated.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use anyhow::Result;
+    /// use http::{HeaderMap, HeaderValue};
+    /// use s3::{Bucket, creds::Credentials};
+    ///
+    /// # fn main() -> Result<()> {
+    /// let bucket = Bucket::new("my-bucket", "us-east-1".parse()?, Credentials::default()?)?;
+    /// let mut headers = HeaderMap::new();
+    /// headers.insert(
+    ///     "x-amz-meta-uploaded-by",
+    ///     HeaderValue::from_static("multipart-client"),
+    /// );
+    ///
+    /// bucket.initiate_multipart_upload_with_headers(
+    ///     "/large-file.zip",
+    ///     "application/zip",
+    ///     Some(headers),
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::sync_impl]
+    pub fn initiate_multipart_upload_with_headers(
+        &self,
+        s3_path: &str,
+        content_type: &str,
+        custom_headers: Option<HeaderMap>,
+    ) -> Result<InitiateMultipartUploadResponse, S3Error> {
+        let mut request_bucket = self.clone();
+        if let Some(custom_headers) = custom_headers {
+            request_bucket.extra_headers.extend(custom_headers);
+        }
         let command = Command::InitiateMultipartUpload { content_type };
-        let request = RequestImpl::new(self, s3_path, command)?;
+        let request = RequestImpl::new(&request_bucket, s3_path, command)?;
         let response_data = request.response_data(false)?;
         if response_data.status_code() >= 300 {
             return Err(error_from_response_data(response_data)?);
@@ -3187,6 +3277,100 @@ mod test {
         assert_eq!(requests.load(Ordering::SeqCst), 1);
     }
 
+    #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
+    #[tokio::test]
+    async fn multipart_initiation_with_headers_sends_and_signs_object_configuration() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request_bytes = Vec::new();
+            let mut buffer = [0; 4096];
+
+            loop {
+                let bytes_read = stream.read(&mut buffer).unwrap();
+                assert!(bytes_read > 0, "connection closed before headers arrived");
+                request_bytes.extend_from_slice(&buffer[..bytes_read]);
+                if request_bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+
+            let request = String::from_utf8(request_bytes)
+                .unwrap()
+                .to_ascii_lowercase();
+            assert!(request.starts_with("post /test-bucket/artifact?uploads http/1.1\r\n"));
+            assert!(request.contains("\r\nx-amz-meta-artifact-tag: synthetic-signature\r\n"));
+            assert!(!request.contains("bucket-default"));
+            assert!(request.contains("\r\ncache-control: max-age=60\r\n"));
+            assert!(request.contains("\r\nx-amz-server-side-encryption: aes256\r\n"));
+
+            let authorization = request
+                .lines()
+                .find(|line| line.starts_with("authorization:"))
+                .unwrap();
+            assert!(authorization.contains("cache-control"));
+            assert!(authorization.contains("x-amz-meta-artifact-tag"));
+            assert!(authorization.contains("x-amz-server-side-encryption"));
+
+            let body = "<InitiateMultipartUploadResult><Bucket>test-bucket</Bucket><Key>artifact</Key><UploadId>synthetic-upload-id</UploadId></InitiateMultipartUploadResult>";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+
+        let credentials = Credentials::new(
+            Some("test_access_key"),
+            Some("test_secret_key"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let mut bucket_headers = HeaderMap::new();
+        bucket_headers.insert(
+            HeaderName::from_static("x-amz-meta-artifact-tag"),
+            HeaderValue::from_static("bucket-default"),
+        );
+        let bucket = Bucket::new(
+            "test-bucket",
+            Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint,
+            },
+            credentials,
+        )
+        .unwrap()
+        .with_path_style()
+        .with_extra_headers(bucket_headers)
+        .unwrap();
+        let mut custom_headers = HeaderMap::new();
+        custom_headers.insert(
+            HeaderName::from_static("x-amz-meta-artifact-tag"),
+            HeaderValue::from_static("synthetic-signature"),
+        );
+        custom_headers.insert(CACHE_CONTROL, HeaderValue::from_static("max-age=60"));
+        custom_headers.insert(
+            HeaderName::from_static("x-amz-server-side-encryption"),
+            HeaderValue::from_static("AES256"),
+        );
+
+        let initiated = bucket
+            .initiate_multipart_upload_with_headers(
+                "/artifact",
+                "application/octet-stream",
+                Some(custom_headers),
+            )
+            .await
+            .unwrap();
+
+        server.join().unwrap();
+        assert_eq!(initiated.upload_id, "synthetic-upload-id");
+    }
+
     #[test]
     #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
     #[allow(deprecated)]
@@ -3593,6 +3777,71 @@ mod test {
     )]
     async fn streaming_big_minio_put_head_get_delete_object() {
         streaming_test_put_get_delete_big_object(*test_minio_bucket()).await;
+    }
+
+    #[ignore]
+    #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
+    #[tokio::test]
+    async fn streaming_minio_preserves_metadata_at_multipart_boundary_tokio() {
+        streaming_minio_preserves_metadata_at_multipart_boundary().await;
+    }
+
+    #[ignore]
+    #[cfg(all(not(feature = "sync"), feature = "with-async-std"))]
+    #[async_std::test]
+    async fn streaming_minio_preserves_metadata_at_multipart_boundary_async_std() {
+        streaming_minio_preserves_metadata_at_multipart_boundary().await;
+    }
+
+    #[cfg(all(
+        not(feature = "sync"),
+        any(feature = "with-tokio", feature = "with-async-std")
+    ))]
+    async fn streaming_minio_preserves_metadata_at_multipart_boundary() {
+        let bucket = test_minio_bucket();
+        let artifact_tag = "synthetic-signature";
+        let sizes = [
+            crate::bucket::CHUNK_SIZE - 1,
+            crate::bucket::CHUNK_SIZE,
+            crate::bucket::CHUNK_SIZE + 326_431,
+        ];
+
+        for size in sizes {
+            let remote_path = format!("+stream_metadata_{}_{}", size, uuid::Uuid::new_v4());
+            let content = vec![33; size];
+            #[cfg(feature = "with-tokio")]
+            let mut reader = std::io::Cursor::new(&content);
+            #[cfg(feature = "with-async-std")]
+            let mut reader = async_std::io::Cursor::new(&content);
+
+            let response = bucket
+                .put_object_stream_builder(&remote_path)
+                .with_metadata("artifact-tag", artifact_tag)
+                .unwrap()
+                .execute_stream(&mut reader)
+                .await
+                .unwrap();
+
+            assert_eq!(response.status_code(), 200);
+            assert_eq!(response.uploaded_bytes(), size);
+
+            let (head, status) = bucket.head_object(&remote_path).await.unwrap();
+            assert_eq!(status, 200);
+            assert_eq!(
+                head.metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.get("artifact-tag"))
+                    .map(String::as_str),
+                Some(artifact_tag)
+            );
+
+            let downloaded = bucket.get_object(&remote_path).await.unwrap();
+            assert_eq!(downloaded.status_code(), 200);
+            assert_eq!(downloaded.as_slice(), content);
+
+            let deleted = bucket.delete_object(&remote_path).await.unwrap();
+            assert_eq!(deleted.status_code(), 204);
+        }
     }
 
     #[ignore]
