@@ -1939,6 +1939,30 @@ impl Bucket {
     /// Headers such as object metadata, cache control, storage class, and server-side
     /// encryption using S3-managed or KMS keys must be supplied when the multipart upload is
     /// initiated.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use anyhow::Result;
+    /// use http::{HeaderMap, HeaderValue};
+    /// use s3::{Bucket, creds::Credentials};
+    ///
+    /// # fn main() -> Result<()> {
+    /// let bucket = Bucket::new("my-bucket", "us-east-1".parse()?, Credentials::default()?)?;
+    /// let mut headers = HeaderMap::new();
+    /// headers.insert(
+    ///     "x-amz-meta-uploaded-by",
+    ///     HeaderValue::from_static("multipart-client"),
+    /// );
+    ///
+    /// bucket.initiate_multipart_upload_with_headers(
+    ///     "/large-file.zip",
+    ///     "application/zip",
+    ///     Some(headers),
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
     #[maybe_async::sync_impl]
     pub fn initiate_multipart_upload_with_headers(
         &self,
@@ -3278,6 +3302,7 @@ mod test {
                 .to_ascii_lowercase();
             assert!(request.starts_with("post /test-bucket/artifact?uploads http/1.1\r\n"));
             assert!(request.contains("\r\nx-amz-meta-artifact-tag: synthetic-signature\r\n"));
+            assert!(!request.contains("bucket-default"));
             assert!(request.contains("\r\ncache-control: max-age=60\r\n"));
             assert!(request.contains("\r\nx-amz-server-side-encryption: aes256\r\n"));
 
@@ -3305,6 +3330,11 @@ mod test {
             None,
         )
         .unwrap();
+        let mut bucket_headers = HeaderMap::new();
+        bucket_headers.insert(
+            HeaderName::from_static("x-amz-meta-artifact-tag"),
+            HeaderValue::from_static("bucket-default"),
+        );
         let bucket = Bucket::new(
             "test-bucket",
             Region::Custom {
@@ -3314,7 +3344,9 @@ mod test {
             credentials,
         )
         .unwrap()
-        .with_path_style();
+        .with_path_style()
+        .with_extra_headers(bucket_headers)
+        .unwrap();
         let mut custom_headers = HeaderMap::new();
         custom_headers.insert(
             HeaderName::from_static("x-amz-meta-artifact-tag"),
