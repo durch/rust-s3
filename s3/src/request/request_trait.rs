@@ -206,6 +206,20 @@ impl async_std::io::Read for ResponseDataStream {
     }
 }
 
+/// The authority of an endpoint host, dropping any path that follows it.
+///
+/// A custom endpoint may carry a path, as Supabase Storage's
+/// `https://<project>.supabase.co/storage/v1/s3` does, and `Region::host`
+/// keeps it so that `Bucket::url` can place the bucket and key underneath.
+/// RFC 9110 §7.2 defines `Host` as `uri-host [ ":" port ]`, so that path
+/// cannot travel in the header.
+fn authority_of(host: &str) -> &str {
+    match host.find('/') {
+        Some(position) => &host[..position],
+        None => host,
+    }
+}
+
 #[maybe_async::maybe_async]
 pub trait Request {
     type Response;
@@ -291,7 +305,7 @@ pub trait Request {
     }
 
     fn host_header(&self) -> String {
-        self.bucket().host()
+        authority_of(&self.bucket().host()).to_string()
     }
 
     #[maybe_async::async_impl]
@@ -875,6 +889,27 @@ mod tests {
     use bytes::Bytes;
     use futures_util::stream;
     use tokio::io::AsyncReadExt;
+
+    #[test]
+    fn test_authority_of_keeps_a_plain_host() {
+        assert_eq!(
+            authority_of("s3.eu-central-1.amazonaws.com"),
+            "s3.eu-central-1.amazonaws.com"
+        );
+        assert_eq!(authority_of("127.0.0.1:9000"), "127.0.0.1:9000");
+    }
+
+    #[test]
+    fn test_authority_of_drops_an_endpoint_path() {
+        assert_eq!(
+            authority_of("project.supabase.co/storage/v1/s3"),
+            "project.supabase.co"
+        );
+        assert_eq!(
+            authority_of("127.0.0.1:54321/storage/v1/s3"),
+            "127.0.0.1:54321"
+        );
+    }
 
     #[tokio::test]
     async fn test_async_read_implementation() {
