@@ -32,6 +32,7 @@ use crate::{Bucket, LONG_DATETIME, signing};
 
 use awscreds::Rfc3339OffsetDateTime;
 use awscreds::error::CredentialsError;
+use hmac::KeyInit;
 use serde::ser;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, SerializeTuple, Serializer};
 use std::borrow::Cow;
