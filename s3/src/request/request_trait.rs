@@ -1,6 +1,6 @@
 use base64::Engine;
 use base64::engine::general_purpose;
-use hmac::Mac;
+use hmac::{KeyInit, Mac};
 use quick_xml::se::to_string;
 use std::collections::HashMap;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
@@ -274,6 +274,8 @@ pub trait Request {
         } else if let Command::PutBucketCors { configuration, .. } = &self.command() {
             let cors = configuration.to_string();
             cors.as_bytes().to_vec()
+        } else if let Command::PutBucketPolicy { policy } = &self.command() {
+            policy.as_bytes().to_vec()
         } else if let Command::DeleteObjects { data } = &self.command() {
             data.to_string().as_bytes().to_vec()
         } else {
@@ -551,6 +553,11 @@ pub trait Request {
             | Command::PutBucketCors { .. }
             | Command::DeleteBucketCors { .. } => {
                 url_str.push_str("?cors");
+            }
+            Command::GetBucketPolicy
+            | Command::PutBucketPolicy { .. }
+            | Command::DeleteBucketPolicy => {
+                url_str.push_str("?policy");
             }
             Command::GetObjectAttributes { version_id, .. } => {
                 if let Some(version_id) = version_id {

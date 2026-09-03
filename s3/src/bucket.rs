@@ -1111,6 +1111,123 @@ impl Bucket {
         request.response_data(false).await
     }
 
+    /// Retrieves the bucket policy as a JSON string.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let policy = bucket.get_bucket_policy().await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let policy = bucket.get_bucket_policy()?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let policy = bucket.get_bucket_policy_blocking()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn get_bucket_policy(&self) -> Result<String, S3Error> {
+        let request = RequestImpl::new(self, "", Command::GetBucketPolicy).await?;
+        let response = request.response_data(false).await?;
+        Ok(response.as_str()?.to_string())
+    }
+
+    /// Sets the bucket policy from a JSON string.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// let policy = r#"{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::rust-s3-test/*"}]}"#;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let response = bucket.put_bucket_policy(policy).await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let response = bucket.put_bucket_policy(policy)?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let response = bucket.put_bucket_policy_blocking(policy)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn put_bucket_policy(&self, policy: &str) -> Result<ResponseData, S3Error> {
+        let command = Command::PutBucketPolicy {
+            policy: policy.to_string(),
+        };
+        let request = RequestImpl::new(self, "", command).await?;
+        request.response_data(false).await
+    }
+
+    /// Deletes the bucket policy.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// let response = bucket.delete_bucket_policy().await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let response = bucket.delete_bucket_policy()?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(feature = "blocking")]
+    /// let response = bucket.delete_bucket_policy_blocking()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn delete_bucket_policy(&self) -> Result<ResponseData, S3Error> {
+        let request = RequestImpl::new(self, "", Command::DeleteBucketPolicy).await?;
+        request.response_data(false).await
+    }
+
     /// Gets torrent from an S3 path.
     ///
     /// # Example:

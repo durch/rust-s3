@@ -168,6 +168,11 @@ pub enum Command<'a> {
         configuration: BucketLifecycleConfiguration,
     },
     DeleteBucketLifecycle,
+    GetBucketPolicy,
+    PutBucketPolicy {
+        policy: String,
+    },
+    DeleteBucketPolicy,
     GetObjectAttributes {
         expected_bucket_owner: String,
         version_id: Option<String>,
@@ -190,6 +195,7 @@ impl<'a> Command<'a> {
             | Command::GetBucketLocation
             | Command::GetObjectTagging
             | Command::GetBucketLifecycle
+            | Command::GetBucketPolicy
             | Command::ListMultipartUploads { .. }
             | Command::PresignGet { .. } => HttpMethod::Get,
             Command::PutObject { .. }
@@ -199,14 +205,16 @@ impl<'a> Command<'a> {
             | Command::UploadPart { .. }
             | Command::PutBucketCors { .. }
             | Command::CreateBucket { .. }
-            | Command::PutBucketLifecycle { .. } => HttpMethod::Put,
+            | Command::PutBucketLifecycle { .. }
+            | Command::PutBucketPolicy { .. } => HttpMethod::Put,
             Command::DeleteObject
             | Command::DeleteObjectTagging
             | Command::AbortMultipartUpload { .. }
             | Command::PresignDelete { .. }
             | Command::DeleteBucket
             | Command::DeleteBucketCors { .. }
-            | Command::DeleteBucketLifecycle => HttpMethod::Delete,
+            | Command::DeleteBucketLifecycle
+            | Command::DeleteBucketPolicy => HttpMethod::Delete,
             Command::InitiateMultipartUpload { .. }
             | Command::CompleteMultipartUpload { .. }
             | Command::DeleteObjects { .. } => HttpMethod::Post,
@@ -255,6 +263,9 @@ impl<'a> Command<'a> {
             Command::DeleteBucketCors { .. } => 0,
             Command::GetBucketLifecycle => 0,
             Command::DeleteBucketLifecycle { .. } => 0,
+            Command::GetBucketPolicy => 0,
+            Command::PutBucketPolicy { policy } => policy.len(),
+            Command::DeleteBucketPolicy => 0,
             Command::GetObjectAttributes { .. } => 0,
             Command::DeleteObjects { data } => data.len(),
         };
@@ -289,6 +300,9 @@ impl<'a> Command<'a> {
             Command::DeleteBucketCors { .. } => "text/plain".into(),
             Command::GetBucketLifecycle => "text/plain".into(),
             Command::DeleteBucketLifecycle { .. } => "text/plain".into(),
+            Command::GetBucketPolicy => "text/plain".into(),
+            Command::PutBucketPolicy { .. } => "application/json".into(),
+            Command::DeleteBucketPolicy => "text/plain".into(),
             Command::CopyObject { .. } => "text/plain".into(),
             Command::PutObjectTagging { .. } => "text/plain".into(),
             Command::UploadPart { .. } => "text/plain".into(),
@@ -355,6 +369,13 @@ impl<'a> Command<'a> {
             Command::DeleteBucketCors { .. } => EMPTY_PAYLOAD_SHA.into(),
             Command::GetBucketLifecycle => EMPTY_PAYLOAD_SHA.into(),
             Command::DeleteBucketLifecycle { .. } => EMPTY_PAYLOAD_SHA.into(),
+            Command::GetBucketPolicy => EMPTY_PAYLOAD_SHA.into(),
+            Command::PutBucketPolicy { policy } => {
+                let mut sha = Sha256::default();
+                sha.update(policy.as_bytes());
+                hex::encode(sha.finalize().as_slice())
+            }
+            Command::DeleteBucketPolicy => EMPTY_PAYLOAD_SHA.into(),
             Command::CopyObject { .. } => EMPTY_PAYLOAD_SHA.into(),
             Command::UploadPart { .. } => EMPTY_PAYLOAD_SHA.into(),
             Command::InitiateMultipartUpload { .. } => EMPTY_PAYLOAD_SHA.into(),
