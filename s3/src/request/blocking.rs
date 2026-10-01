@@ -233,7 +233,7 @@ mod tests {
     fn url_uses_https_by_default_path_style() -> Result<()> {
         let region = "custom-region".parse()?;
         let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
-        bucket.with_path_style();
+        let bucket = bucket.with_path_style();
         let path = "/my-first/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 
@@ -265,7 +265,7 @@ mod tests {
     fn url_uses_scheme_from_custom_region_if_defined_with_path_style() -> Result<()> {
         let region = "http://custom-region".parse()?;
         let bucket = Bucket::new("my-second-bucket", region, fake_credentials())?;
-        bucket.with_path_style();
+        let bucket = bucket.with_path_style();
         let path = "/my-second/path";
         let request = AttoRequest::new(&bucket, path, Command::GetObject).unwrap();
 

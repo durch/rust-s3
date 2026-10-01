@@ -14,5 +14,3 @@ jobs:
       - uses: actions/checkout@v2
       - name: test
         run: make ci
-      - name: test-all
-        run: make ci

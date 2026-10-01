@@ -1,12 +1,15 @@
 all: ci-all
 
-# Main CI targets - fmt and clippy first, then tests
-ci: fmt clippy test
+# Main CI targets - check formatting, then clippy and tests
+ci: fmt-check clippy test
 
-ci-all: fmt clippy test-all
+ci-all: fmt-check clippy test-all
 
 # Formatting targets
 fmt: s3-fmt region-fmt creds-fmt
+
+fmt-check:
+	cargo fmt --all -- --check
 
 # Clippy targets for all features
 clippy: s3-clippy region-clippy creds-clippy

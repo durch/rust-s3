@@ -10,12 +10,13 @@ fmt-check:
 clippy-all: tokio-clippy async-std-clippy sync-clippy
 
 # Test targets
-test-not-ignored: tokio-test-not-ignored async-std-test-not-ignored
+test-not-ignored: tokio-test-not-ignored async-std-test-not-ignored sync-test-not-ignored
 test-all-features: async-all sync-all
 
 # Runtime-specific test groupings
 async-all: tokio async-std
 sync-all: sync-nativetls sync-rustlstls sync-nossl
+sync-test-not-ignored: sync-nativetls-test-not-ignored sync-rustlstls-test-not-ignored sync-nossl-test-not-ignored
 
 # Clippy targets grouped by runtime
 clippy: clippy-all
@@ -91,24 +92,27 @@ async-std-test-blocking-ignored-rustls-tls:
 sync-nativetls: sync-nativetls-test
 sync-nativetls-clippy:
 	cargo clippy --no-default-features --features sync --features sync-native-tls --features aws-creds/http-credentials -- -D warnings
-sync-nativetls-test: sync-nativetls-test-ignored
+sync-nativetls-test: sync-nativetls-test-not-ignored sync-nativetls-test-ignored
+sync-nativetls-test-not-ignored:
+	cargo test --lib --no-default-features --features sync --features sync-native-tls --features aws-creds/http-credentials
 sync-nativetls-test-ignored:
 	cargo test --no-default-features --features sync --features sync-native-tls --features aws-creds/http-credentials -- --ignored
 
 sync-rustlstls: sync-rustlstls-test
 sync-rustlstls-clippy:
 	cargo clippy --no-default-features --features sync --features sync-rustls-tls --features aws-creds/http-credentials -- -D warnings
-sync-rustlstls-test: sync-rustlstls-test-ignored
+sync-rustlstls-test: sync-rustlstls-test-not-ignored sync-rustlstls-test-ignored
+sync-rustlstls-test-not-ignored:
+	cargo test --lib --no-default-features --features sync --features sync-rustls-tls --features aws-creds/http-credentials
 sync-rustlstls-test-ignored:
 	cargo test --no-default-features --features sync --features sync-rustls-tls --features aws-creds/http-credentials  -- --ignored
 
 sync-nossl: sync-nossl-test
 sync-nossl-clippy:
 	cargo clippy --no-default-features --features sync --features aws-creds/http-credentials -- -D warnings
-sync-nossl-test:
-	@echo "No tests for sync-nossl configuration"
+sync-nossl-test: sync-nossl-test-not-ignored
+sync-nossl-test-not-ignored:
+	cargo test --lib --no-default-features --features sync --features aws-creds/http-credentials
 
 fmt:
 	cargo fmt
-
-

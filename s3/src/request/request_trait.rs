@@ -460,7 +460,7 @@ pub trait Request {
         let url = Url::parse(&format!(
             "{}{}{}",
             self.url()?,
-            &signing::authorization_query_params_no_sig(
+            signing::authorization_query_params_no_sig(
                 &self.bucket().access_key().await?.unwrap_or_default(),
                 &self.datetime(),
                 &self.bucket().region(),
@@ -468,7 +468,7 @@ pub trait Request {
                 custom_headers,
                 token.as_ref()
             )?,
-            &signing::flatten_queries(custom_queries)?,
+            signing::flatten_queries(custom_queries)?,
         ))?;
 
         Ok(url)
@@ -490,7 +490,7 @@ pub trait Request {
         let url = Url::parse(&format!(
             "{}{}{}",
             self.url()?,
-            &signing::authorization_query_params_no_sig(
+            signing::authorization_query_params_no_sig(
                 &self.bucket().access_key()?.unwrap_or_default(),
                 &self.datetime(),
                 &self.bucket().region(),
@@ -498,7 +498,7 @@ pub trait Request {
                 custom_headers,
                 token.as_ref()
             )?,
-            &signing::flatten_queries(custom_queries)?,
+            signing::flatten_queries(custom_queries)?,
         ))?;
 
         Ok(url)
