@@ -1,8 +1,6 @@
+use async_std::io::ReadExt;
 use async_std::io::Write as AsyncWrite;
-use async_std::io::{ReadExt, WriteExt};
-use async_std::stream::StreamExt;
 use bytes::Bytes;
-use futures_util::FutureExt;
 use std::collections::HashMap;
 
 use crate::bucket::Bucket;
@@ -171,17 +169,12 @@ impl<'a> Request for SurfRequest<'a> {
         &self,
         writer: &mut T,
     ) -> Result<u16, S3Error> {
-        let mut buffer = Vec::new();
-
-        let response = crate::retry! {self.response().await}?;
+        let mut response = crate::retry! {self.response().await}?;
 
         let status_code = response.status();
 
-        let mut stream = surf::http::Body::from_reader(response, None);
-
-        stream.read_to_end(&mut buffer).await?;
-
-        writer.write_all(&buffer).await?;
+        let mut stream = response.take_body();
+        async_std::io::copy(&mut stream, writer).await?;
 
         Ok(status_code.into())
     }
@@ -206,22 +199,33 @@ impl<'a> Request for SurfRequest<'a> {
         let mut response = crate::retry! {self.response().await}?;
         let status_code = response.status();
 
-        let body = response
-            .take_body()
-            .bytes()
-            .filter_map(|n| n.ok())
-            .fold(vec![], |mut b, n| {
-                b.push(n);
-                b
-            })
-            .then(|b| async move { Ok(Bytes::from(b)) })
-            .into_stream();
+        let body = body_stream(response.take_body());
 
         Ok(ResponseDataStream {
-            bytes: Box::pin(body),
+            bytes: body,
             status_code: status_code.into(),
         })
     }
+}
+
+// Keep the body adapter separate so failure and backpressure behavior can be tested
+// without an external object storage service.
+fn body_stream(body: surf::http::Body) -> crate::request::DataStream {
+    const CHUNK_SIZE: usize = 64 * 1024;
+
+    Box::pin(futures_util::stream::try_unfold(
+        body,
+        |mut reader| async move {
+            let mut buffer = vec![0; CHUNK_SIZE];
+            let bytes_read = reader.read(&mut buffer).await.map_err(S3Error::Io)?;
+            if bytes_read == 0 {
+                return Ok(None);
+            }
+
+            buffer.truncate(bytes_read);
+            Ok(Some((Bytes::from(buffer), reader)))
+        },
+    ))
 }
 
 impl<'a> SurfRequest<'a> {
@@ -249,6 +253,204 @@ mod tests {
     use crate::request::async_std_backend::SurfRequest;
     use anyhow::Result;
     use awscreds::Credentials;
+
+    struct FailingReader {
+        state: u8,
+        offset: usize,
+        reads: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl async_std::io::Read for FailingReader {
+        fn poll_read(
+            mut self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            buffer: &mut [u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            self.reads
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if buffer.is_empty() {
+                return std::task::Poll::Ready(Ok(0));
+            }
+            if self.state == 0 {
+                let count = (3 - self.offset).min(buffer.len());
+                buffer[..count].copy_from_slice(&b"abc"[self.offset..self.offset + count]);
+                self.offset += count;
+                if self.offset == 3 {
+                    self.state = 1;
+                }
+                std::task::Poll::Ready(Ok(count))
+            } else if self.state == 1 {
+                self.state = 2;
+                std::task::Poll::Ready(Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "truncated object",
+                )))
+            } else {
+                std::task::Poll::Ready(Ok(0))
+            }
+        }
+    }
+
+    #[async_std::test]
+    async fn body_stream_preserves_read_errors() {
+        use futures_util::StreamExt;
+        let reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let body = surf::http::Body::from_reader(
+            async_std::io::BufReader::new(FailingReader {
+                state: 0,
+                offset: 0,
+                reads: reads.clone(),
+            }),
+            None,
+        );
+        let mut stream = super::body_stream(body);
+        assert_eq!(reads.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(stream.next().await.unwrap().unwrap().as_ref(), b"abc");
+        assert_eq!(reads.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert!(
+            matches!(stream.next().await, Some(Err(crate::error::S3Error::Io(e)))
+            if e.kind() == std::io::ErrorKind::UnexpectedEof)
+        );
+        assert!(stream.next().await.is_none());
+    }
+
+    #[async_std::test]
+    async fn body_stream_bounds_chunks_and_preserves_bytes() {
+        use futures_util::StreamExt;
+        let data: Vec<u8> = (0..200_000).map(|i| (i % 251) as u8).collect();
+        let body = surf::http::Body::from_bytes(data.clone());
+        let mut stream = super::body_stream(body);
+        let first = stream.next().await.unwrap().unwrap();
+        assert!(first.len() <= 64 * 1024);
+        let mut received = first.to_vec();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.unwrap();
+            assert!(!chunk.is_empty() && chunk.len() <= 64 * 1024);
+            received.extend_from_slice(&chunk);
+        }
+        assert_eq!(received, data);
+        assert!(
+            super::body_stream(surf::http::Body::empty())
+                .next()
+                .await
+                .is_none()
+        );
+
+        let body =
+            surf::http::Body::from_reader(async_std::io::Cursor::new(b"abcdef".to_vec()), Some(3));
+        let mut stream = super::body_stream(body);
+        assert_eq!(stream.next().await.unwrap().unwrap().as_ref(), b"abc");
+        assert!(stream.next().await.is_none());
+    }
+
+    struct FailingWriter;
+
+    impl async_std::io::Write for FailingWriter {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            std::task::Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "writer closed",
+            )))
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    #[async_std::test]
+    async fn response_data_to_writer_copies_body_and_propagates_writer_errors() {
+        use async_std::io::{ReadExt, WriteExt};
+
+        let listener = async_std::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let body: Vec<u8> = (0..200_000).map(|i| (i % 251) as u8).collect();
+        let expected = body.clone();
+        let server = async_std::task::spawn(async move {
+            for request_number in 0..2 {
+                let (mut connection, _) = async_std::future::timeout(
+                    std::time::Duration::from_secs(10),
+                    listener.accept(),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0; 1];
+                while !request.ends_with(b"\r\n\r\n") {
+                    if connection.read(&mut byte).await.unwrap() == 0 {
+                        break;
+                    }
+                    request.push(byte[0]);
+                }
+                let headers = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let header_result = connection.write_all(headers.as_bytes()).await;
+                if request_number == 0 {
+                    header_result.unwrap();
+                    connection.write_all(&body).await.unwrap();
+                } else if header_result.is_ok() {
+                    let _ = connection.write_all(&body).await;
+                }
+            }
+        });
+
+        let bucket = Bucket::new(
+            "test-bucket",
+            crate::region::Region::Custom {
+                region: "test-region".to_owned(),
+                endpoint,
+            },
+            fake_credentials(),
+        )
+        .unwrap()
+        .with_path_style();
+        let request = SurfRequest::new(&bucket, "/object", Command::GetObject)
+            .await
+            .unwrap();
+
+        let mut received = Vec::new();
+        async_std::future::timeout(
+            std::time::Duration::from_secs(10),
+            request.response_data_to_writer(&mut received),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(received, expected);
+
+        assert!(matches!(
+            async_std::future::timeout(
+                std::time::Duration::from_secs(10),
+                request.response_data_to_writer(&mut FailingWriter),
+            )
+            .await
+            .unwrap(),
+            Err(crate::error::S3Error::Io(error))
+                if error.kind() == std::io::ErrorKind::BrokenPipe
+        ));
+        async_std::future::timeout(std::time::Duration::from_secs(10), server)
+            .await
+            .unwrap();
+    }
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
