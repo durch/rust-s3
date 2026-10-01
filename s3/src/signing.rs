@@ -106,19 +106,15 @@ pub fn canonical_uri_string(uri: &Url) -> String {
 pub fn canonical_query_string(uri: &Url) -> String {
     let mut keyvalues: Vec<(String, String)> = uri
         .query_pairs()
-        .map(|(key, value)| (key.to_string(), value.to_string()))
-        .collect();
-    keyvalues.sort();
-    let keyvalues: Vec<String> = keyvalues
-        .iter()
-        .map(|(k, v)| {
-            format!(
-                "{}={}",
-                utf8_percent_encode(k, FRAGMENT_SLASH),
-                utf8_percent_encode(v, FRAGMENT_SLASH)
+        .map(|(key, value)| {
+            (
+                utf8_percent_encode(&key, FRAGMENT_SLASH).to_string(),
+                utf8_percent_encode(&value, FRAGMENT_SLASH).to_string(),
             )
         })
         .collect();
+    keyvalues.sort();
+    let keyvalues: Vec<String> = keyvalues.iter().map(|(k, v)| format!("{k}={v}")).collect();
     keyvalues.join("&")
 }
 
@@ -366,6 +362,47 @@ mod tests {
         let url = Url::parse("http://s3.amazonaws.com/examplebucket?key=c&key=a&key=b").unwrap();
         let canonical = canonical_query_string(&url);
         assert_eq!("key=a&key=b&key=c", canonical);
+    }
+
+    #[test]
+    fn test_query_string_sorts_encoded_pairs() {
+        let url = Url::parse(
+            "http://s3.amazonaws.com/examplebucket?z=last&%C3%A9=accent&-=dash&%2F=slash&same=/&same=-&same=%C3%A9",
+        )
+        .unwrap();
+        let original_pairs = url
+            .query_pairs()
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect::<Vec<_>>();
+        let canonical = canonical_query_string(&url);
+
+        assert_eq!(
+            "%2F=slash&%C3%A9=accent&-=dash&same=%2F&same=%C3%A9&same=-&z=last",
+            canonical
+        );
+        let mut canonical_pairs = Url::parse(&format!("http://example.com/?{canonical}"))
+            .unwrap()
+            .query_pairs()
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect::<Vec<_>>();
+        let mut sorted_original_pairs = original_pairs;
+        canonical_pairs.sort();
+        sorted_original_pairs.sort();
+        assert_eq!(sorted_original_pairs, canonical_pairs);
+        assert_eq!(
+            vec![
+                ("z".to_owned(), "last".to_owned()),
+                ("é".to_owned(), "accent".to_owned()),
+                ("-".to_owned(), "dash".to_owned()),
+                ("/".to_owned(), "slash".to_owned()),
+                ("same".to_owned(), "/".to_owned()),
+                ("same".to_owned(), "-".to_owned()),
+                ("same".to_owned(), "é".to_owned()),
+            ],
+            url.query_pairs()
+                .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
