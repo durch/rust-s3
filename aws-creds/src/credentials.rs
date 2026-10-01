@@ -62,7 +62,7 @@ use url::Url;
 /// env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
 /// let credentials = Credentials::new(None, None, None, None, None);
 /// ```
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Credentials {
     /// AWS public access key.
     pub access_key: Option<String>,
@@ -72,6 +72,26 @@ pub struct Credentials {
     pub security_token: Option<String>,
     pub session_token: Option<String>,
     pub expiration: Option<Rfc3339OffsetDateTime>,
+}
+
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const REDACTED: &str = "[REDACTED]";
+
+        f.debug_struct("Credentials")
+            .field("access_key", &self.access_key.as_ref().map(|_| REDACTED))
+            .field("secret_key", &self.secret_key.as_ref().map(|_| REDACTED))
+            .field(
+                "security_token",
+                &self.security_token.as_ref().map(|_| REDACTED),
+            )
+            .field(
+                "session_token",
+                &self.session_token.as_ref().map(|_| REDACTED),
+            )
+            .field("expiration", &self.expiration)
+            .finish()
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -115,13 +135,26 @@ pub struct AssumeRoleWithWebIdentityResult {
     pub provider: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct StsResponseCredentials {
     pub session_token: String,
     pub secret_access_key: String,
     pub expiration: Rfc3339OffsetDateTime,
     pub access_key_id: String,
+}
+
+impl std::fmt::Debug for StsResponseCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const REDACTED: &str = "[REDACTED]";
+
+        f.debug_struct("StsResponseCredentials")
+            .field("session_token", &REDACTED)
+            .field("secret_access_key", &REDACTED)
+            .field("expiration", &self.expiration)
+            .field("access_key_id", &REDACTED)
+            .finish()
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -625,6 +658,136 @@ aws_secret_access_key = SECRET
             result.unwrap_err(),
             CredentialsError::ConfigNotFound
         ));
+    }
+
+    #[test]
+    fn credentials_debug_redacts_keys_and_tokens() {
+        let credentials = Credentials {
+            access_key: Some("ACCESS_KEY_SENTINEL".into()),
+            secret_key: Some("SECRET_KEY_SENTINEL".into()),
+            security_token: Some("SECURITY_TOKEN_SENTINEL".into()),
+            session_token: Some("SESSION_TOKEN_SENTINEL".into()),
+            expiration: Some(OffsetDateTime::from_unix_timestamp(0).unwrap().into()),
+        };
+
+        for rendered in [format!("{credentials:?}"), format!("{credentials:#?}")] {
+            for sentinel in [
+                "ACCESS_KEY_SENTINEL",
+                "SECRET_KEY_SENTINEL",
+                "SECURITY_TOKEN_SENTINEL",
+                "SESSION_TOKEN_SENTINEL",
+            ] {
+                assert!(
+                    !rendered.contains(sentinel),
+                    "debug output leaked a credential"
+                );
+            }
+            for field in [
+                "access_key",
+                "secret_key",
+                "security_token",
+                "session_token",
+            ] {
+                assert!(rendered.contains(field), "debug output omitted {field}");
+            }
+            assert!(rendered.contains("expiration"));
+            assert!(rendered.contains("1970"));
+        }
+    }
+
+    #[test]
+    fn credentials_debug_preserves_absent_option_state() {
+        let credentials = Credentials {
+            access_key: None,
+            secret_key: None,
+            security_token: None,
+            session_token: None,
+            expiration: None,
+        };
+
+        let rendered = format!("{credentials:?}");
+        for field in [
+            "access_key",
+            "secret_key",
+            "security_token",
+            "session_token",
+            "expiration",
+        ] {
+            assert!(rendered.contains(&format!("{field}: None")));
+        }
+    }
+
+    #[test]
+    fn sts_debug_redacts_nested_credentials() {
+        let response = AssumeRoleWithWebIdentityResponse {
+            assume_role_with_web_identity_result: AssumeRoleWithWebIdentityResult {
+                subject_from_web_identity_token: "SUBJECT_IDENTIFIER_SENTINEL".into(),
+                audience: "AUDIENCE_SENTINEL".into(),
+                assumed_role_user: AssumedRoleUser {
+                    arn: "arn:aws:iam::123456789012:role/example".into(),
+                    assumed_role_id: "ROLE_ID_SENTINEL".into(),
+                },
+                credentials: StsResponseCredentials {
+                    session_token: "STS_SESSION_SENTINEL".into(),
+                    secret_access_key: "STS_SECRET_SENTINEL".into(),
+                    expiration: OffsetDateTime::from_unix_timestamp(0).unwrap().into(),
+                    access_key_id: "STS_ACCESS_KEY_SENTINEL".into(),
+                },
+                provider: "PROVIDER_SENTINEL".into(),
+            },
+            response_metadata: ResponseMetadata {
+                request_id: "REQUEST_ID_SENTINEL".into(),
+            },
+        };
+
+        for rendered in [format!("{response:?}"), format!("{response:#?}")] {
+            for sentinel in [
+                "STS_SESSION_SENTINEL",
+                "STS_SECRET_SENTINEL",
+                "STS_ACCESS_KEY_SENTINEL",
+            ] {
+                assert!(
+                    !rendered.contains(sentinel),
+                    "nested debug output leaked {sentinel}"
+                );
+            }
+            for detail in [
+                "SUBJECT_IDENTIFIER_SENTINEL",
+                "AUDIENCE_SENTINEL",
+                "ROLE_ID_SENTINEL",
+                "PROVIDER_SENTINEL",
+                "REQUEST_ID_SENTINEL",
+            ] {
+                assert!(
+                    rendered.contains(detail),
+                    "nested debug output omitted {detail}"
+                );
+            }
+            assert!(rendered.contains("StsResponseCredentials"));
+            assert!(rendered.contains("expiration"));
+            assert!(rendered.contains("1970"));
+        }
+    }
+
+    #[test]
+    fn credentials_serde_representation_is_unchanged() {
+        let credentials = Credentials {
+            access_key: Some("ACCESS_KEY_SENTINEL".into()),
+            secret_key: Some("SECRET_KEY_SENTINEL".into()),
+            security_token: Some("SECURITY_TOKEN_SENTINEL".into()),
+            session_token: Some("SESSION_TOKEN_SENTINEL".into()),
+            expiration: Some(OffsetDateTime::from_unix_timestamp(0).unwrap().into()),
+        };
+
+        let serialized = serde_json::to_value(&credentials).unwrap();
+        assert_eq!(serialized["access_key"], "ACCESS_KEY_SENTINEL");
+        assert_eq!(serialized["secret_key"], "SECRET_KEY_SENTINEL");
+        assert_eq!(serialized["security_token"], "SECURITY_TOKEN_SENTINEL");
+        assert_eq!(serialized["session_token"], "SESSION_TOKEN_SENTINEL");
+        assert_eq!(
+            serde_json::from_value::<Credentials>(serialized).unwrap(),
+            credentials
+        );
     }
 }
 
