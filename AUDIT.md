@@ -16,7 +16,7 @@ Implementation is delegated to GPT-6 Luna agents, with parent review and integra
 
 The patches were reviewed and validated locally as recorded below. These repairs do not close the remaining findings. Supporting corrections retain the result of `with_path_style()` in two existing sync tests and remove redundant formatting borrows flagged by current Clippy.
 
-## Open findings
+## Findings and repair status
 
 ### P1: Resolved dependency graph contains known vulnerabilities and unmaintained backends
 
@@ -28,19 +28,19 @@ Feature-specific `cargo tree` checks confirm that `async-std-rustls-tls` selects
 
 Next repair: preserve this baseline, resolve and audit a fresh graph separately, classify production feature paths and reachability, and upgrade supported dependencies in tested groups. Establish an explicit maintenance plan for async-std without silently removing a supported runtime. No dependency upgrade or clean security bill is claimed in this batch.
 
-### P1: HTTP 200 can incorrectly report a failed storage operation as successful
+### P1: HTTP 200 can incorrectly report a failed storage operation as successful — repaired in source
 
-`Bucket::complete_multipart_upload` returns response data without inspecting its XML root. The high-level streaming upload reduces that response to status and byte count. `Bucket::copy_object` likewise returns only the HTTP status. An embedded error can therefore become apparent success.
+At the audit baseline, `Bucket::complete_multipart_upload` returned response data without inspecting its XML root. The high-level streaming upload reduced that response to status and byte count. `Bucket::copy_object` likewise returned only the HTTP status. An embedded error could therefore become apparent success.
 
 AWS explicitly documents this behavior for [multipart completion](https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html) and [copy operations](https://repost.aws/knowledge-center/s3-resolve-200-internalerror).
 
-Next repair: validate operation-specific success/error XML before reporting completion, retaining the service error and request identifiers. Test HTTP 200 success, HTTP 200 `<Error>`, whitespace heartbeats, malformed XML, and transport interruption across runtimes and both `fail-on-err` settings. Avoid a generic rule that rejects legitimate empty bodies for unrelated operations.
+Repair: copy and multipart completion now validate the XML document structure and operation-specific root for 2xx responses. Embedded `<Error>` responses retain the raw body in `HttpFailWithBody`, including service codes and request identifiers present in that body. Invalid/truncated XML and unexpected roots return errors. Whitespace heartbeats, namespace variations, and optional fields are supported. Non-2xx handling remains unchanged, and validation does not add automatic retries. Local tests cover all three runtimes with `fail-on-err` both enabled and disabled; transport interruption and real-provider coverage remain outstanding. No general response-body rule was added to unrelated operations.
 
-### P1: Credential debug output exposes secrets
+### P1: Credential debug output exposes secrets — local credential crate repaired; release pending
 
-`aws-creds/src/credentials.rs` derives `Debug` for `Credentials` and `StsResponseCredentials`, including secret keys and session tokens. `Bucket` also derives `Debug` over its credential storage. This is a disclosure path if consumers log these types; this audit did not inspect or find an actual secret leak.
+At the audit baseline, `aws-creds/src/credentials.rs` derived `Debug` for `Credentials` and `StsResponseCredentials`, including secret keys and session tokens. `Bucket` also derives `Debug` over its credential storage. This is a disclosure path if consumers log these types; this audit did not inspect or find an actual secret leak.
 
-Next repair: redacted manual `Debug` implementations, including nested STS response types. Test with synthetic sentinel secrets and preserve serialization and credential resolution behavior. Coordinate release of `aws-creds`: the main library currently depends on the published crate, not the workspace source.
+Repair: local `aws-creds` now manually redacts key and token values in `Debug`, including nested STS credential output, while retaining field presence and expiration. Synthetic sentinel tests cover normal/pretty formatting and unchanged serialization. Credential resolution is unchanged. Release coordination remains necessary: `rust-s3` still uses the published `aws-creds`, so this local repair does not yet fix `Bucket` debug output through that dependency.
 
 ### P1: Multipart failures can leave incomplete uploads behind
 
@@ -151,9 +151,20 @@ Local verification on Rust 1.98.1, macOS aarch64:
 
 GitHub CI now separates three runtime jobs and one support job, adds compiler/dependency-scoped caches, timeouts, and cancellation of superseded runs. Hosted execution and its speed remain unverified. Real-provider tests were not run. Remaining work includes runtime blocking-wrapper tests, backend fault coverage, provider fixtures, and measured hosted CI latency; dependency and production-behavior findings above remain open.
 
+## Correctness follow-up verification
+
+The next batch repairs embedded HTTP 200 errors and local credential debug formatting as described above. Implementation was delegated to GPT-6 Luna, then reviewed and integrated by the parent.
+
+- The local HTTP regression failed with the original copy/completion call-site behavior: copy reported success for HTTP 200 `<Error>`. Restoring the validator made the regression pass. The fixture also checks valid copy/completion responses, multipart error bodies with whitespace heartbeats, and malformed XML returned over complete HTTP framing.
+- Credential sentinel tests failed with the original derived formatter and pass with redaction. Tests use only synthetic values; serialization and provider resolution are unchanged.
+- `make ci` passed on Rust 1.98.1, macOS aarch64, in 56.24 seconds including changed-artifact compilation: all nine S3 Clippy/test/example configurations, two focused `fail-on-err` runs, all four doctest configurations, and both supporting crates.
+- S3 library counts are 63 passed for default Tokio, 62 for Tokio without TLS, 63 for Tokio rustls and each async-std configuration, and 57 for each sync configuration. Both additional `fail-on-err` runs execute three matching tests. Doctest counts remain 43/76/75/36. Local `aws-creds` now has eight passing library tests and one ignored test; its three doctests pass.
+- A subsequent warm `make test` passed in 16.19 seconds. This is one local observation with more coverage than earlier runs, not a controlled speed comparison or a hosted CI measurement.
+- Formatting and diff checks passed; independent review found no blocking issues. No real-provider tests, transport-interruption tests, publication, or hosted workflow execution was performed. Header-only request identifiers are not added to the existing body error type; identifiers in the service XML remain available.
+
 ## Order of work
 
 1. Land the reviewed streaming, signing query, and CI repairs with regression evidence.
-2. Triage dependency advisories and address false-success responses, secret redaction, multipart cleanup, and header preservation in separate changes.
+2. Triage dependency advisories, release and integrate credential redaction, and address multipart cleanup and header preservation in separate changes. Source fixes for false-success responses and local credential formatting are recorded above.
 3. Resolve cursor correctness, retry semantics, refresh identity, and timeout parity with a shared local fault-test suite.
 4. Establish provider compatibility and performance baselines before expanding API coverage.
