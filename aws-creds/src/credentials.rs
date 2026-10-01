@@ -510,6 +510,9 @@ struct CredentialsFromInstanceMetadata {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::process::{Command, Stdio};
+    use std::thread;
+    use std::time::{Duration, Instant};
     use tempfile::NamedTempFile;
 
     fn create_test_credentials_file(content: &str) -> NamedTempFile {
@@ -544,20 +547,65 @@ aws_session_token = PROD_SESSION_TOKEN
 
     #[test]
     fn test_from_profile_respects_env_var() {
+        const CHILD_MARKER: &str = "AWS_CREDS_TEST_PROFILE_CHILD";
+        const MARKER_PREFIX: &str = "aws-creds-profile-test-child:";
+
+        let profile_path = env::var_os("AWS_SHARED_CREDENTIALS_FILE");
+        let mut expected_marker = std::ffi::OsString::from(MARKER_PREFIX);
+        if let Some(path) = profile_path.as_ref() {
+            expected_marker.push(path);
+        }
+        if profile_path.is_some()
+            && env::var_os(CHILD_MARKER).as_deref() == Some(expected_marker.as_os_str())
+        {
+            let creds = Credentials::from_profile(None).unwrap();
+            assert_eq!(creds.access_key.unwrap(), "ENV_KEY");
+            return;
+        }
+
         let content = r#"[default]
 aws_access_key_id = ENV_KEY
 aws_secret_access_key = ENV_SECRET
 "#;
         let file = create_test_credentials_file(content);
 
-        // Set the environment variable
-        env::set_var("AWS_SHARED_CREDENTIALS_FILE", file.path());
+        let mut child_marker = std::ffi::OsString::from(MARKER_PREFIX);
+        child_marker.push(file.path().as_os_str());
+        let mut child = Command::new(env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "credentials::tests::test_from_profile_respects_env_var",
+            ])
+            .env("AWS_SHARED_CREDENTIALS_FILE", file.path())
+            .env(CHILD_MARKER, child_marker)
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
 
-        let creds = Credentials::from_profile(None).unwrap();
-        assert_eq!(creds.access_key.unwrap(), "ENV_KEY");
-
-        // Clean up
-        env::remove_var("AWS_SHARED_CREDENTIALS_FILE");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("credential profile child test timed out");
+                }
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("could not wait for credential profile child test: {error}");
+                }
+            }
+        };
+        assert!(
+            status.success(),
+            "credential profile child test failed: {status}"
+        );
     }
 
     #[test]

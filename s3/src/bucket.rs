@@ -209,7 +209,10 @@ impl Bucket {
     ///    "attachment; filename=\"test.png\"".into(),
     /// );
     ///
+    /// #[cfg(not(feature = "sync"))]
     /// let url = bucket.presign_get("/test.file", 86400, Some(custom_queries)).await.unwrap();
+    /// #[cfg(feature = "sync")]
+    /// let url = bucket.presign_get("/test.file", 86400, Some(custom_queries)).unwrap();
     /// println!("Presigned url: {}", url);
     /// }
     /// ```
@@ -255,7 +258,10 @@ impl Bucket {
     ///     PostPolicyValue::StartsWith(Cow::from("user/user1/"))
     /// ).unwrap();
     ///
+    /// #[cfg(not(feature = "sync"))]
     /// let presigned_post = bucket.presign_post(post_policy).await.unwrap();
+    /// #[cfg(feature = "sync")]
+    /// let presigned_post = bucket.presign_post(post_policy).unwrap();
     /// println!("Presigned url: {}, fields: {:?}", presigned_post.url, presigned_post.fields);
     /// }
     /// ```
@@ -291,7 +297,10 @@ impl Bucket {
     ///    "custom_value".parse().unwrap(),
     /// );
     ///
+    /// #[cfg(not(feature = "sync"))]
     /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers), None).await.unwrap();
+    /// #[cfg(feature = "sync")]
+    /// let url = bucket.presign_put("/test.file", 86400, Some(custom_headers), None).unwrap();
     /// println!("Presigned url: {}", url);
     /// }
     /// ```
@@ -333,7 +342,10 @@ impl Bucket {
     /// let credentials = Credentials::default().unwrap();
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
+    /// #[cfg(not(feature = "sync"))]
     /// let url = bucket.presign_delete("/test.file", 86400).await.unwrap();
+    /// #[cfg(feature = "sync")]
+    /// let url = bucket.presign_delete("/test.file", 86400).unwrap();
     /// println!("Presigned url: {}", url);
     /// }
     /// ```
@@ -365,6 +377,7 @@ impl Bucket {
     /// let config = BucketConfiguration::default();
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let create_bucket_response = Bucket::create(bucket_name, region, credentials, config).await?;
     ///
     /// // `sync` fature will produce an identical method
@@ -430,7 +443,8 @@ impl Bucket {
     /// let credentials = Credentials::default()?;
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let response = Bucket::list_buckets(region, credentials).await?;
+    /// #[cfg(not(feature = "sync"))]
+    /// let response = Bucket::list_buckets(region.clone(), credentials.clone()).await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
@@ -483,6 +497,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let exists = bucket.exists().await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -527,6 +542,7 @@ impl Bucket {
     /// let config = BucketConfiguration::default();
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let create_bucket_response = Bucket::create_with_path_style(bucket_name, region, credentials, config).await?;
     ///
     /// // `sync` fature will produce an identical method
@@ -592,6 +608,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// bucket.delete().await.unwrap();
     /// // `sync` fature will produce an identical method
     ///
@@ -898,6 +915,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let code = bucket.copy_object_internal("/from.file", "/to.file").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -953,6 +971,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let response_data = bucket.get_object("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1011,6 +1030,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let exists = bucket.object_exists("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1129,6 +1149,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let response_data = bucket.get_object_torrent("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1170,6 +1191,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let response_data = bucket.get_object_range("/test.file", 0, Some(31)).await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -1409,27 +1431,27 @@ impl Bucket {
     /// let path = "path";
     /// let test: Vec<u8> = (0..1000).map(|_| 42).collect();
     /// let mut file = File::create(path)?;
-    /// // tokio open file
-    /// let mut async_output_file = tokio::fs::File::create("async_output_file").await.expect("Unable to create file");
     /// file.write_all(&test)?;
     ///
-    /// // Generic over std::io::Read
     /// #[cfg(feature = "with-tokio")]
-    /// let status_code = bucket.put_object_stream(&mut async_output_file, "/path").await?;
-    ///
-    ///
+    /// let mut async_reader = tokio::fs::File::open(path).await?;
+    /// #[cfg(feature = "with-tokio")]
+    /// let status_code = bucket.put_object_stream(&mut async_reader, "/path").await?;
     /// #[cfg(feature = "with-async-std")]
-    /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
+    /// let mut async_reader = async_std::fs::File::open(path).await?;
+    /// #[cfg(feature = "with-async-std")]
+    /// let status_code = bucket.put_object_stream(&mut async_reader, "/path").await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
-    /// // Generic over std::io::Read
-    /// let status_code = bucket.put_object_stream(&mut path, "/path")?;
+    /// let mut sync_reader = File::open(path)?;
+    /// #[cfg(feature = "sync")]
+    /// let status_code = bucket.put_object_stream(&mut sync_reader, "/path")?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let status_code = bucket.put_object_stream_blocking(&mut path, "/path")?;
+    /// let status_code = bucket.put_object_stream_blocking(&mut async_reader, "/path")?;
     /// #
     /// # Ok(())
     /// # }
@@ -1525,28 +1547,30 @@ impl Bucket {
     /// file.write_all(&test)?;
     ///
     /// #[cfg(feature = "with-tokio")]
-    /// let mut async_output_file = tokio::fs::File::create("async_output_file").await.expect("Unable to create file");
+    /// let mut async_reader = tokio::fs::File::open(path).await?;
     ///
     /// #[cfg(feature = "with-async-std")]
-    /// let mut async_output_file = async_std::fs::File::create("async_output_file").await.expect("Unable to create file");
+    /// let mut async_reader = async_std::fs::File::open(path).await?;
     ///
     /// // Async variant with `tokio` or `async-std` features
     /// // Generic over std::io::Read
     /// let status_code = bucket
-    ///     .put_object_stream_with_content_type(&mut async_output_file, "/path", "application/octet-stream")
+    ///     .put_object_stream_with_content_type(&mut async_reader, "/path", "application/octet-stream")
     ///     .await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
     /// // Generic over std::io::Read
+    /// let mut sync_reader = File::open(path)?;
+    /// #[cfg(feature = "sync")]
     /// let status_code = bucket
-    ///     .put_object_stream_with_content_type(&mut path, "/path", "application/octet-stream")?;
+    ///     .put_object_stream_with_content_type(&mut sync_reader, "/path", "application/octet-stream")?;
     ///
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
     /// let status_code = bucket
-    ///     .put_object_stream_with_content_type_blocking(&mut path, "/path", "application/octet-stream")?;
+    ///     .put_object_stream_with_content_type_blocking(&mut async_reader, "/path", "application/octet-stream")?;
     /// #
     /// # Ok(())
     /// # }
@@ -2042,6 +2066,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (region, status_code) = bucket.location().await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -2101,6 +2126,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let response_data = bucket.delete_object("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -2151,7 +2177,8 @@ impl Bucket {
     /// ];
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let response = bucket.delete_objects(objects).await?;
+    /// #[cfg(not(feature = "sync"))]
+    /// let response = bucket.delete_objects(objects.clone()).await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
@@ -2226,6 +2253,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let (head_object_result, code) = bucket.head_object("/test.png").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -2271,6 +2299,7 @@ impl Bucket {
     /// let content = "I want to go to S3".as_bytes();
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let response_data = bucket.put_object_with_content_type("/test.file", content, "text/plain").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -2327,8 +2356,9 @@ impl Bucket {
     /// );
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let response_data = bucket
-    ///     .put_object_with_content_type_and_headers("/test.file", content, "text/plain", Some(headers)).await?;
+    ///     .put_object_with_content_type_and_headers("/test.file", content, "text/plain", Some(headers.clone())).await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
@@ -2339,7 +2369,7 @@ impl Bucket {
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
     /// let response_data = bucket
-    ///     .put_object_with_content_type_and_headers("/test.file", content, "text/plain", Some(headers))?;
+    ///     .put_object_with_content_type_and_headers_blocking("/test.file", content, "text/plain", Some(headers))?;
     /// #
     /// # Ok(())
     /// # }
@@ -2387,7 +2417,8 @@ impl Bucket {
     /// );
     ///
     /// // Async variant with `tokio` or `async-std` features
-    /// let response_data = bucket.put_object_with_headers("/test.file", content, Some(headers)).await?;
+    /// #[cfg(not(feature = "sync"))]
+    /// let response_data = bucket.put_object_with_headers("/test.file", content, Some(headers.clone())).await?;
     ///
     /// // `sync` feature will produce an identical method
     /// #[cfg(feature = "sync")]
@@ -2396,7 +2427,7 @@ impl Bucket {
     /// // Blocking variant, generated with `blocking` feature in combination
     /// // with `tokio` or `async-std` features.
     /// #[cfg(feature = "blocking")]
-    /// let response_data = bucket.put_object_with_headers("/test.file", content, Some(headers))?;
+    /// let response_data = bucket.put_object_with_headers_blocking("/test.file", content, Some(headers))?;
     /// #
     /// # Ok(())
     /// # }
@@ -2436,6 +2467,7 @@ impl Bucket {
     /// let content = "I want to go to S3".as_bytes();
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let response_data = bucket.put_object("/test.file", content).await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -2478,12 +2510,20 @@ impl Bucket {
     /// let bucket = Bucket::new("my-bucket", "us-east-1".parse()?, Credentials::default()?)?;
     ///
     /// // Upload with custom headers using builder pattern
+    /// #[cfg(not(feature = "sync"))]
     /// let response = bucket.put_object_builder("/my-file.txt", b"Hello, World!")
     ///     .with_content_type("text/plain")
     ///     .with_cache_control("public, max-age=3600")?
     ///     .with_metadata("author", "john-doe")?
     ///     .execute()
     ///     .await?;
+    /// #[cfg(feature = "sync")]
+    /// let response = bucket.put_object_builder("/my-file.txt", b"Hello, World!")
+    ///     .with_content_type("text/plain")
+    ///     .with_cache_control("public, max-age=3600")?
+    ///     .with_metadata("author", "john-doe")?
+    ///     .execute()
+    ///     ?;
     /// #
     /// # Ok(())
     /// # }
@@ -2535,6 +2575,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let response_data = bucket.put_object_tagging("/test.file", &[("Tag1", "Value1"), ("Tag2", "Value2")]).await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -2579,6 +2620,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let response_data = bucket.delete_object_tagging("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -2621,6 +2663,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let response_data = bucket.get_object_tagging("/test.file").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -2740,6 +2783,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let results = bucket.list("/".to_string(), Some("/".to_string())).await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -2825,6 +2869,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let results = bucket.list_multiparts_uploads(Some("/"), Some("/")).await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -2886,6 +2931,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials)?;
     ///
     /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
     /// let results = bucket.abort_upload("/some/file.txt", "ZDFjM2I0YmEtMzU3ZC00OTQ1LTlkNGUtMTgxZThjYzIwNjA2").await?;
     ///
     /// // `sync` feature will produce an identical method
@@ -3123,12 +3169,11 @@ mod test {
     #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
     use std::net::TcpListener;
     #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
+    use std::sync::mpsc::{self, TryRecvError};
     #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
     use std::thread;
+    #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
+    use std::time::{Duration, Instant};
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -3141,24 +3186,6 @@ mod test {
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
-        let requests = Arc::new(AtomicUsize::new(0));
-        let request_count = Arc::clone(&requests);
-
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            request_count.fetch_add(1, Ordering::SeqCst);
-
-            let mut buffer = [0; 2048];
-            let _ = stream.read(&mut buffer).unwrap();
-            stream
-                .write_all(
-                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-                )
-                .unwrap();
-        });
-
-        crate::set_retries(1);
-
         let credentials = Credentials::new(
             Some("test_access_key"),
             Some("test_secret_key"),
@@ -3177,14 +3204,78 @@ mod test {
         )
         .unwrap()
         .with_path_style();
+        listener.set_nonblocking(true).unwrap();
+        let (stop_server, stop_rx) = mpsc::channel();
 
-        let exists = bucket.object_exists("/missing.txt").await.unwrap();
+        let server = thread::spawn(move || {
+            let mut requests = 0;
+            let accept_deadline = Instant::now() + Duration::from_secs(15);
+            loop {
+                match stop_rx.try_recv() {
+                    Ok(()) | Err(TryRecvError::Disconnected) => break,
+                    Err(TryRecvError::Empty) => {}
+                }
+                assert!(
+                    Instant::now() < accept_deadline,
+                    "mock server did not receive a stop signal before its deadline"
+                );
 
-        crate::set_retries(1);
-        server.join().unwrap();
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        requests += 1;
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(3)))
+                            .unwrap();
+                        stream
+                            .set_write_timeout(Some(Duration::from_secs(3)))
+                            .unwrap();
 
-        assert!(!exists);
-        assert_eq!(requests.load(Ordering::SeqCst), 1);
+                        let mut request = Vec::new();
+                        let mut byte = [0; 1];
+                        let header_deadline = Instant::now() + Duration::from_secs(3);
+                        while !request.ends_with(b"\r\n\r\n") {
+                            assert!(
+                                request.len() < 16 * 1024,
+                                "mock server received oversized HTTP headers"
+                            );
+                            assert!(
+                                Instant::now() < header_deadline,
+                                "mock server timed out reading HTTP headers"
+                            );
+                            match stream.read(&mut byte) {
+                                Ok(0) => panic!("client closed before sending HTTP headers"),
+                                Ok(_) => request.push(byte[0]),
+                                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                                    continue;
+                                }
+                                Err(error) => panic!("failed to read HTTP request: {error}"),
+                            }
+                        }
+                        stream.write_all(
+                            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        )
+                        .unwrap();
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if Instant::now() >= accept_deadline {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => break,
+                }
+            }
+            requests
+        });
+
+        let exists =
+            tokio::time::timeout(Duration::from_secs(5), bucket.object_exists("/missing.txt"))
+                .await;
+        let _ = stop_server.send(());
+        let request_count = server.join().unwrap();
+
+        assert!(!exists.expect("object_exists request timed out").unwrap());
+        assert_eq!(request_count, 1);
     }
 
     #[test]

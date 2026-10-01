@@ -34,12 +34,19 @@ use crate::request::tokio_backend::ReqwestRequest as RequestImpl;
 /// let bucket = Bucket::new("my-bucket", "us-east-1".parse()?, Credentials::default()?)?;
 ///
 /// // Upload with custom headers using builder pattern
+/// #[cfg(not(feature = "sync"))]
 /// let response = bucket.put_object_builder("/my-file.txt", b"Hello, World!")
 ///     .with_content_type("text/plain")
 ///     .with_cache_control("public, max-age=3600")?
 ///     .with_content_encoding("gzip")?
 ///     .execute()
 ///     .await?;
+/// #[cfg(feature = "sync")]
+/// let response = bucket.put_object_builder("/my-file.txt", b"Hello, World!")
+///     .with_content_type("text/plain")
+///     .with_cache_control("public, max-age=3600")?
+///     .with_content_encoding("gzip")?
+///     .execute()?;
 /// # Ok(())
 /// # }
 /// ```
