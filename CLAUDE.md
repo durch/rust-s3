@@ -15,23 +15,35 @@ rust-s3 is a Rust library for working with Amazon S3 and S3-compatible object st
 ### Building and Testing
 
 ```bash
-# Run CI tests (recommended first step)
+# Full credential-free local CI: formatting, clippy, all nine S3 library/example
+# runtime/TLS configurations, representative docs, and support crates
 make ci
 
-# Run all tests including ignored ones
+# Explicitly run ignored provider/credential integration tests; needs their setup
+make integration-test
+
+# Run the normal suite plus those ignored integration tests
+make test-all
+
+# Full CI plus ignored provider/credential integration tests
 make ci-all
 
 # Format code
 make fmt
+make fmt-check
 
 # Run clippy lints
 make clippy
 
-# Test specific runtime configurations
+# Test the nonignored S3 library/example matrix across all runtime/TLS modes
 cd s3
-make tokio           # Test with tokio runtime
-make async-std       # Test with async-std runtime
-make sync-nativetls  # Test sync implementation
+make test-not-ignored
+
+# Run representative API doctests for Tokio, async-std, and sync
+make test-docs
+
+# Opt in to ignored object-storage integration tests
+make test-ignored
 
 # Run a single test
 cargo test test_name

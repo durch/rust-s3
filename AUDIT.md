@@ -97,12 +97,12 @@ Next repair: specify the timeout contract before changing the infallible setter 
 - Signing: repeated header values and whitespace, dot-segment object keys, reserved characters in upload/version identifiers, and presigned requests using temporary credentials. Query ordering is the only signing repair in this batch.
 - XML: fuzz representative list, error, tagging, lifecycle, and multipart responses; distinguish malformed/truncated responses from empty results.
 - Features: document supported combinations, test blocking wrappers and `tags`/`fail-on-err` independently, and establish a tested minimum Rust version. Mutually exclusive runtime features make a blanket `--all-features` check unsuitable for the main crate.
-- Sync documentation: plain sync `cargo test` exposed 29 doctest compile failures in examples written for async APIs. The added sync CI targets intentionally run `--lib`; repair those examples before claiming full sync doctest coverage.
+- Sync documentation: the first batch exposed 29 doctest compile failures and temporarily limited sync CI to `--lib`. Resolved in the test-suite follow-up below, which restores doctests and example compilation.
 - Providers: deterministic local HTTP fault tests on each change; scheduled disposable MinIO tests; explicitly authorized AWS/R2/GCS/Wasabi smoke tests before compatibility claims.
 - Performance: record throughput, allocations, peak memory, cancellation latency, and connection reuse for concurrent small/large operations. This audit does not establish benchmark results.
 - Release discipline: check dependencies against a current advisory database, publish a compatibility matrix and changelog, and verify examples against the actual released artifacts.
 
-## Verification record
+## Verification record: first repair batch
 
 Baseline on Rust 1.98.1, macOS aarch64:
 
@@ -133,6 +133,23 @@ After repairs:
 The new streaming tests cover bounded chunks, lazy reads, error propagation, empty bodies, declared-length limits, and an actual localhost HTTP download to a writer, including writer failure. Signing regression tests cover encoded ordering of reserved/Unicode keys and duplicate-key values, preserve existing AWS signing vectors, and verify decoded query pairs survive a round trip. The streaming and signing regressions failed before their fixes.
 
 No real-service ignored tests, performance benchmarks, or deployed/published artifact tests were run. Advisory reachability was not established. Blocking wrappers, `fail-on-err` across every backend, and sync doctests remain outside the passing matrix above.
+
+## Test-suite follow-up
+
+The second batch makes `make` and `make ci` credential-free defaults, preserves all nine runtime/TLS test configurations, and compiles their examples. Provider tests require explicit opt-in. See [TESTING.md](TESTING.md) for commands and coverage.
+
+Sync and blocking documentation compile failures are repaired. Four representative doctest configurations replace repeated TLS-only documentation builds: Tokio default (43 passed), Tokio blocking (76), async-std blocking with tags (75), and sync with tags (36). This closes the sync doctest gap above. Provider examples remain `no_run`: compilation does not establish runtime correctness of blocking wrappers or provider compatibility.
+
+The localhost 404 fixture now has request/server deadlines and stops modifying global retry state. The credential-profile environment test runs in a bounded child process with synthetic credentials, avoiding process-wide environment mutation. Each fixture passed 20 repeated runs.
+
+Local verification on Rust 1.98.1, macOS aarch64:
+
+- `make ci` passed formatting, all nine S3 Clippy/test/example configurations, four doctest configurations, and both support crates (90.30 seconds, including rebuilding changed artifacts).
+- Warm `make test` passed in 38.25 seconds; a subsequent `make -j8 test` passed in 23.90 seconds. Make serializes the shared build phases; `-j8` is not evidence of parallel test acceleration.
+- The earlier, narrower suite at `9212e43` took 19.28 seconds in an uncontended warm run. The broader suite is locally slower in these measurements; no speedup is claimed. Timings are individual observations, not a controlled benchmark.
+- Workflow validation with actionlint and `git diff --check` passed. Existing unused GCS test-helper warnings remain in the Tokio rustls test build.
+
+GitHub CI now separates three runtime jobs and one support job, adds compiler/dependency-scoped caches, timeouts, and cancellation of superseded runs. Hosted execution and its speed remain unverified. Real-provider tests were not run. Remaining work includes runtime blocking-wrapper tests, backend fault coverage, provider fixtures, and measured hosted CI latency; dependency and production-behavior findings above remain open.
 
 ## Order of work
 

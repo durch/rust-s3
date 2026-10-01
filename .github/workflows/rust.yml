@@ -6,11 +6,74 @@ on:
   pull_request:
     branches: [master, dev]
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
+jobs:
+  support:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v2
-      - name: test
-        run: make ci
+      - uses: actions/checkout@v6
+      - name: Install stable Rust tools
+        id: toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --component rustfmt
+          echo "RUSTUP_TOOLCHAIN=stable" >> "$GITHUB_ENV"
+          RUSTC_FINGERPRINT="$(rustc +stable -Vv | sha256sum | cut -d' ' -f1)"
+          echo "fingerprint=$RUSTC_FINGERPRINT" >> "$GITHUB_OUTPUT"
+      - name: Resolve workspace dependencies
+        run: cargo +stable generate-lockfile
+      - name: Cache Cargo build data
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-${{ steps.toolchain.outputs.fingerprint }}-support-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ steps.toolchain.outputs.fingerprint }}-support-
+      - name: Check formatting and support crates
+        run: make ci-support
+
+  s3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - runtime: tokio
+            target: ci-tokio
+          - runtime: async-std
+            target: ci-async-std
+          - runtime: sync
+            target: ci-sync
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install stable Rust tools
+        id: toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --component rustfmt
+          echo "RUSTUP_TOOLCHAIN=stable" >> "$GITHUB_ENV"
+          RUSTC_FINGERPRINT="$(rustc +stable -Vv | sha256sum | cut -d' ' -f1)"
+          echo "fingerprint=$RUSTC_FINGERPRINT" >> "$GITHUB_OUTPUT"
+      - name: Resolve workspace dependencies
+        run: cargo +stable generate-lockfile
+      - name: Cache Cargo build data
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-${{ steps.toolchain.outputs.fingerprint }}-${{ matrix.runtime }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ steps.toolchain.outputs.fingerprint }}-${{ matrix.runtime }}-
+      - name: Check S3 runtime and TLS configurations
+        run: make ${{ matrix.target }}
