@@ -3,7 +3,8 @@
 .NOTPARALLEL: ci ci-tokio ci-async-std ci-sync test-all test-all-features \
 	test-not-ignored test-ignored test-docs clippy clippy-all tokio-clippy \
 	async-std-clippy sync-clippy tokio-test-not-ignored async-std-test-not-ignored \
-	sync-test-not-ignored tokio async-std async-all sync-all
+	sync-test-not-ignored tokio async-std async-all sync-all \
+	async-std-fail-on-err-test sync-fail-on-err-test
 
 .PHONY: ci ci-tokio ci-async-std ci-sync test-all test-not-ignored test-ignored \
 	test-docs test-all-features async-all sync-all sync-test-not-ignored \
@@ -19,11 +20,13 @@
 	async-std-test-ignored-native-tls async-std-test-blocking-ignored-native-tls \
 	async-std-native-tls-test async-std-test-not-ignored-rustls-tls \
 	async-std-test-ignored-rustls-tls async-std-test-blocking-ignored-rustls-tls \
+	async-std-fail-on-err-test \
 	async-std-rustls-tls-test sync-nativetls sync-nativetls-clippy \
 	sync-nativetls-test sync-nativetls-test-not-ignored sync-nativetls-test-ignored \
 	sync-rustlstls sync-rustlstls-clippy sync-rustlstls-test \
 	sync-rustlstls-test-not-ignored sync-rustlstls-test-ignored sync-nossl \
-	sync-nossl-clippy sync-nossl-test sync-nossl-test-not-ignored sync-test-docs fmt fmt-check \
+	sync-nossl-clippy sync-nossl-test sync-nossl-test-not-ignored \
+	sync-fail-on-err-test sync-test-docs fmt fmt-check \
 	tokio-nativetls-clippy tokio-nossl-clippy tokio-rustlstls-clippy \
 	async-std-clippy-base async-std-clippy-native-tls async-std-clippy-rustls-tls
 
@@ -102,7 +105,7 @@ tokio-rustlstls-test-ignored:
 	cargo test --no-default-features --features with-tokio --features tokio-rustls-tls --features aws-creds/http-credentials -- --ignored
 
 # async-std library tests: base/no TLS, native TLS, and rustls.
-async-std-test-not-ignored: async-std-test-not-ignored-base async-std-test-not-ignored-native-tls async-std-test-not-ignored-rustls-tls
+async-std-test-not-ignored: async-std-test-not-ignored-base async-std-test-not-ignored-native-tls async-std-test-not-ignored-rustls-tls async-std-fail-on-err-test
 async-std: async-std-test-not-ignored
 async-all: tokio async-std
 async-std-test: async-std-test-not-ignored
@@ -120,6 +123,8 @@ async-std-clippy-native-tls:
 	cargo clippy --no-default-features --features async-std-native-tls --features aws-creds/http-credentials -- -D warnings
 async-std-test-not-ignored-native-tls:
 	cargo test --tests --examples --no-default-features --features async-std-native-tls --features aws-creds/http-credentials
+async-std-fail-on-err-test:
+	cargo test --lib --no-default-features --features async-std-native-tls,fail-on-err,aws-creds/http-credentials xml_response_embedded_error_
 async-std-test-ignored-native-tls:
 	cargo test --no-default-features --features async-std-native-tls --features aws-creds/http-credentials -- --ignored
 async-std-test-blocking-ignored-native-tls:
@@ -137,7 +142,9 @@ async-std-test-blocking-ignored-rustls-tls:
 
 # Sync library tests: native TLS, rustls, and no TLS. Doctests are run once
 # below for the supported API shape rather than once per TLS backend.
-sync-test-not-ignored: sync-nativetls-test-not-ignored sync-rustlstls-test-not-ignored sync-nossl-test-not-ignored
+sync-test-not-ignored: sync-nativetls-test-not-ignored sync-rustlstls-test-not-ignored sync-nossl-test-not-ignored sync-fail-on-err-test
+sync-fail-on-err-test:
+	cargo test --lib --no-default-features --features sync,sync-native-tls,fail-on-err,aws-creds/http-credentials xml_response_embedded_error_
 sync-all: sync-test-not-ignored
 sync-nativetls: sync-nativetls-test
 sync-nativetls-clippy:

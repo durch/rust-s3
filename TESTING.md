@@ -30,6 +30,12 @@ Doctests run for default Tokio, Tokio with `blocking`, async-std native TLS with
 examples are compiled in that representative configuration; the other sync TLS
 variants still run their library and example coverage.
 
+The nine configurations cover `fail-on-err` disabled across all three
+runtimes. Default Tokio native TLS covers it enabled for Tokio. Two focused
+library-test commands also enable `fail-on-err` for async-std native TLS and
+sync native TLS, using the `xml_response_embedded_error_` test-name filter.
+These checks cover the feature branch without repeating the full runtime matrix.
+
 The GitHub workflow runs formatting and support-crate checks once, then runs
 three bounded S3 jobs for Tokio, async-std, and sync. Each runtime job covers all
 three TLS configurations. Cargo registry and build caches are scoped by runtime,

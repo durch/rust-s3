@@ -96,10 +96,139 @@ use crate::serde_types::{
 };
 #[allow(unused_imports)]
 use crate::utils::{PutStreamResponse, error_from_response_data};
+
 use http::HeaderMap;
 use http::header::HeaderName;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use sysinfo::{MemoryRefreshKind, System};
+
+fn validate_success_xml_response(
+    response_data: ResponseData,
+    expected_root: &str,
+) -> Result<ResponseData, S3Error> {
+    if !(200..300).contains(&response_data.status_code()) {
+        return Ok(response_data);
+    }
+
+    let body = response_data.as_slice();
+    let body_text = std::str::from_utf8(body)?;
+    let mut reader = quick_xml::Reader::from_str(body_text);
+    reader.config_mut().check_end_names = true;
+    reader.config_mut().check_comments = true;
+    let mut depth = 0usize;
+    let mut root = None;
+    let mut valid = true;
+    let mut declaration_seen = false;
+    loop {
+        use quick_xml::events::Event;
+        match reader.read_event() {
+            Ok(Event::Start(element)) => {
+                for attr in element.attributes() {
+                    match attr {
+                        Ok(attr) if attr.unescape_value().is_ok() => {}
+                        _ => {
+                            valid = false;
+                            break;
+                        }
+                    }
+                }
+                if depth == 0 {
+                    if root.is_some() {
+                        valid = false;
+                        break;
+                    }
+                    root =
+                        Some(String::from_utf8_lossy(element.local_name().as_ref()).into_owned());
+                }
+                depth += 1;
+            }
+            Ok(Event::Empty(element)) => {
+                for attr in element.attributes() {
+                    match attr {
+                        Ok(attr) if attr.unescape_value().is_ok() => {}
+                        _ => {
+                            valid = false;
+                            break;
+                        }
+                    }
+                }
+                if depth == 0 {
+                    if root.is_some() {
+                        valid = false;
+                        break;
+                    }
+                    root =
+                        Some(String::from_utf8_lossy(element.local_name().as_ref()).into_owned());
+                }
+            }
+            Ok(Event::End(_)) => {
+                if depth == 0 {
+                    valid = false;
+                    break;
+                }
+                depth -= 1;
+            }
+            Ok(Event::Text(text)) => {
+                if text.xml_content().is_err()
+                    || (depth == 0 && !text.as_ref().iter().all(u8::is_ascii_whitespace))
+                {
+                    valid = false;
+                    break;
+                }
+            }
+            Ok(Event::GeneralRef(reference)) => {
+                let name = reference.as_ref();
+                let predefined = matches!(name, b"amp" | b"lt" | b"gt" | b"apos" | b"quot");
+                if depth == 0
+                    || (!predefined && reference.resolve_char_ref().ok().flatten().is_none())
+                {
+                    valid = false;
+                    break;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Ok(Event::DocType(_)) => {
+                valid = false;
+                break;
+            }
+            Ok(Event::Decl(declaration)) if root.is_none() && !declaration_seen => {
+                declaration_seen = true;
+                if !matches!(declaration.version().as_deref(), Ok(b"1.0") | Ok(b"1.1")) {
+                    valid = false;
+                    break;
+                }
+            }
+            Ok(Event::Decl(_)) => {
+                valid = false;
+                break;
+            }
+            Ok(Event::Comment(_) | Event::PI(_)) => {}
+            Ok(Event::CData(_)) if depth > 0 => {}
+            Ok(_) => {
+                valid = false;
+                break;
+            }
+            Err(_) => {
+                valid = false;
+                break;
+            }
+        }
+    }
+
+    if !valid || depth != 0 || root.is_none() {
+        return Err(S3Error::SerdeXml(quick_xml::de::DeError::Custom(
+            "invalid or incomplete XML response".to_owned(),
+        )));
+    }
+    match root.as_deref() {
+        Some("Error") => Err(error_from_response_data(response_data)?),
+        Some(root) if root == expected_root => Ok(response_data),
+        _ => Err(S3Error::HttpFailWithBody(
+            response_data.status_code(),
+            String::from_utf8_lossy(body).into_owned(),
+        )),
+    }
+}
 
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
@@ -899,6 +1028,8 @@ impl Bucket {
 
     /// Copy file from an S3 path, internally within the same bucket.
     ///
+    /// Returns an error if S3 returns an XML error document with HTTP status 200.
+    ///
     /// # Example:
     ///
     /// ```rust,no_run
@@ -950,6 +1081,7 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, to.as_ref(), command).await?;
         let response_data = request.response_data(false).await?;
+        let response_data = validate_success_xml_response(response_data, "CopyObjectResult")?;
         Ok(response_data.status_code())
     }
 
@@ -2021,7 +2153,9 @@ impl Bucket {
         })
     }
 
-    /// Completes a previously initiated multipart upload, with optional final data chunks
+    /// Completes a previously initiated multipart upload, with optional final data chunks.
+    ///
+    /// Returns an error if S3 returns an XML error document with HTTP status 200.
     #[maybe_async::async_impl]
     pub async fn complete_multipart_upload(
         &self,
@@ -2032,7 +2166,8 @@ impl Bucket {
         let data = CompleteMultipartUploadData { parts };
         let complete = Command::CompleteMultipartUpload { upload_id, data };
         let complete_request = RequestImpl::new(self, path, complete).await?;
-        complete_request.response_data(false).await
+        let response_data = complete_request.response_data(false).await?;
+        validate_success_xml_response(response_data, "CompleteMultipartUploadResult")
     }
 
     #[maybe_async::sync_impl]
@@ -2045,7 +2180,8 @@ impl Bucket {
         let data = CompleteMultipartUploadData { parts };
         let complete = Command::CompleteMultipartUpload { upload_id, data };
         let complete_request = RequestImpl::new(self, path, complete)?;
-        complete_request.response_data(false)
+        let response_data = complete_request.response_data(false)?;
+        validate_success_xml_response(response_data, "CompleteMultipartUploadResult")
     }
 
     /// Get Bucket location.
@@ -3152,17 +3288,22 @@ impl Bucket {
 #[cfg(test)]
 mod test {
 
+    use super::validate_success_xml_response;
+
     use crate::BucketConfiguration;
     use crate::Tag;
     use crate::creds::Credentials;
+    use crate::error::S3Error;
     use crate::post_policy::{PostPolicyField, PostPolicyValue};
     use crate::region::Region;
+    use crate::request::ResponseData;
     use crate::serde_types::{
         BucketLifecycleConfiguration, CorsConfiguration, CorsRule, Expiration, LifecycleFilter,
-        LifecycleRule,
+        LifecycleRule, Part,
     };
     use crate::{Bucket, PostPolicy};
     use http::header::{CACHE_CONTROL, HeaderMap, HeaderName, HeaderValue};
+    use std::collections::HashMap;
     use std::env;
     #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
     use std::io::{Read, Write};
@@ -3177,6 +3318,209 @@ mod test {
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    fn xml_response(body: &str) -> ResponseData {
+        ResponseData::new(
+            bytes::Bytes::copy_from_slice(body.as_bytes()),
+            200,
+            HashMap::new(),
+        )
+    }
+
+    #[test]
+    fn xml_response_embedded_error_rejects_invalid_or_unexpected_documents() {
+        for body in [
+            "",
+            "<CopyObjectResult>",
+            "<CopyObjectResult></CopyObjectResult><Extra/>",
+            "<CopyObjectResult></CopyObjectResult>trailing",
+            "<CopyObjectResult/>&amp;",
+            "<CopyObjectResult><A></CopyObjectResult>",
+            "<CopyObjectResult A=\"unterminated></CopyObjectResult>",
+            "<CopyObjectResult>&unknown;</CopyObjectResult>",
+            "<?xml version=\"1.0\"?><?xml version=\"1.0\"?><CopyObjectResult/>",
+            "<?xml bogus?><CopyObjectResult/>",
+            "<?xml version=\"1.0\"?><CopyObjectResult><?xml version=\"1.0\"?></CopyObjectResult>",
+            "<CopyObjectResult><!-- invalid -- comment --></CopyObjectResult>",
+        ] {
+            assert!(
+                matches!(
+                    validate_success_xml_response(xml_response(body), "CopyObjectResult"),
+                    Err(S3Error::SerdeXml(_))
+                ),
+                "accepted invalid XML: {body:?}"
+            );
+        }
+        assert!(matches!(
+            validate_success_xml_response(xml_response("<Other/>"), "CopyObjectResult"),
+            Err(S3Error::HttpFailWithBody(200, _))
+        ));
+    }
+
+    #[test]
+    fn xml_response_embedded_error_preserves_success_framing_and_service_error_body() {
+        let success = xml_response(
+            "<s:CopyObjectResult xmlns:s=\"urn:s3\"><s:ETag>\"abc\"</s:ETag><Extra/></s:CopyObjectResult>",
+        );
+        assert!(validate_success_xml_response(success, "CopyObjectResult").is_ok());
+
+        let error_body = "<Error><Code>SlowDown</Code><RequestId>req-123</RequestId></Error>";
+        assert!(matches!(
+            validate_success_xml_response(xml_response(error_body), "CopyObjectResult"),
+            Err(S3Error::HttpFailWithBody(200, body)) if body == error_body
+        ));
+
+        let non_success =
+            ResponseData::new(bytes::Bytes::from_static(b"not xml"), 404, HashMap::new());
+        assert_eq!(
+            validate_success_xml_response(non_success, "CopyObjectResult")
+                .unwrap()
+                .status_code(),
+            404
+        );
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn xml_response_embedded_error_is_checked_by_copy_and_multipart_operations() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let responses = [
+                "<CopyObjectResult><ETag>\"copy-etag\"</ETag></CopyObjectResult>",
+                " \n<?xml version=\"1.0\"?>\n<CompleteMultipartUploadResult> \n<ETag>\"multipart-etag\"</ETag></CompleteMultipartUploadResult> \n",
+                "<Error><Code>SlowDown</Code><RequestId>copy-req</RequestId></Error>",
+                " \n<?xml version=\"1.0\"?>\n<Error><Code>InternalError</Code><RequestId>multipart-req</RequestId></Error> \n",
+                "<CopyObjectResult>",
+            ];
+            let deadline = Instant::now() + Duration::from_secs(8);
+            let mut count = 0;
+            while count < responses.len() && Instant::now() < deadline {
+                let (mut stream, _) = match listener.accept() {
+                    Ok(pair) => pair,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(5));
+                        continue;
+                    }
+                    Err(error) => return Err(error.to_string()),
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .map_err(|error| error.to_string())?;
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(2)))
+                    .map_err(|error| error.to_string())?;
+                let mut request = Vec::new();
+                let mut byte = [0u8; 1];
+                while !request.ends_with(b"\r\n\r\n") {
+                    if request.len() >= 16 * 1024 || Instant::now() >= deadline {
+                        return Err("request headers exceeded bounds".to_owned());
+                    }
+                    stream
+                        .read_exact(&mut byte)
+                        .map_err(|error| error.to_string())?;
+                    request.push(byte[0]);
+                }
+                let headers = String::from_utf8_lossy(&request).to_ascii_lowercase();
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if content_length > 64 * 1024 {
+                    return Err("request body exceeded mock server limit".to_owned());
+                }
+                let mut body = vec![0; content_length];
+                stream
+                    .read_exact(&mut body)
+                    .map_err(|error| error.to_string())?;
+                let response_body = responses[count];
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    response_body.len(),
+                    response_body
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .map_err(|error| error.to_string())?;
+                count += 1;
+            }
+            if count == responses.len() {
+                Ok(count)
+            } else {
+                Err(format!("received {count} of {} requests", responses.len()))
+            }
+        });
+
+        let credentials = Credentials::new(
+            Some("test_access_key"),
+            Some("test_secret_key"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let bucket = Bucket::new(
+            "test-bucket",
+            Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint,
+            },
+            credentials,
+        )
+        .unwrap()
+        .with_path_style()
+        .with_request_timeout(Duration::from_secs(4))
+        .unwrap();
+
+        let copy_ok = bucket.copy_object_internal("/source", "/destination").await;
+        let multipart_ok = bucket
+            .complete_multipart_upload(
+                "/destination",
+                "upload-id",
+                vec![Part {
+                    etag: "\"part-etag\"".to_owned(),
+                    part_number: 1,
+                }],
+            )
+            .await;
+        let copy_error = bucket.copy_object_internal("/source", "/destination").await;
+        let multipart_error = bucket
+            .complete_multipart_upload(
+                "/destination",
+                "upload-id",
+                vec![Part {
+                    etag: "\"part-etag\"".to_owned(),
+                    part_number: 1,
+                }],
+            )
+            .await;
+        let malformed_copy = bucket.copy_object_internal("/source", "/destination").await;
+
+        let server_result = server.join().expect("mock server panicked");
+        assert_eq!(server_result.unwrap(), 5);
+        assert_eq!(copy_ok.unwrap(), 200);
+        assert_eq!(multipart_ok.unwrap().status_code(), 200);
+        assert!(
+            matches!(copy_error, Err(S3Error::HttpFailWithBody(200, body)) if body.contains("SlowDown") && body.contains("copy-req"))
+        );
+        assert!(
+            matches!(multipart_error, Err(S3Error::HttpFailWithBody(200, body)) if body.contains("InternalError") && body.contains("multipart-req"))
+        );
+        assert!(matches!(malformed_copy, Err(S3Error::SerdeXml(_))));
     }
 
     #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
