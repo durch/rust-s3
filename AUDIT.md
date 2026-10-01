@@ -34,7 +34,7 @@ At the audit baseline, `Bucket::complete_multipart_upload` returned response dat
 
 AWS explicitly documents this behavior for [multipart completion](https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html) and [copy operations](https://repost.aws/knowledge-center/s3-resolve-200-internalerror).
 
-Repair: copy and multipart completion now validate the XML document structure and operation-specific root for 2xx responses. Embedded `<Error>` responses retain the raw body in `HttpFailWithBody`, including service codes and request identifiers present in that body. Invalid/truncated XML and unexpected roots return errors. Whitespace heartbeats, namespace variations, and optional fields are supported. Non-2xx handling remains unchanged, and validation does not add automatic retries. Local tests cover all three runtimes with `fail-on-err` both enabled and disabled; transport interruption and real-provider coverage remain outstanding. No general response-body rule was added to unrelated operations.
+Repair: copy and multipart completion now validate the XML document structure and operation-specific root for 2xx responses. Embedded `<Error>` responses retain the raw body in `HttpFailWithBody`, including service codes and request identifiers present in that body. Invalid/truncated XML and unexpected roots return errors. Whitespace heartbeats, namespace variations, and optional fields are supported. Non-2xx handling remains unchanged, and validation does not add automatic retries. Local tests cover all three runtimes with `fail-on-err` both enabled and disabled. Successful copy and multipart operations also pass against local MinIO as recorded below; transport interruption and hosted-provider coverage remain outstanding. No general response-body rule was added to unrelated operations.
 
 ### P1: Credential debug output exposes secrets — local credential crate repaired; release pending
 
@@ -161,6 +161,48 @@ The next batch repairs embedded HTTP 200 errors and local credential debug forma
 - S3 library counts are 63 passed for default Tokio, 62 for Tokio without TLS, 63 for Tokio rustls and each async-std configuration, and 57 for each sync configuration. Both additional `fail-on-err` runs execute three matching tests. Doctest counts remain 43/76/75/36. Local `aws-creds` now has eight passing library tests and one ignored test; its three doctests pass.
 - A subsequent warm `make test` passed in 16.19 seconds. This is one local observation with more coverage than earlier runs, not a controlled speed comparison or a hosted CI measurement.
 - Formatting and diff checks passed; independent review found no blocking issues. No real-provider tests, transport-interruption tests, publication, or hosted workflow execution was performed. Header-only request identifiers are not added to the existing body error type; identifiers in the service XML remain available.
+
+## MinIO provider verification
+
+On 2026-10-02, the installed MinIO `RELEASE.2025-10-15T17-29-55Z`
+(`9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a`, darwin/arm64) was started on
+loopback using temporary data, certificates, and generated credentials. Tests
+used its dedicated `rust-s3` bucket and an empty temporary working directory.
+No existing provider credentials or storage were used.
+
+The existing five default-Tokio MinIO tests passed first. Luna then strengthened
+test assertions: nonuniform 20 MB data and exact writer/stream contents, stream
+item errors and offsets, sorted tag readback, UUID-scoped copy/content checks,
+and actual delete status checks in the blocking helper. Production code was
+unchanged in this batch.
+
+| Configuration | MinIO tests passed |
+| --- | ---: |
+| Tokio native TLS / no TLS / rustls | 5 / 5 / 5 |
+| async-std Hyper / native TLS / rustls | 5 / 5 / 5 |
+| Sync native TLS / rustls / no TLS | 5 / 5 / 5 |
+| Tokio native TLS with blocking | 6 |
+| async-std native TLS with blocking | 6 |
+
+All 57 strengthened test executions passed, with `tags` enabled in every
+configuration. Each invocation was restricted to `minio --ignored
+--test-threads=1`. Aggregate test execution was 26.81 seconds; sequential build
+and test time was 65.82 seconds on this machine. These are suite timings, not
+storage throughput benchmarks.
+
+The normal `make ci` gate also passed after the test changes (46.89 seconds,
+including changed-artifact compilation), as did formatting and diff checks.
+
+Post-test listings confirmed zero objects and zero incomplete multipart uploads,
+with neither listing truncated. The test bucket was deleted successfully; the
+owned server stopped, temporary data and credentials were removed, and port
+9000 was released. [TESTING.md](TESTING.md) describes the isolated procedure.
+
+This establishes local MinIO success-path coverage, including real blocking API
+execution. It does not establish TLS handshake coverage (the endpoint used
+HTTP), cloud-provider compatibility, or cleanup after failure/cancellation.
+Cloud test credentials were absent from the shell; AWS, R2, GCS, Wasabi, and
+DigitalOcean tests were not run. The production findings above remain open.
 
 ## Order of work
 

@@ -43,3 +43,38 @@ resolved workspace manifest, and Rust compiler fingerprint; cache paths exclude
 Cargo configuration and credentials. The repository ignores `Cargo.lock`, so
 CI resolves dependencies at run time and does not promise a fixed dependency
 snapshot across workflow runs.
+
+## Isolated MinIO provider tests
+
+The ignored MinIO tests expect `http://localhost:9000`, an existing bucket named
+`rust-s3`, and `MINIO_ACCESS_KEY_ID` / `MINIO_SECRET_ACCESS_KEY`. Use a disposable
+MinIO instance with its own data and certificate directories, bound to loopback,
+and temporary credentials. Do not point these fixed-name fixtures at a shared
+bucket. The default test suite does not start a server.
+
+Build the test executable from the repository with
+`cargo test -p rust-s3 --lib --no-run --message-format=json`, adding
+`--no-default-features --features ...` for each configuration. Use the `s3`
+compiler artifact's `executable` path from Cargo's JSON output. Run that executable
+from an empty temporary working directory with arguments
+`minio --ignored --test-threads=1`, inheriting only the intended test configuration.
+The temporary working directory matters: the current multipart fixture creates
+and removes a file named `+stream_test_big` in its working directory.
+
+Run configurations serially because the tests share object names. Enable `tags`
+in each configuration to include tag readback. The native-TLS Tokio and async-std
+configurations can additionally enable `blocking` to exercise the blocking API.
+Afterward, verify that both object and multipart-upload listings are empty, delete
+the test bucket, stop the owned server process, and remove its temporary data.
+
+The 2026-10-02 local run passed against MinIO `RELEASE.2025-10-15T17-29-55Z`:
+five ignored tests in each of nine runtime/TLS feature configurations, plus six
+in each of two native-TLS blocking configurations (57 executions). The tests
+check CRUD, byte ranges, metadata, copied content, bulk deletion, tag readback,
+small streaming uploads, and exact bytes through a 20 MB multipart upload and
+download. Async configurations also verify every downloaded stream chunk;
+blocking tests include list pagination and deletion status checks.
+
+These are HTTP tests of a real local MinIO server. They do not verify TLS
+handshakes, AWS/R2/GCS/Wasabi behavior, or failure/cancellation cleanup. See
+[AUDIT.md](AUDIT.md) for remaining coverage and production fixes.

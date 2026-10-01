@@ -3955,7 +3955,7 @@ mod test {
     )]
     async fn test_tagging_minio() {
         let bucket = test_minio_bucket();
-        let _target_tags = vec![
+        let target_tags = vec![
             Tag {
                 key: "Tag1".to_string(),
                 value: "Value1".to_string(),
@@ -3978,9 +3978,11 @@ mod test {
             .await
             .unwrap();
         assert_eq!(response_data.status_code(), 200);
-        // This could be eventually consistent now
-        let (_tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
-        // assert_eq!(tags, target_tags)
+        let (mut tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
+        tags.sort_by(|left, right| left.key.cmp(&right.key));
+        let mut target_tags = target_tags;
+        target_tags.sort_by(|left, right| left.key.cmp(&right.key));
+        assert_eq!(tags, target_tags);
         let _response_data = bucket.delete_object("tagging_test").await.unwrap();
     }
 
@@ -4067,7 +4069,7 @@ mod test {
         let remote_path = "+stream_test_big";
         let local_path = "+stream_test_big";
         std::fs::remove_file(remote_path).unwrap_or(());
-        let content: Vec<u8> = object(20_000_000);
+        let content: Vec<u8> = (0..20_000_000).map(|i| (i % 251) as u8).collect();
 
         let mut file = File::create(local_path).await.unwrap();
         file.write_all(&content).await.unwrap();
@@ -4088,20 +4090,28 @@ mod test {
             .await
             .unwrap();
         assert_eq!(code, 200);
-        // assert_eq!(content, writer);
-        assert_eq!(content.len(), writer.len());
+        assert!(
+            content == writer,
+            "writer download differs from uploaded bytes"
+        );
         assert_eq!(content.len(), 20_000_000);
 
         #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
         {
             let mut response_data_stream = bucket.get_object_stream(remote_path).await.unwrap();
 
-            let mut bytes = vec![];
-
+            let mut streamed_len = 0;
             while let Some(chunk) = response_data_stream.bytes().next().await {
-                bytes.push(chunk)
+                let chunk = chunk.unwrap();
+                let end = streamed_len + chunk.len();
+                assert!(end <= content.len(), "stream returned too many bytes");
+                assert!(
+                    content[streamed_len..end] == chunk[..],
+                    "streamed bytes differ from uploaded bytes at offset {streamed_len}"
+                );
+                streamed_len = end;
             }
-            assert_ne!(bytes.len(), 0);
+            assert_eq!(streamed_len, content.len());
         }
 
         let response_data = bucket.delete_object(remote_path).await.unwrap();
@@ -4278,11 +4288,11 @@ mod test {
 
         // cleanup (and test Delete)
         let response_data = bucket.delete_object_blocking(s3_path).unwrap();
-        assert_eq!(code, 200);
+        assert_eq!(response_data.status_code(), 204);
         let response_data = bucket.delete_object_blocking(s3_path_2).unwrap();
-        assert_eq!(code, 200);
+        assert_eq!(response_data.status_code(), 204);
         let response_data = bucket.delete_object_blocking(s3_path_3).unwrap();
-        assert_eq!(code, 200);
+        assert_eq!(response_data.status_code(), 204);
     }
 
     #[ignore]
@@ -4393,8 +4403,32 @@ mod test {
         )
     )]
     async fn minio_test_put_head_get_delete_object() {
-        put_head_get_delete_object(*test_minio_bucket(), true).await;
-        put_head_delete_object_with_headers(*test_minio_bucket()).await;
+        let bucket = *test_minio_bucket();
+        put_head_get_delete_object(bucket.clone(), true).await;
+        put_head_delete_object_with_headers(bucket.clone()).await;
+
+        let prefix = format!("+copy_roundtrip_{}", uuid::Uuid::new_v4());
+        let source = format!("{prefix}_source");
+        let destination = format!("{prefix}_destination");
+        let content = b"MinIO copy object content verification";
+        let copy_result = match bucket.put_object(&source, content).await {
+            Err(error) => Err(error),
+            Ok(_) => match bucket.copy_object_internal(&source, &destination).await {
+                Err(error) => Err(error),
+                Ok(status) => bucket
+                    .get_object(&destination)
+                    .await
+                    .map(|copied| (status, copied.to_vec())),
+            },
+        };
+        let source_cleanup = bucket.delete_object(&source).await;
+        let destination_cleanup = bucket.delete_object(&destination).await;
+
+        assert_eq!(source_cleanup.unwrap().status_code(), 204);
+        assert_eq!(destination_cleanup.unwrap().status_code(), 204);
+        let (status, copied) = copy_result.unwrap();
+        assert_eq!(status, 200);
+        assert_eq!(copied.as_slice(), content);
     }
 
     // Keeps failing on tokio-rustls-tls
