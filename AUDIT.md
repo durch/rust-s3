@@ -28,6 +28,33 @@ Feature-specific `cargo tree` checks confirm that `async-std-rustls-tls` selects
 
 Next repair: preserve this baseline, resolve and audit a fresh graph separately, classify production feature paths and reachability, and upgrade supported dependencies in tested groups. Establish an explicit maintenance plan for async-std without silently removing a supported runtime. No dependency upgrade or clean security bill is claimed in this batch.
 
+
+#### Fresh dependency resolution, 2026-10-02
+
+An isolated source snapshot at `6c97cb9` resolved 414 packages without changing
+the working checkout's ignored lockfile or copying credentials. Both graphs were
+audited against freshly fetched RustSec database
+`db663534ae858abb3fbad408a041ce04209c377f` (1,279 advisories): the fresh graph
+has 12 vulnerability matches across 12 IDs, versus 30 matches across 29 IDs in
+the preserved baseline. Thus 18 matches disappear through fresh compatible
+resolution; no production dependency upgrade was applied here.
+
+Normal-dependency inverse trees across 11 feature configurations locate the
+remaining affected packages:
+
+- `quick-xml 0.38.4`: all configurations; the two recorded advisories require
+  `>=0.41.0`, outside the current `0.38` constraint.
+- `h2 0.2.7`, `hyper 0.13.10`, and `tokio 0.2.25`: async-std's Hyper configuration.
+- `rustls 0.18.1`, `ring 0.16.20`, and `webpki 0.21.4`: async-std's rustls configuration.
+
+This establishes inclusion in production dependency graphs, not exploitability
+of each vulnerable code path. Fresh-graph warnings are separate: one notice,
+11 unmaintained matches across 10 packages, and five unsoundness matches across
+four packages. Surf/http-client's existing backend constraints prevent a simple
+compatible version bump from removing the old HTTP/TLS stacks. A no-TLS HTTP/1
+feature-tree probe removed the Hyper branch, but that alternative has not been
+compiled or compatibility-tested. No backend replacement is claimed.
+
 ### P1: HTTP 200 can incorrectly report a failed storage operation as successful — repaired in source
 
 At the audit baseline, `Bucket::complete_multipart_upload` returned response data without inspecting its XML root. The high-level streaming upload reduced that response to status and byte count. `Bucket::copy_object` likewise returned only the HTTP status. An embedded error could therefore become apparent success.
@@ -42,11 +69,35 @@ At the audit baseline, `aws-creds/src/credentials.rs` derived `Debug` for `Crede
 
 Repair: local `aws-creds` now manually redacts key and token values in `Debug`, including nested STS credential output, while retaining field presence and expiration. Synthetic sentinel tests cover normal/pretty formatting and unchanged serialization. Credential resolution is unchanged. Release coordination remains necessary: `rust-s3` still uses the published `aws-creds`, so this local repair does not yet fix `Bucket` debug output through that dependency.
 
-### P1: Multipart failures can leave incomplete uploads behind
+### P1: Multipart failures can leave incomplete uploads behind — repaired in source
 
-In `_put_object_stream_with_content_type_and_headers`, reader errors and upload errors return through `?` before reaching abort handling. With `fail-on-err`, HTTP errors also arrive as `Err`, bypassing the non-2xx response branch. Cancellation is another unhandled lifecycle boundary.
+At the baseline, high-level streaming uploads could return from reader, part,
+ETag parsing, or completion errors without aborting the multipart upload. An
+abort error could also replace the original failure, and non-2xx completion
+could return apparent success with `fail-on-err` disabled.
 
-Next repair: define cleanup behavior for reader failure, part failure, completion failure, and caller cancellation; preserve the original failure if abort also fails. Test abort counts and in-flight requests with a deterministic local server. Do not promise that an async network abort can always complete from `Drop`.
+After successful initiation, returned failures now take one logical best-effort
+abort path and preserve the original error. Existing transport retries may make
+more than one wire request. Async part futures are dropped before cleanup; sync
+streaming uses a private raw part sender to avoid duplicating the public chunk
+helper's abort. Its small-file fallback retains its deliberate abort and existing
+status-return behavior. Public signatures and standalone multipart helpers are
+unchanged. Completion requires a 2xx status and the existing success-XML check.
+
+A bounded local fixture covers reader errors, failed parts, HTTP completion
+errors, embedded Error XML in HTTP 200, abort failure preserving the reader
+error, and sync fallback without a second abort. It checks request sequences,
+accounts for configured retries without changing global state, and remains
+available until the client returns to catch extra requests. All three runtimes
+passed with `fail-on-err` both enabled and disabled. Bypassing cleanup made the
+test fail on the missing abort; restoring it passed.
+
+This does not guarantee remote cleanup after cancellation or lost responses.
+Dropping the caller's future cannot run asynchronous cleanup, and requests
+already sent can still be processed. AWS documents that
+[in-flight parts may require repeated aborts](https://docs.aws.amazon.com/AmazonS3/latest/API/API_AbortMultipartUpload.html).
+The tests do not simulate concurrent in-flight part cancellation or every
+transport/ETag failure. Full local and provider follow-up is recorded below.
 
 ### P1: Large uploads silently lose custom headers
 
@@ -331,9 +382,28 @@ cloud providers. They do not establish failure/cancellation cleanup, exhaustive
 S3 API compatibility, throughput benchmarks, dependency remediation, hosted CI,
 or release of the local credential fix. Those roadmap items remain open.
 
+
+## Multipart cleanup verification follow-up
+
+The cleanup repair passed the full `make ci` gate in 205.94 seconds with changed
+artifacts rebuilt, and a cached rerun in 99.93 seconds with no compilation steps.
+These are local elapsed-time observations; concurrent cloud testing and host
+load affect them. All nine runtime/TLS configurations, four doctest shapes,
+support crates, and both focused non-default `fail-on-err` targets passed. The
+new cleanup checks are retained in those focused CI targets.
+
+The frozen source also passed all 57 MinIO executions across 11 configurations
+(30.22 aggregate test seconds), followed by the same 100 cloud executions across
+AWS, Wasabi, GCS, R2, and DigitalOcean described above. All 40 cloud prefixes
+were independently verified empty. MinIO listings were empty and untruncated;
+the bucket was deleted (204, then 404), and the owned server, data, certificates,
+and generated credentials were removed. This provider rerun establishes
+success-path compatibility after the cleanup change; failure cleanup evidence
+comes from the bounded local fault fixtures, not injected cloud failures.
+
 ## Order of work
 
 1. Land the reviewed streaming, signing query, and CI repairs with regression evidence.
-2. Triage dependency advisories, release and integrate credential redaction, and address multipart cleanup and header preservation in separate changes. Source fixes for false-success responses and local credential formatting are recorded above.
+2. Remediate the remaining dependency advisories, release and integrate credential redaction, and preserve multipart upload headers in separate changes. Source fixes for false-success responses and local credential formatting are recorded above.
 3. Resolve cursor correctness, retry semantics, refresh identity, and timeout parity with a shared local fault-test suite.
 4. Establish provider compatibility and performance baselines before expanding API coverage.

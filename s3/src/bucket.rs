@@ -230,6 +230,21 @@ fn validate_success_xml_response(
     }
 }
 
+fn response_error_from_data(response_data: ResponseData) -> S3Error {
+    match error_from_response_data(response_data) {
+        Ok(error) | Err(error) => error,
+    }
+}
+
+#[cfg(feature = "sync")]
+fn part_from_response(response_data: ResponseData, part_number: u32) -> Result<Part, S3Error> {
+    if !(200..300).contains(&response_data.status_code()) {
+        return Err(response_error_from_data(response_data));
+    }
+    let etag = response_data.as_str()?.to_owned();
+    Ok(Part { etag, part_number })
+}
+
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
 const DEFAULT_REQUEST_TIMEOUT: Option<Duration> = Some(Duration::from_secs(60));
@@ -1703,10 +1718,14 @@ impl Bucket {
     /// #[cfg(feature = "blocking")]
     /// let status_code = bucket
     ///     .put_object_stream_with_content_type_blocking(&mut async_reader, "/path", "application/octet-stream")?;
+    ///
     /// #
     /// # Ok(())
     /// # }
     /// ```
+    /// After multipart initiation, returned errors trigger a best-effort abort.
+    /// Cancelling the operation or losing the completion response can leave the
+    /// remote upload outcome uncertain.
     #[maybe_async::async_impl]
     pub async fn put_object_stream_with_content_type<R: AsyncRead + Unpin>(
         &self,
@@ -1728,7 +1747,7 @@ impl Bucket {
         self._put_object_stream_with_content_type(reader, s3_path.as_ref(), content_type.as_ref())
     }
 
-    #[maybe_async::async_impl]
+    #[maybe_async::maybe_async]
     async fn make_multipart_request(
         &self,
         path: &str,
@@ -1745,6 +1764,19 @@ impl Bucket {
         };
         let request = RequestImpl::new(self, path, command).await?;
         request.response_data(true).await
+    }
+
+    #[maybe_async::maybe_async]
+    async fn abort_upload_after_failure<T>(
+        &self,
+        path: &str,
+        upload_id: &str,
+        error: S3Error,
+    ) -> Result<T, S3Error> {
+        // Cleanup is best effort. Keep the operation's original error even if
+        // the abort fails (for example, if completion already reached S3).
+        let _ = self.abort_upload(path, upload_id).await;
+        Err(error)
     }
 
     #[maybe_async::async_impl]
@@ -1838,104 +1870,107 @@ impl Bucket {
         use futures_util::FutureExt;
         use futures_util::stream::{FuturesUnordered, StreamExt};
 
-        let mut part_number: u32 = 0;
-        let mut total_size = 0;
-        let mut etags = Vec::new();
-        let mut active_uploads: FuturesUnordered<
-            futures_util::future::BoxFuture<'_, (u32, Result<ResponseData, S3Error>)>,
-        > = FuturesUnordered::new();
-        let mut reading_done = false;
+        // Keep all part futures inside this scope. If reading or a part fails,
+        // leaving the scope drops the outstanding futures before abort starts.
+        let upload_result: Result<(Vec<(u32, String)>, usize), S3Error> = async {
+            let mut part_number: u32 = 0;
+            let mut total_size = 0;
+            let mut etags = Vec::new();
+            let mut active_uploads: FuturesUnordered<
+                futures_util::future::BoxFuture<'_, (u32, Result<ResponseData, S3Error>)>,
+            > = FuturesUnordered::new();
+            let mut reading_done = false;
 
-        // Process first chunk
-        part_number += 1;
-        total_size += first_chunk.len();
-        if first_chunk.len() < CHUNK_SIZE {
-            reading_done = true;
+            part_number += 1;
+            total_size += first_chunk.len();
+            if first_chunk.len() < CHUNK_SIZE {
+                reading_done = true;
+            }
+
+            let path_clone = path.clone();
+            let upload_id_clone = upload_id.clone();
+            let content_type_clone = content_type.to_string();
+            let bucket_clone = self.clone();
+
+            active_uploads.push(
+                async move {
+                    let result = bucket_clone
+                        .make_multipart_request(
+                            &path_clone,
+                            first_chunk,
+                            1,
+                            &upload_id_clone,
+                            &content_type_clone,
+                        )
+                        .await;
+                    (1, result)
+                }
+                .boxed(),
+            );
+
+            while !active_uploads.is_empty() || !reading_done {
+                while active_uploads.len() < max_concurrent_chunks && !reading_done {
+                    let chunk = crate::utils::read_chunk_async(reader).await?;
+                    let chunk_len = chunk.len();
+
+                    if chunk_len == 0 {
+                        reading_done = true;
+                        break;
+                    }
+
+                    total_size += chunk_len;
+                    part_number += 1;
+
+                    if chunk_len < CHUNK_SIZE {
+                        reading_done = true;
+                    }
+
+                    let current_part = part_number;
+                    let path_clone = path.clone();
+                    let upload_id_clone = upload_id.clone();
+                    let content_type_clone = content_type.to_string();
+                    let bucket_clone = self.clone();
+
+                    active_uploads.push(
+                        async move {
+                            let result = bucket_clone
+                                .make_multipart_request(
+                                    &path_clone,
+                                    chunk,
+                                    current_part,
+                                    &upload_id_clone,
+                                    &content_type_clone,
+                                )
+                                .await;
+                            (current_part, result)
+                        }
+                        .boxed(),
+                    );
+                }
+
+                if let Some((part_num, result)) = active_uploads.next().await {
+                    let response_data = result?;
+                    if !(200..300).contains(&response_data.status_code()) {
+                        return Err(response_error_from_data(response_data));
+                    }
+
+                    let etag = response_data.as_str()?;
+                    etags.push((part_num, etag.to_string()));
+                }
+            }
+
+            Ok((etags, total_size))
         }
+        .await;
 
-        let path_clone = path.clone();
-        let upload_id_clone = upload_id.clone();
-        let content_type_clone = content_type.to_string();
-        let bucket_clone = self.clone();
-
-        active_uploads.push(
-            async move {
-                let result = bucket_clone
-                    .make_multipart_request(
-                        &path_clone,
-                        first_chunk,
-                        1,
-                        &upload_id_clone,
-                        &content_type_clone,
-                    )
+        let (mut etags, total_size) = match upload_result {
+            Ok(result) => result,
+            Err(error) => {
+                return self
+                    .abort_upload_after_failure(&path, upload_id, error)
                     .await;
-                (1, result)
             }
-            .boxed(),
-        );
-
-        // Main upload loop with bounded parallelism
-        while !active_uploads.is_empty() || !reading_done {
-            // Start new uploads if we have room and more data to read
-            while active_uploads.len() < max_concurrent_chunks && !reading_done {
-                let chunk = crate::utils::read_chunk_async(reader).await?;
-                let chunk_len = chunk.len();
-
-                if chunk_len == 0 {
-                    reading_done = true;
-                    break;
-                }
-
-                total_size += chunk_len;
-                part_number += 1;
-
-                if chunk_len < CHUNK_SIZE {
-                    reading_done = true;
-                }
-
-                let current_part = part_number;
-                let path_clone = path.clone();
-                let upload_id_clone = upload_id.clone();
-                let content_type_clone = content_type.to_string();
-                let bucket_clone = self.clone();
-
-                active_uploads.push(
-                    async move {
-                        let result = bucket_clone
-                            .make_multipart_request(
-                                &path_clone,
-                                chunk,
-                                current_part,
-                                &upload_id_clone,
-                                &content_type_clone,
-                            )
-                            .await;
-                        (current_part, result)
-                    }
-                    .boxed(),
-                );
-            }
-
-            // Process completed uploads
-            if let Some((part_num, result)) = active_uploads.next().await {
-                let response_data = result?;
-                if !(200..300).contains(&response_data.status_code()) {
-                    // if chunk upload failed - abort the upload
-                    match self.abort_upload(&path, upload_id).await {
-                        Ok(_) => {
-                            return Err(error_from_response_data(response_data)?);
-                        }
-                        Err(error) => {
-                            return Err(error);
-                        }
-                    }
-                }
-
-                let etag = response_data.as_str()?;
-                // Store part number with etag to sort later
-                etags.push((part_num, etag.to_string()));
-            }
-        }
+        };
 
         // Sort etags by part number to ensure correct order
         etags.sort_by_key(|k| k.0);
@@ -1943,7 +1978,6 @@ impl Bucket {
 
         // Finish the upload
         let inner_data = etags
-            .clone()
             .into_iter()
             .enumerate()
             .map(|(i, x)| Part {
@@ -1951,9 +1985,23 @@ impl Bucket {
                 part_number: i as u32 + 1,
             })
             .collect::<Vec<Part>>();
-        let response_data = self
+        let response_data = match self
             .complete_multipart_upload(&path, &msg.upload_id, inner_data)
-            .await?;
+            .await
+        {
+            Ok(response_data) if (200..300).contains(&response_data.status_code()) => response_data,
+            Ok(response_data) => {
+                let error = response_error_from_data(response_data);
+                return self
+                    .abort_upload_after_failure(&path, upload_id, error)
+                    .await;
+            }
+            Err(error) => {
+                return self
+                    .abort_upload_after_failure(&path, upload_id, error)
+                    .await;
+            }
+        };
 
         Ok(PutStreamResponse::new(
             response_data.status_code(),
@@ -1972,26 +2020,31 @@ impl Bucket {
         let path = msg.key;
         let upload_id = &msg.upload_id;
 
-        let mut part_number: u32 = 0;
-        let mut etags = Vec::new();
-        loop {
-            let chunk = crate::utils::read_chunk(reader)?;
+        let mut needs_abort = true;
+        let upload_result = (|| {
+            let mut part_number: u32 = 0;
+            let mut etags = Vec::new();
+            loop {
+                let chunk = crate::utils::read_chunk(reader)?;
 
-            if chunk.len() < CHUNK_SIZE {
-                if part_number == 0 {
-                    // Files is not big enough for multipart upload, going with regular put_object
-                    self.abort_upload(&path, upload_id)?;
+                if chunk.len() < CHUNK_SIZE {
+                    if part_number == 0 {
+                        // Files is not big enough for multipart upload, going with regular put_object.
+                        // The upload is already aborted, so a fallback PUT error must not abort again.
+                        needs_abort = false;
+                        self.abort_upload(&path, upload_id)?;
+                        return Ok(self.put_object(s3_path, chunk.as_slice())?.status_code());
+                    }
 
-                    return Ok(self.put_object(s3_path, chunk.as_slice())?.status_code());
-                } else {
                     part_number += 1;
-                    let part = self.put_multipart_chunk(
-                        &chunk,
+                    let response_data = self.make_multipart_request(
                         &path,
+                        chunk,
                         part_number,
                         upload_id,
                         content_type,
                     )?;
+                    let part = part_from_response(response_data, part_number)?;
                     etags.push(part.etag);
                     let inner_data = etags
                         .into_iter()
@@ -2001,17 +2054,31 @@ impl Bucket {
                             part_number: i as u32 + 1,
                         })
                         .collect::<Vec<Part>>();
-                    return Ok(self
-                        .complete_multipart_upload(&path, upload_id, inner_data)?
-                        .status_code());
-                    // let response = std::str::from_utf8(data.as_slice())?;
+                    let response_data =
+                        self.complete_multipart_upload(&path, upload_id, inner_data)?;
+                    if !(200..300).contains(&response_data.status_code()) {
+                        return Err(response_error_from_data(response_data));
+                    }
+                    return Ok(response_data.status_code());
                 }
-            } else {
+
                 part_number += 1;
-                let part =
-                    self.put_multipart_chunk(&chunk, &path, part_number, upload_id, content_type)?;
-                etags.push(part.etag.to_string());
+                let response_data = self.make_multipart_request(
+                    &path,
+                    chunk,
+                    part_number,
+                    upload_id,
+                    content_type,
+                )?;
+                let part = part_from_response(response_data, part_number)?;
+                etags.push(part.etag);
             }
+        })();
+
+        match upload_result {
+            Ok(status_code) => Ok(status_code),
+            Err(error) if needs_abort => self.abort_upload_after_failure(&path, upload_id, error),
+            Err(error) => Err(error),
         }
     }
 
@@ -3345,6 +3412,406 @@ mod test {
         // BSD accept can carry over O_NONBLOCK from the listener.
         stream.set_nonblocking(false)?;
         Ok(stream)
+    }
+
+    #[allow(dead_code)]
+    #[derive(Clone, Copy, Debug)]
+    enum MultipartFailureCase {
+        Reader,
+        Part,
+        Completion,
+        CompletionEmbeddedError,
+        Abort,
+        SmallPut,
+    }
+
+    struct MultipartFaultReader {
+        remaining: usize,
+        fail_at_eof: bool,
+    }
+
+    impl MultipartFaultReader {
+        fn read_into(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            if self.remaining == 0 {
+                return if self.fail_at_eof {
+                    Err(std::io::Error::other("injected reader failure"))
+                } else {
+                    Ok(0)
+                };
+            }
+            let read = self.remaining.min(buffer.len());
+            buffer[..read].fill(b'x');
+            self.remaining -= read;
+            Ok(read)
+        }
+    }
+
+    impl std::io::Read for MultipartFaultReader {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.read_into(buffer)
+        }
+    }
+
+    #[cfg(feature = "with-tokio")]
+    impl tokio::io::AsyncRead for MultipartFaultReader {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _context: &mut std::task::Context<'_>,
+            buffer: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            let this = self.get_mut();
+            match this.read_into(buffer.initialize_unfilled()) {
+                Ok(read) => {
+                    buffer.advance(read);
+                    std::task::Poll::Ready(Ok(()))
+                }
+                Err(error) => std::task::Poll::Ready(Err(error)),
+            }
+        }
+    }
+
+    #[cfg(feature = "with-async-std")]
+    impl async_std::io::Read for MultipartFaultReader {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _context: &mut std::task::Context<'_>,
+            buffer: &mut [u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            std::task::Poll::Ready(self.get_mut().read_into(buffer))
+        }
+    }
+
+    #[maybe_async::maybe_async]
+    async fn run_multipart_failure_case(
+        case: MultipartFailureCase,
+    ) -> (Result<u16, S3Error>, Result<Vec<String>, String>) {
+        use super::CHUNK_SIZE;
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        fn read_request(
+            stream: &mut std::net::TcpStream,
+            request_index: usize,
+            deadline: Instant,
+        ) -> Result<(String, usize), String> {
+            let mut header_bytes = Vec::new();
+            let mut byte = [0u8; 1];
+            while !header_bytes.ends_with(b"\r\n\r\n") {
+                if header_bytes.len() >= 16 * 1024 || Instant::now() >= deadline {
+                    return Err(format!("header bounds exceeded at request {request_index}"));
+                }
+                stream
+                    .read_exact(&mut byte)
+                    .map_err(|error| format!("read headers at {request_index}: {error}"))?;
+                header_bytes.push(byte[0]);
+            }
+            let header_text = String::from_utf8_lossy(&header_bytes);
+            let request_line = header_text.lines().next().unwrap_or_default().to_owned();
+            let content_length = header_text
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(str::to_owned)
+                })
+                .and_then(|value| value.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            if content_length > CHUNK_SIZE + 64 * 1024 {
+                return Err(format!("request body exceeded cap at {request_index}"));
+            }
+            let mut request_body = vec![0u8; content_length];
+            stream
+                .read_exact(&mut request_body)
+                .map_err(|error| format!("read body at {request_index}: {error}"))?;
+            Ok((request_line, content_length))
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let (done_tx, done_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let init_body = "<InitiateMultipartUploadResult><Bucket>test-bucket</Bucket><Key>multipart-test</Key><UploadId>upload-id</UploadId></InitiateMultipartUploadResult>";
+            let part_failure = "part failure";
+            let completion_failure = "completion failure";
+            let completion_embedded_error =
+                "<Error><Code>InternalError</Code><RequestId>completion-req</RequestId></Error>";
+            let abort_failure = "abort failure";
+            let put_failure = "fallback put failure";
+            let failure_attempts = if cfg!(feature = "fail-on-err") {
+                crate::get_retries() as usize + 1
+            } else {
+                1
+            };
+            let mut steps = vec![("POST ", "uploads", 200, init_body, false)];
+            match case {
+                MultipartFailureCase::Reader | MultipartFailureCase::Abort => {
+                    if cfg!(feature = "sync") {
+                        steps.push(("PUT ", "partNumber=1", 200, "", true));
+                    }
+                    let (status, body) = if matches!(case, MultipartFailureCase::Abort) {
+                        (500, abort_failure)
+                    } else {
+                        (204, "")
+                    };
+                    for _ in 0..if status >= 300 { failure_attempts } else { 1 } {
+                        steps.push(("DELETE ", "uploadId=upload-id", status, body, false));
+                    }
+                }
+                MultipartFailureCase::SmallPut => {
+                    steps.push(("DELETE ", "uploadId=upload-id", 204, "", false));
+                    for _ in 0..failure_attempts {
+                        steps.push(("PUT ", "multipart-test", 500, put_failure, false));
+                    }
+                }
+                MultipartFailureCase::Part => {
+                    for _ in 0..failure_attempts {
+                        steps.push(("PUT ", "partNumber=1", 500, part_failure, false));
+                    }
+                    steps.push(("DELETE ", "uploadId=upload-id", 204, "", false));
+                }
+                MultipartFailureCase::Completion
+                | MultipartFailureCase::CompletionEmbeddedError => {
+                    steps.push(("PUT ", "partNumber=1", 200, "", true));
+                    if cfg!(feature = "sync") {
+                        steps.push(("PUT ", "partNumber=2", 200, "", true));
+                    }
+                    let (status, body) = if matches!(case, MultipartFailureCase::Completion) {
+                        (500, completion_failure)
+                    } else {
+                        (200, completion_embedded_error)
+                    };
+                    let attempts = if status >= 300 && cfg!(feature = "fail-on-err") {
+                        failure_attempts
+                    } else {
+                        1
+                    };
+                    for _ in 0..attempts {
+                        steps.push(("POST ", "uploadId=upload-id", status, body, false));
+                    }
+                    steps.push(("DELETE ", "uploadId=upload-id", 204, "", false));
+                }
+            }
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut requests = Vec::new();
+
+            for (expected_method, expected_query, status, body, with_etag) in steps {
+                let (mut stream, _) = loop {
+                    if Instant::now() >= deadline {
+                        return Err(format!("accept deadline after {} requests", requests.len()));
+                    }
+                    match listener.accept() {
+                        Ok(pair) => break pair,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => return Err(format!("accept failed: {error}")),
+                    }
+                };
+                stream
+                    .set_nonblocking(false)
+                    .map_err(|error| format!("set blocking: {error}"))?;
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .map_err(|error| format!("set read timeout: {error}"))?;
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(3)))
+                    .map_err(|error| format!("set write timeout: {error}"))?;
+                let (request_line, _) = read_request(&mut stream, requests.len() + 1, deadline)?;
+                if !request_line.starts_with(expected_method)
+                    || !request_line.contains(expected_query)
+                {
+                    return Err(format!(
+                        "unexpected request {}: method/query mismatch",
+                        requests.len() + 1
+                    ));
+                }
+                let reason = if (200..300).contains(&status) {
+                    "OK"
+                } else {
+                    "Internal Server Error"
+                };
+                let etag = if with_etag {
+                    "ETag: \"part-etag\"\r\n"
+                } else {
+                    ""
+                };
+                let response = format!(
+                    "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\n{etag}Connection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).map_err(|error| {
+                    format!("write response at {}: {error}", requests.len() + 1)
+                })?;
+                requests.push(request_line);
+            }
+
+            // Keep accepting until the client signals its call has returned;
+            // this detects an unexpected duplicate abort without a fixed sleep.
+            loop {
+                if done_rx.try_recv().is_ok() {
+                    return Ok(requests);
+                }
+                if Instant::now() >= deadline {
+                    return Err(format!(
+                        "post-request deadline after {} requests",
+                        requests.len()
+                    ));
+                }
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream
+                            .set_nonblocking(false)
+                            .map_err(|error| format!("set blocking for extra request: {error}"))?;
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(3)))
+                            .map_err(|error| format!("set extra read timeout: {error}"))?;
+                        stream
+                            .set_write_timeout(Some(Duration::from_secs(3)))
+                            .map_err(|error| format!("set extra write timeout: {error}"))?;
+                        let (request_line, _) =
+                            read_request(&mut stream, requests.len() + 1, deadline)?;
+                        requests.push(format!("unexpected extra request: {request_line}"));
+                        stream
+                            .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                            .map_err(|error| format!("write extra response: {error}"))?;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => return Err(format!("accept extra request failed: {error}")),
+                }
+            }
+        });
+
+        let credentials = Credentials::new(
+            Some("test_access_key"),
+            Some("test_secret_key"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let bucket = Bucket::new(
+            "test-bucket",
+            Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint,
+            },
+            credentials,
+        )
+        .unwrap()
+        .with_path_style()
+        .with_request_timeout(Duration::from_secs(4))
+        .unwrap();
+        let mut reader = MultipartFaultReader {
+            remaining: if matches!(case, MultipartFailureCase::SmallPut) {
+                1
+            } else {
+                CHUNK_SIZE
+            },
+            fail_at_eof: matches!(
+                case,
+                MultipartFailureCase::Reader | MultipartFailureCase::Abort
+            ),
+        };
+        let result = bucket
+            .put_object_stream_with_content_type(
+                &mut reader,
+                "/multipart-test",
+                "application/octet-stream",
+            )
+            .await;
+        #[cfg(not(feature = "sync"))]
+        let result = result.map(|response| response.status_code());
+        let _ = done_tx.send(());
+        let server_result = server.join().expect("mock multipart server panicked");
+        (result, server_result)
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn multipart_stream_errors_attempt_abort_and_preserve_primary_error() {
+        let failure_attempts = if cfg!(feature = "fail-on-err") {
+            crate::get_retries() as usize + 1
+        } else {
+            1
+        };
+        for case in [
+            MultipartFailureCase::Reader,
+            MultipartFailureCase::Part,
+            MultipartFailureCase::Completion,
+            MultipartFailureCase::CompletionEmbeddedError,
+            MultipartFailureCase::Abort,
+            #[cfg(feature = "sync")]
+            MultipartFailureCase::SmallPut,
+        ] {
+            let (result, requests) = run_multipart_failure_case(case).await;
+            let requests = requests.expect("mock server request sequence failed");
+            let expected_requests = match case {
+                MultipartFailureCase::Reader => 2 + usize::from(cfg!(feature = "sync")),
+                MultipartFailureCase::Part => 2 + failure_attempts,
+                MultipartFailureCase::Completion => {
+                    3 + usize::from(cfg!(feature = "sync")) + failure_attempts
+                }
+                MultipartFailureCase::CompletionEmbeddedError => {
+                    4 + usize::from(cfg!(feature = "sync"))
+                }
+                MultipartFailureCase::Abort => {
+                    1 + usize::from(cfg!(feature = "sync")) + failure_attempts
+                }
+                MultipartFailureCase::SmallPut => 2 + failure_attempts,
+            };
+            assert_eq!(requests.len(), expected_requests);
+            if !matches!(case, MultipartFailureCase::SmallPut) {
+                assert!(result.is_err(), "{case:?} should return an error");
+            }
+
+            match case {
+                MultipartFailureCase::Reader | MultipartFailureCase::Abort => {
+                    assert!(
+                        matches!(result, Err(S3Error::Io(error)) if error.to_string() == "injected reader failure")
+                    );
+                }
+                MultipartFailureCase::Part => {
+                    assert!(matches!(
+                        result,
+                        Err(S3Error::HttpFail | S3Error::HttpFailWithBody(500, _))
+                    ));
+                }
+                MultipartFailureCase::Completion => match result {
+                    Err(S3Error::HttpFailWithBody(500, body)) => {
+                        assert_eq!(body, "completion failure");
+                    }
+                    Err(S3Error::HttpFail) if cfg!(feature = "fail-on-err") => {}
+                    other => panic!("completion failure was not preserved: {other:?}"),
+                },
+                MultipartFailureCase::CompletionEmbeddedError => {
+                    assert!(
+                        matches!(result, Err(S3Error::HttpFailWithBody(200, body)) if body.contains("completion-req"))
+                    );
+                }
+                MultipartFailureCase::SmallPut => {
+                    if cfg!(feature = "fail-on-err") {
+                        assert!(matches!(
+                            result,
+                            Err(S3Error::HttpFail | S3Error::HttpFailWithBody(500, _))
+                        ));
+                    } else {
+                        assert!(matches!(result, Ok(500)));
+                    }
+                }
+            }
+        }
     }
 
     #[test]

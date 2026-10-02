@@ -207,7 +207,12 @@ impl<'a> PutObjectRequest<'a> {
     }
 }
 
-/// Builder for streaming PUT operations
+/// Builder for streaming PUT operations.
+///
+/// If an error is returned after multipart initiation, the upload is aborted on
+/// a best-effort basis. Cancelling the future cannot run an asynchronous abort,
+/// and in-flight parts or a lost completion response can leave remote state
+/// uncertain.
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 #[derive(Debug, Clone)]
 pub struct PutObjectStreamRequest<'a> {
