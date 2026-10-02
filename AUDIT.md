@@ -4,7 +4,7 @@ Audit date: 2026-10-02. Baseline: `b584ce7` on `master`, initially clean.
 
 The priority is trustworthy storage behavior across supported runtimes and providers. Expanding the API should follow correctness, bounded resource use, and repeatable compatibility tests.
 
-This is a source review and local test audit, not a security certification or a live provider compatibility claim. No real credentials or remote storage operations were used. Findings below distinguish implemented repairs from open work.
+This began as a source review and local test audit. Subsequent MinIO verification and authorized cloud-provider attempts are recorded separately below; neither establishes a security certification or complete provider compatibility. Findings distinguish implemented repairs from open work.
 
 ## First repair batch
 
@@ -201,8 +201,79 @@ owned server stopped, temporary data and credentials were removed, and port
 This establishes local MinIO success-path coverage, including real blocking API
 execution. It does not establish TLS handshake coverage (the endpoint used
 HTTP), cloud-provider compatibility, or cleanup after failure/cancellation.
-Cloud test credentials were absent from the shell; AWS, R2, GCS, Wasabi, and
-DigitalOcean tests were not run. The production findings above remain open.
+Cloud credentials were not loaded for that MinIO run. The later cloud attempts
+are recorded below. The production findings above remain open.
+
+## Cloud-provider verification attempt
+
+The user subsequently authorized loading the existing `.envrc` credentials.
+Values were used privately without changing the file. Authenticated HEAD,
+object/multipart listing, and versioning checks succeeded against the existing
+test buckets on AWS, Wasabi, GCS, R2, and DigitalOcean. Versioning was disabled.
+These curl checks establish endpoint access, not rust-s3 compatibility.
+
+Luna added `RUST_S3_TEST_PREFIX` isolation to the object fixtures and restored or
+added DigitalOcean CRUD/multipart, Wasabi multipart, and R2 blocking wrappers.
+AWS tag readback now asserts exact tags. Selected tests used unique prefixes
+and empty temporary working directories. Bucket configuration/ACL tests were
+excluded; only the selected run's objects and uploads were eligible for cleanup.
+
+The initial cloud library attempts stalled:
+
+- AWS default Tokio CRUD exceeded a 180-second process deadline. Sync native TLS
+  failed its first PUT with a connection timeout after 66 seconds. Tokio rustls
+  also exceeded 180 seconds; temporary stage logging located it at the first PUT.
+- Wasabi default Tokio CRUD was interrupted after approximately 100 seconds.
+  The remaining provider/runtime matrix was not executed.
+- A temporary unsigned reqwest GET to the AWS bucket endpoint also timed out
+  after five seconds, reproducing the problem without signing or credentials.
+- Signed curl PUT/DELETE probes to the same AWS virtual host succeeded, including
+  the fixture's 3 KB payload and encoded `+test.file` suffix.
+- Little Snitch is running on the host. A per-executable network restriction is
+  a hypothesis awaiting user confirmation; no firewall settings were changed
+  and no library transport defect is claimed from these observations.
+
+Independent post-attempt listings confirmed zero objects and zero incomplete
+uploads under every attempted test prefix. The curl probe objects were deleted
+with HTTP 204. Temporary diagnostic Rust code was removed. Existing GCS Tokio
+rustls exclusions remain a coverage gap, not a passing configuration.
+
+Two local `make ci` attempts after prefix changes failed in the XML-response
+localhost fixture: first with async-std rustls, then with Tokio rustls. The
+affected test passed 20 focused repetitions and the exact full async-std rustls
+suite passed 10 repetitions (63 passed, 25 ignored each), but those successes
+did not close the recurring full-gate failure.
+
+The follow-up reproduced its cause on macOS: sockets accepted from a nonblocking
+listener retained nonblocking mode, so a read before the client sent its first
+byte immediately returned `WouldBlock`. Both affected localhost fixtures now
+explicitly restore blocking mode on accepted streams while retaining their
+read/write and server deadlines. A channel-coordinated delayed-client regression
+failed when that setup was removed and passed when restored. The Tokio and
+async-std rustls suites then passed with 64 library tests each. The complete
+`make ci` gate passed in 59.12 seconds, including all nine S3 configurations,
+the additional error-feature checks, four doctest shapes, and both support
+crates. This is one local timing observation, not a throughput benchmark.
+
+A subsequent unsigned HTTPS probe returned HTTP 403 from AWS as expected,
+so the cloud matrix could resume. No firewall configuration was changed; the
+cause of the earlier host-connectivity stall remains unconfirmed.
+
+The default-Tokio rerun then passed all selected tests on AWS (5), Wasabi (2),
+GCS (3), and DigitalOcean (2). R2 CRUD failed at the first range GET with HTTP
+403 `SignatureDoesNotMatch`; R2's canonical request showed an empty
+`Content-Length` value where the shared header builder signed `0`. Native-TLS
+async-std and sync runs reproduced the same range failure. Each failed run's
+single object was independently removed and both listings were verified empty.
+R2 streaming tests and the remaining cloud runtime/TLS matrix remain pending.
+
+The prefix-enabled MinIO fixtures passed another 57 executions across the same
+11 configurations (28.76 aggregate test seconds). The first launch attempt
+failed because the harness's server process had exited; the successful rerun
+used a persistent foreground process and verified health before tests. Every
+successful run had empty, untruncated object and multipart listings. The owned
+bucket was deleted (204, followed by 404), the server stopped, and its data and
+generated credentials removed. These results precede the R2 range-header repair.
 
 ## Order of work
 

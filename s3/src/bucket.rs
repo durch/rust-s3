@@ -3320,12 +3320,86 @@ mod test {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
+    fn test_object_key(suffix: &str) -> String {
+        format!(
+            "{}{suffix}",
+            env::var("RUST_S3_TEST_PREFIX").unwrap_or_default()
+        )
+    }
+
+    fn test_object_path(suffix: &str) -> String {
+        format!("/{}", test_object_key(suffix))
+    }
+
     fn xml_response(body: &str) -> ResponseData {
         ResponseData::new(
             bytes::Bytes::copy_from_slice(body.as_bytes()),
             200,
             HashMap::new(),
         )
+    }
+
+    fn make_mock_stream_blocking(
+        stream: std::net::TcpStream,
+    ) -> std::io::Result<std::net::TcpStream> {
+        // BSD accept can carry over O_NONBLOCK from the listener.
+        stream.set_nonblocking(false)?;
+        Ok(stream)
+    }
+
+    #[test]
+    fn accepted_mock_stream_blocks_until_delayed_client_byte() {
+        use std::io::{Read, Write};
+        use std::net::{TcpListener, TcpStream};
+        use std::sync::mpsc;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let (accepted_tx, accepted_rx) = mpsc::sync_channel(0);
+        let (read_result_tx, read_result_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let (stream, _) = loop {
+                match listener.accept() {
+                    Ok(pair) => break pair,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "mock accept timed out");
+                        thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(error) => panic!("mock accept failed: {error}"),
+                }
+            };
+            let mut stream = make_mock_stream_blocking(stream).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            accepted_tx.send(()).unwrap();
+            let mut byte = [0];
+            read_result_tx
+                .send(stream.read_exact(&mut byte).map(|()| byte[0]))
+                .unwrap();
+        });
+
+        let mut client = TcpStream::connect(address).unwrap();
+        accepted_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("server did not accept the client");
+        assert!(matches!(
+            read_result_rx.recv_timeout(Duration::from_millis(50)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        client.write_all(b"x").unwrap();
+        assert_eq!(
+            read_result_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("server did not finish reading")
+                .unwrap(),
+            b'x'
+        );
+        server.join().unwrap();
     }
 
     #[test]
@@ -3395,6 +3469,17 @@ mod test {
         use std::thread;
         use std::time::{Duration, Instant};
 
+        fn server_error(
+            stage: &str,
+            completed_requests: usize,
+            error: &dyn std::fmt::Display,
+        ) -> String {
+            format!(
+                "stage={stage} completed_requests={completed_requests} request_index={} error={error}",
+                completed_requests + 1
+            )
+        }
+
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
@@ -3409,29 +3494,41 @@ mod test {
             let deadline = Instant::now() + Duration::from_secs(8);
             let mut count = 0;
             while count < responses.len() && Instant::now() < deadline {
-                let (mut stream, _) = match listener.accept() {
+                let (stream, _) = match listener.accept() {
                     Ok(pair) => pair,
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(5));
                         continue;
                     }
-                    Err(error) => return Err(error.to_string()),
+                    Err(error) => {
+                        return Err(format!(
+                            "stage=accept completed_requests={count} next_request={} error_kind={:?} error={error}",
+                            count + 1,
+                            error.kind()
+                        ));
+                    }
                 };
+                let mut request = Vec::new();
+                let mut stream = make_mock_stream_blocking(stream)
+                    .map_err(|error| server_error("set_blocking", count, &error))?;
                 stream
                     .set_read_timeout(Some(Duration::from_secs(2)))
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| server_error("set_read_timeout", count, &error))?;
                 stream
                     .set_write_timeout(Some(Duration::from_secs(2)))
-                    .map_err(|error| error.to_string())?;
-                let mut request = Vec::new();
+                    .map_err(|error| server_error("set_write_timeout", count, &error))?;
                 let mut byte = [0u8; 1];
                 while !request.ends_with(b"\r\n\r\n") {
                     if request.len() >= 16 * 1024 || Instant::now() >= deadline {
-                        return Err("request headers exceeded bounds".to_owned());
+                        return Err(server_error(
+                            "read_headers_bounds",
+                            count,
+                            &"request headers exceeded bounds",
+                        ));
                     }
                     stream
                         .read_exact(&mut byte)
-                        .map_err(|error| error.to_string())?;
+                        .map_err(|error| server_error("read_headers", count, &error))?;
                     request.push(byte[0]);
                 }
                 let headers = String::from_utf8_lossy(&request).to_ascii_lowercase();
@@ -3440,13 +3537,18 @@ mod test {
                     .find_map(|line| line.strip_prefix("content-length:"))
                     .and_then(|value| value.trim().parse::<usize>().ok())
                     .unwrap_or(0);
-                if content_length > 64 * 1024 {
-                    return Err("request body exceeded mock server limit".to_owned());
+                let content_length_value = content_length;
+                if content_length_value > 64 * 1024 {
+                    return Err(server_error(
+                        "validate_content_length",
+                        count,
+                        &"request body exceeded mock server limit",
+                    ));
                 }
-                let mut body = vec![0; content_length];
+                let mut body = vec![0; content_length_value];
                 stream
                     .read_exact(&mut body)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| server_error("read_body", count, &error))?;
                 let response_body = responses[count];
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -3455,13 +3557,17 @@ mod test {
                 );
                 stream
                     .write_all(response.as_bytes())
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| server_error("write_response", count, &error))?;
                 count += 1;
             }
             if count == responses.len() {
                 Ok(count)
             } else {
-                Err(format!("received {count} of {} requests", responses.len()))
+                Err(format!(
+                    "stage=accept_deadline completed_requests={count} expected_requests={} deadline_elapsed={}",
+                    responses.len(),
+                    Instant::now() >= deadline
+                ))
             }
         });
 
@@ -3565,8 +3671,9 @@ mod test {
                 );
 
                 match listener.accept() {
-                    Ok((mut stream, _)) => {
+                    Ok((stream, _)) => {
                         requests += 1;
+                        let mut stream = make_mock_stream_blocking(stream).unwrap();
                         stream
                             .set_read_timeout(Some(Duration::from_secs(3)))
                             .unwrap();
@@ -3805,11 +3912,11 @@ mod test {
 
     #[maybe_async::maybe_async]
     async fn put_head_get_delete_object(bucket: Bucket, head: bool) {
-        let s3_path = "/+test.file";
-        let non_existant_path = "/+non_existant.file";
+        let s3_path = test_object_path("+test.file");
+        let non_existant_path = test_object_path("+non_existant.file");
         let test: Vec<u8> = object(3072);
 
-        let response_data = bucket.put_object(s3_path, &test).await.unwrap();
+        let response_data = bucket.put_object(&s3_path, &test).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
 
         // let attributes = bucket
@@ -3817,18 +3924,18 @@ mod test {
         //     .await
         //     .unwrap();
 
-        let response_data = bucket.get_object(s3_path).await.unwrap();
+        let response_data = bucket.get_object(&s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
         assert_eq!(test, response_data.as_slice());
 
-        let exists = bucket.object_exists(s3_path).await.unwrap();
+        let exists = bucket.object_exists(&s3_path).await.unwrap();
         assert!(exists);
 
-        let not_exists = bucket.object_exists(non_existant_path).await.unwrap();
+        let not_exists = bucket.object_exists(&non_existant_path).await.unwrap();
         assert!(!not_exists);
 
         let response_data = bucket
-            .get_object_range(s3_path, 100, Some(1000))
+            .get_object_range(&s3_path, 100, Some(1000))
             .await
             .unwrap();
         assert_eq!(response_data.status_code(), 206);
@@ -3836,27 +3943,27 @@ mod test {
 
         // Test single-byte range read (start == end)
         let response_data = bucket
-            .get_object_range(s3_path, 100, Some(100))
+            .get_object_range(&s3_path, 100, Some(100))
             .await
             .unwrap();
         assert_eq!(response_data.status_code(), 206);
         assert_eq!(vec![test[100]], response_data.as_slice());
 
         if head {
-            let (_head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+            let (_head_object_result, code) = bucket.head_object(&s3_path).await.unwrap();
             // println!("{:?}", head_object_result);
             assert_eq!(code, 200);
         }
 
         // println!("{:?}", head_object_result);
-        let response_data = bucket.delete_object(s3_path).await.unwrap();
+        let response_data = bucket.delete_object(&s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 204);
     }
 
     #[maybe_async::maybe_async]
     async fn put_head_delete_object_with_headers(bucket: Bucket) {
-        let s3_path = "/+test.file";
-        let non_existant_path = "/+non_existant.file";
+        let s3_path = test_object_path("+test.file");
+        let non_existant_path = test_object_path("+non_existant.file");
         let test: Vec<u8> = object(3072);
         let header_value = "max-age=42";
 
@@ -3868,29 +3975,29 @@ mod test {
         );
 
         let response_data = bucket
-            .put_object_with_headers(s3_path, &test, Some(custom_headers.clone()))
+            .put_object_with_headers(&s3_path, &test, Some(custom_headers.clone()))
             .await
             .expect("Put object with custom headers failed");
         assert_eq!(response_data.status_code(), 200);
 
-        let response_data = bucket.get_object(s3_path).await.unwrap();
+        let response_data = bucket.get_object(&s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
         assert_eq!(test, response_data.as_slice());
 
-        let exists = bucket.object_exists(s3_path).await.unwrap();
+        let exists = bucket.object_exists(&s3_path).await.unwrap();
         assert!(exists);
 
-        let not_exists = bucket.object_exists(non_existant_path).await.unwrap();
+        let not_exists = bucket.object_exists(&non_existant_path).await.unwrap();
         assert!(!not_exists);
 
         let response_data = bucket
-            .get_object_range(s3_path, 100, Some(1000))
+            .get_object_range(&s3_path, 100, Some(1000))
             .await
             .unwrap();
         assert_eq!(response_data.status_code(), 206);
         assert_eq!(test[100..1001].to_vec(), response_data.as_slice());
 
-        let (head_object_result, code) = bucket.head_object(s3_path).await.unwrap();
+        let (head_object_result, code) = bucket.head_object(&s3_path).await.unwrap();
         // println!("{:?}", head_object_result);
         assert_eq!(code, 200);
         assert_eq!(
@@ -3898,7 +4005,7 @@ mod test {
             Some(header_value.to_string())
         );
 
-        let response_data = bucket.delete_object(s3_path).await.unwrap();
+        let response_data = bucket.delete_object(&s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 204);
     }
 
@@ -3914,7 +4021,8 @@ mod test {
     )]
     async fn test_tagging_aws() {
         let bucket = test_aws_bucket();
-        let _target_tags = vec![
+        let tagging_path = test_object_key("tagging_test");
+        let target_tags = vec![
             Tag {
                 key: "Tag1".to_string(),
                 value: "Value1".to_string(),
@@ -3926,21 +4034,23 @@ mod test {
         ];
         let empty_tags: Vec<Tag> = Vec::new();
         let response_data = bucket
-            .put_object("tagging_test", b"Gimme tags")
+            .put_object(&tagging_path, b"Gimme tags")
             .await
             .unwrap();
         assert_eq!(response_data.status_code(), 200);
-        let (tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
+        let (tags, _code) = bucket.get_object_tagging(&tagging_path).await.unwrap();
         assert_eq!(tags, empty_tags);
         let response_data = bucket
-            .put_object_tagging("tagging_test", &[("Tag1", "Value1"), ("Tag2", "Value2")])
+            .put_object_tagging(&tagging_path, &[("Tag1", "Value1"), ("Tag2", "Value2")])
             .await
             .unwrap();
         assert_eq!(response_data.status_code(), 200);
-        // This could be eventually consistent now
-        let (_tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
-        // assert_eq!(tags, target_tags)
-        let _response_data = bucket.delete_object("tagging_test").await.unwrap();
+        let (mut tags, _code) = bucket.get_object_tagging(&tagging_path).await.unwrap();
+        tags.sort_by(|left, right| left.key.cmp(&right.key));
+        let mut target_tags = target_tags;
+        target_tags.sort_by(|left, right| left.key.cmp(&right.key));
+        assert_eq!(tags, target_tags);
+        let _response_data = bucket.delete_object(&tagging_path).await.unwrap();
     }
 
     #[ignore]
@@ -3955,6 +4065,7 @@ mod test {
     )]
     async fn test_tagging_minio() {
         let bucket = test_minio_bucket();
+        let tagging_path = test_object_key("tagging_test");
         let target_tags = vec![
             Tag {
                 key: "Tag1".to_string(),
@@ -3967,23 +4078,23 @@ mod test {
         ];
         let empty_tags: Vec<Tag> = Vec::new();
         let response_data = bucket
-            .put_object("tagging_test", b"Gimme tags")
+            .put_object(&tagging_path, b"Gimme tags")
             .await
             .unwrap();
         assert_eq!(response_data.status_code(), 200);
-        let (tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
+        let (tags, _code) = bucket.get_object_tagging(&tagging_path).await.unwrap();
         assert_eq!(tags, empty_tags);
         let response_data = bucket
-            .put_object_tagging("tagging_test", &[("Tag1", "Value1"), ("Tag2", "Value2")])
+            .put_object_tagging(&tagging_path, &[("Tag1", "Value1"), ("Tag2", "Value2")])
             .await
             .unwrap();
         assert_eq!(response_data.status_code(), 200);
-        let (mut tags, _code) = bucket.get_object_tagging("tagging_test").await.unwrap();
+        let (mut tags, _code) = bucket.get_object_tagging(&tagging_path).await.unwrap();
         tags.sort_by(|left, right| left.key.cmp(&right.key));
         let mut target_tags = target_tags;
         target_tags.sort_by(|left, right| left.key.cmp(&right.key));
         assert_eq!(tags, target_tags);
-        let _response_data = bucket.delete_object("tagging_test").await.unwrap();
+        let _response_data = bucket.delete_object(&tagging_path).await.unwrap();
     }
 
     #[ignore]
@@ -4041,6 +4152,32 @@ mod test {
             async_std::test
         )
     )]
+    async fn streaming_big_wasabi_put_head_get_delete_object() {
+        streaming_test_put_get_delete_big_object(*test_wasabi_bucket()).await;
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn streaming_big_digital_ocean_put_head_get_delete_object() {
+        streaming_test_put_get_delete_big_object(*test_digital_ocean_bucket()).await;
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
     async fn streaming_big_r2_put_head_get_delete_object() {
         streaming_test_put_get_delete_big_object(*test_r2_bucket()).await;
     }
@@ -4066,9 +4203,9 @@ mod test {
         use tokio::io::AsyncWriteExt;
 
         init();
-        let remote_path = "+stream_test_big";
+        let remote_path = test_object_key("+stream_test_big");
         let local_path = "+stream_test_big";
-        std::fs::remove_file(remote_path).unwrap_or(());
+        std::fs::remove_file(local_path).unwrap_or(());
         let content: Vec<u8> = (0..20_000_000).map(|i| (i % 251) as u8).collect();
 
         let mut file = File::create(local_path).await.unwrap();
@@ -4077,7 +4214,7 @@ mod test {
         let mut reader = File::open(local_path).await.unwrap();
 
         let response = bucket
-            .put_object_stream(&mut reader, remote_path)
+            .put_object_stream(&mut reader, &remote_path)
             .await
             .unwrap();
         #[cfg(not(feature = "sync"))]
@@ -4086,7 +4223,7 @@ mod test {
         assert_eq!(response, 200);
         let mut writer = Vec::new();
         let code = bucket
-            .get_object_to_writer(remote_path, &mut writer)
+            .get_object_to_writer(&remote_path, &mut writer)
             .await
             .unwrap();
         assert_eq!(code, 200);
@@ -4098,7 +4235,7 @@ mod test {
 
         #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
         {
-            let mut response_data_stream = bucket.get_object_stream(remote_path).await.unwrap();
+            let mut response_data_stream = bucket.get_object_stream(&remote_path).await.unwrap();
 
             let mut streamed_len = 0;
             while let Some(chunk) = response_data_stream.bytes().next().await {
@@ -4114,7 +4251,7 @@ mod test {
             assert_eq!(streamed_len, content.len());
         }
 
-        let response_data = bucket.delete_object(remote_path).await.unwrap();
+        let response_data = bucket.delete_object(&remote_path).await.unwrap();
         assert_eq!(response_data.status_code(), 204);
         std::fs::remove_file(local_path).unwrap_or(());
     }
@@ -4181,7 +4318,7 @@ mod test {
     #[maybe_async::maybe_async]
     async fn streaming_test_put_get_delete_small_object(bucket: Box<Bucket>) {
         init();
-        let remote_path = "+stream_test_small";
+        let remote_path = test_object_key("+stream_test_small");
         let content: Vec<u8> = object(1000);
         #[cfg(feature = "with-tokio")]
         let mut reader = std::io::Cursor::new(&content);
@@ -4191,7 +4328,7 @@ mod test {
         let mut reader = std::io::Cursor::new(&content);
 
         let response = bucket
-            .put_object_stream(&mut reader, remote_path)
+            .put_object_stream(&mut reader, &remote_path)
             .await
             .unwrap();
         #[cfg(not(feature = "sync"))]
@@ -4200,48 +4337,52 @@ mod test {
         assert_eq!(response, 200);
         let mut writer = Vec::new();
         let code = bucket
-            .get_object_to_writer(remote_path, &mut writer)
+            .get_object_to_writer(&remote_path, &mut writer)
             .await
             .unwrap();
         assert_eq!(code, 200);
         assert_eq!(content, writer);
 
-        let response_data = bucket.delete_object(remote_path).await.unwrap();
+        let response_data = bucket.delete_object(&remote_path).await.unwrap();
         assert_eq!(response_data.status_code(), 204);
     }
 
     #[cfg(feature = "blocking")]
     fn put_head_get_list_delete_object_blocking(bucket: Bucket) {
-        let s3_path = "/test_blocking.file";
-        let s3_path_2 = "/test_blocking.file2";
-        let s3_path_3 = "/test_blocking.file3";
+        let s3_key = test_object_key("test_blocking.file");
+        let s3_key_2 = test_object_key("test_blocking.file2");
+        let s3_key_3 = test_object_key("test_blocking.file3");
+        let s3_path = format!("/{s3_key}");
+        let s3_path_2 = format!("/{s3_key_2}");
+        let s3_path_3 = format!("/{s3_key_3}");
+        let list_prefix = test_object_key("test_blocking.");
         let test: Vec<u8> = object(3072);
 
         // Test PutObject
-        let response_data = bucket.put_object_blocking(s3_path, &test).unwrap();
+        let response_data = bucket.put_object_blocking(&s3_path, &test).unwrap();
         assert_eq!(response_data.status_code(), 200);
 
         // Test GetObject
-        let response_data = bucket.get_object_blocking(s3_path).unwrap();
+        let response_data = bucket.get_object_blocking(&s3_path).unwrap();
         assert_eq!(response_data.status_code(), 200);
         assert_eq!(test, response_data.as_slice());
 
         // Test GetObject with a range
         let response_data = bucket
-            .get_object_range_blocking(s3_path, 100, Some(1000))
+            .get_object_range_blocking(&s3_path, 100, Some(1000))
             .unwrap();
         assert_eq!(response_data.status_code(), 206);
         assert_eq!(test[100..1001].to_vec(), response_data.as_slice());
 
         // Test single-byte range read (start == end)
         let response_data = bucket
-            .get_object_range_blocking(s3_path, 100, Some(100))
+            .get_object_range_blocking(&s3_path, 100, Some(100))
             .unwrap();
         assert_eq!(response_data.status_code(), 206);
         assert_eq!(vec![test[100]], response_data.as_slice());
 
         // Test HeadObject
-        let (head_object_result, code) = bucket.head_object_blocking(s3_path).unwrap();
+        let (head_object_result, code) = bucket.head_object_blocking(&s3_path).unwrap();
         assert_eq!(code, 200);
         assert_eq!(
             head_object_result.content_type.unwrap(),
@@ -4250,15 +4391,15 @@ mod test {
         // println!("{:?}", head_object_result);
 
         // Put some additional objects, so that we can test ListObjects
-        let response_data = bucket.put_object_blocking(s3_path_2, &test).unwrap();
+        let response_data = bucket.put_object_blocking(&s3_path_2, &test).unwrap();
         assert_eq!(response_data.status_code(), 200);
-        let response_data = bucket.put_object_blocking(s3_path_3, &test).unwrap();
+        let response_data = bucket.put_object_blocking(&s3_path_3, &test).unwrap();
         assert_eq!(response_data.status_code(), 200);
 
         // Test ListObjects, with continuation
         let (result, code) = bucket
             .list_page_blocking(
-                "test_blocking.".to_string(),
+                list_prefix.clone(),
                 Some("/".to_string()),
                 None,
                 None,
@@ -4267,14 +4408,14 @@ mod test {
             .unwrap();
         assert_eq!(code, 200);
         assert_eq!(result.contents.len(), 2);
-        assert_eq!(result.contents[0].key, s3_path[1..]);
-        assert_eq!(result.contents[1].key, s3_path_2[1..]);
+        assert_eq!(result.contents[0].key, s3_key);
+        assert_eq!(result.contents[1].key, s3_key_2);
 
         let cont_token = result.next_continuation_token.unwrap();
 
         let (result, code) = bucket
             .list_page_blocking(
-                "test_blocking.".to_string(),
+                list_prefix,
                 Some("/".to_string()),
                 Some(cont_token),
                 None,
@@ -4283,15 +4424,15 @@ mod test {
             .unwrap();
         assert_eq!(code, 200);
         assert_eq!(result.contents.len(), 1);
-        assert_eq!(result.contents[0].key, s3_path_3[1..]);
+        assert_eq!(result.contents[0].key, s3_key_3);
         assert!(result.next_continuation_token.is_none());
 
         // cleanup (and test Delete)
-        let response_data = bucket.delete_object_blocking(s3_path).unwrap();
+        let response_data = bucket.delete_object_blocking(&s3_path).unwrap();
         assert_eq!(response_data.status_code(), 204);
-        let response_data = bucket.delete_object_blocking(s3_path_2).unwrap();
+        let response_data = bucket.delete_object_blocking(&s3_path_2).unwrap();
         assert_eq!(response_data.status_code(), 204);
-        let response_data = bucket.delete_object_blocking(s3_path_3).unwrap();
+        let response_data = bucket.delete_object_blocking(&s3_path_3).unwrap();
         assert_eq!(response_data.status_code(), 204);
     }
 
@@ -4333,6 +4474,16 @@ mod test {
     #[test]
     fn minio_put_head_get_delete_object_blocking() {
         put_head_get_list_delete_object_blocking(*test_minio_bucket())
+    }
+
+    #[ignore]
+    #[cfg(all(
+        any(feature = "with-tokio", feature = "with-async-std"),
+        feature = "blocking"
+    ))]
+    #[test]
+    fn r2_put_head_get_delete_object_blocking() {
+        put_head_get_list_delete_object_blocking(*test_r2_bucket())
     }
 
     #[ignore]
@@ -4407,7 +4558,7 @@ mod test {
         put_head_get_delete_object(bucket.clone(), true).await;
         put_head_delete_object_with_headers(bucket.clone()).await;
 
-        let prefix = format!("+copy_roundtrip_{}", uuid::Uuid::new_v4());
+        let prefix = test_object_key(&format!("+copy_roundtrip_{}", uuid::Uuid::new_v4()));
         let source = format!("{prefix}_source");
         let destination = format!("{prefix}_destination");
         let content = b"MinIO copy object content verification";
@@ -4431,19 +4582,20 @@ mod test {
         assert_eq!(copied.as_slice(), content);
     }
 
-    // Keeps failing on tokio-rustls-tls
-    // #[ignore]
-    // #[maybe_async::test(
-    //     feature = "sync",
-    //     async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
-    //     async(
-    //         all(not(feature = "sync"), feature = "with-async-std"),
-    //         async_std::test
-    //     )
-    // )]
-    // async fn digital_ocean_test_put_head_get_delete_object() {
-    //     put_head_get_delete_object(test_digital_ocean_bucket(), true).await;
-    // }
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn digital_ocean_test_put_head_get_delete_object() {
+        let bucket = *test_digital_ocean_bucket();
+        put_head_get_delete_object(bucket.clone(), true).await;
+        put_head_delete_object_with_headers(bucket).await;
+    }
 
     #[ignore]
     #[maybe_async::test(
@@ -4464,21 +4616,23 @@ mod test {
         use crate::serde_types::ObjectIdentifier;
 
         let paths = [
-            "/+bulk_delete_1.file",
-            "/+bulk_delete_2.file",
-            "/+bulk_delete_3.file",
+            test_object_path("+bulk_delete_1.file"),
+            test_object_path("+bulk_delete_2.file"),
+            test_object_path("+bulk_delete_3.file"),
         ];
         let test: Vec<u8> = object(128);
 
         // Put test objects
         for path in &paths {
-            let response_data = bucket.put_object(*path, &test).await.unwrap();
+            let response_data = bucket.put_object(path, &test).await.unwrap();
             assert_eq!(response_data.status_code(), 200);
         }
 
         // Bulk delete them
-        let objects: Vec<ObjectIdentifier> =
-            paths.iter().map(|p| ObjectIdentifier::new(*p)).collect();
+        let objects: Vec<ObjectIdentifier> = paths
+            .iter()
+            .map(|path| ObjectIdentifier::new(path.as_str()))
+            .collect();
         let result = bucket.delete_objects(objects).await.unwrap();
 
         assert_eq!(result.deleted.len(), 3);
@@ -4486,7 +4640,7 @@ mod test {
 
         // Verify they are gone
         for path in &paths {
-            let exists = bucket.object_exists(*path).await.unwrap();
+            let exists = bucket.object_exists(path).await.unwrap();
             assert!(!exists);
         }
     }

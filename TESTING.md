@@ -78,3 +78,29 @@ blocking tests include list pagination and deletion status checks.
 These are HTTP tests of a real local MinIO server. They do not verify TLS
 handshakes, AWS/R2/GCS/Wasabi behavior, or failure/cancellation cleanup. See
 [AUDIT.md](AUDIT.md) for remaining coverage and production fixes.
+
+## Cloud object tests
+
+Load only the intended provider credentials into the test process. The existing
+fixtures use source-defined test buckets; review those targets before running.
+Set `RUST_S3_TEST_PREFIX` to a fresh UUID-based prefix ending in `/`, for example
+`rust-s3-audit/<uuid>/tokio/aws/`. Object fixtures prepend it to their keys;
+leaving it unset retains their historical fixed keys. Run the compiled test
+executable from an empty temporary directory, as for MinIO.
+
+Select exact object tests, for example
+`bucket::test::aws_put_head_get_delete_object --ignored --exact --test-threads=1`.
+A blanket ignored run also includes bucket-wide configuration tests and is not
+an isolated object smoke test. The prefix applies to the object fixtures, not
+every ignored test. Serialize tests sharing a prefix and bound each process's
+runtime. After failure or timeout, independently list and clean up only that
+prefix's objects and multipart uploads, then verify both listings are empty.
+Use an unversioned test bucket for this procedure; deleting the current object
+does not clean up historical versions in a versioned bucket.
+
+The 2026-10-02 cloud attempt authenticated successfully through curl to all five
+configured providers. Initial Rust HTTPS stalls subsequently cleared. Default
+Tokio tests then passed on AWS, Wasabi, GCS, and DigitalOcean; R2 exposed a range
+GET signature mismatch, also reproduced with async-std and sync. The complete
+cloud matrix remains pending that repair. See [AUDIT.md](AUDIT.md) for exact
+coverage and cleanup evidence. MinIO success does not close this gap.
