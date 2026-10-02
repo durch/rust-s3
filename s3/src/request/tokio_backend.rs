@@ -20,7 +20,6 @@ use tokio_stream::StreamExt;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ClientOptions {
-    pub request_timeout: Option<std::time::Duration>,
     pub proxy: Option<reqwest::Proxy>,
     #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
     pub accept_invalid_certs: bool,
@@ -30,13 +29,10 @@ pub(crate) struct ClientOptions {
 
 #[cfg(feature = "with-tokio")]
 pub(crate) fn client(options: &ClientOptions) -> Result<reqwest::Client, S3Error> {
+    // Request timeouts are applied to individual requests so changing a
+    // Bucket's timeout does not require rebuilding this client (or lose its
+    // proxy/TLS configuration).
     let client = reqwest::Client::builder();
-
-    let client = if let Some(timeout) = options.request_timeout {
-        client.timeout(timeout)
-    } else {
-        client
-    };
 
     let client = if let Some(ref proxy) = options.proxy {
         client.proxy(proxy.clone())
@@ -102,6 +98,12 @@ impl<'a> Request for ReqwestRequest<'a> {
             .headers(headers)
             .body(self.request_body()?);
 
+        let request = if let Some(timeout) = self.bucket.request_timeout {
+            request.timeout(timeout)
+        } else {
+            request
+        };
+
         let request = request.build()?;
 
         // println!("Request: {:?}", request);
@@ -148,6 +150,12 @@ impl<'a> Request for ReqwestRequest<'a> {
                     .request(method, self.url()?.as_str())
                     .headers(headers)
                     .body(self.request_body()?);
+
+                let request = if let Some(timeout) = self.bucket.request_timeout {
+                    request.timeout(timeout)
+                } else {
+                    request
+                };
 
                 let request = request.build()?;
                 let response = client.execute(request).await?;
@@ -284,6 +292,12 @@ mod tests {
     use crate::request::tokio_backend::ReqwestRequest;
     use awscreds::Credentials;
     use http::header::{HOST, RANGE};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+    use tokio_stream::StreamExt;
 
     // Fake keys - otherwise using Credentials::default will use actual user
     // credentials if they exist.
@@ -291,6 +305,309 @@ mod tests {
         let access_key = "AKIAIOSFODNN7EXAMPLE";
         let secert_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
         Credentials::new(Some(access_key), Some(secert_key), None, None, None).unwrap()
+    }
+
+    fn timeout_test_bucket(endpoint: String, timeout: Option<Duration>) -> Bucket {
+        let mut bucket = *Bucket::new(
+            "timeout-test",
+            crate::region::Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint,
+            },
+            fake_credentials(),
+        )
+        .unwrap()
+        .with_path_style();
+        bucket.set_request_timeout(timeout);
+        bucket
+    }
+
+    fn delayed_http_response(
+        response: &'static [u8],
+        delay: Duration,
+    ) -> (String, mpsc::Sender<()>, thread::JoinHandle<()>) {
+        mock_http_response(response, None, delay)
+    }
+
+    fn stalled_http_body(
+        initial_response: &'static [u8],
+        trailing_body: &'static [u8],
+        delay: Duration,
+    ) -> (String, mpsc::Sender<()>, thread::JoinHandle<()>) {
+        mock_http_response(initial_response, Some(trailing_body), delay)
+    }
+
+    fn mock_http_response(
+        initial_response: &'static [u8],
+        trailing_body: Option<&'static [u8]>,
+        delay: Duration,
+    ) -> (String, mpsc::Sender<()>, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let accept_deadline = std::time::Instant::now() + Duration::from_secs(8);
+            let (mut stream, _) = loop {
+                if !matches!(stop_rx.try_recv(), Err(mpsc::TryRecvError::Empty)) {
+                    return;
+                }
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if std::time::Instant::now() >= accept_deadline {
+                            return;
+                        }
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => return,
+                }
+            };
+            stream.set_nonblocking(false).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0u8; 1];
+            while !request.ends_with(b"\r\n\r\n") {
+                if stream.read(&mut byte).unwrap_or(0) == 0 {
+                    return;
+                }
+                request.push(byte[0]);
+                assert!(
+                    request.len() < 16 * 1024,
+                    "request header exceeded fixture bound"
+                );
+            }
+            if trailing_body.is_none()
+                && !matches!(
+                    stop_rx.recv_timeout(delay),
+                    Err(mpsc::RecvTimeoutError::Timeout)
+                )
+            {
+                return;
+            }
+            if stream.write_all(initial_response).is_err() {
+                return;
+            }
+            if let Some(trailing_body) = trailing_body {
+                if !matches!(
+                    stop_rx.recv_timeout(delay),
+                    Err(mpsc::RecvTimeoutError::Timeout)
+                ) {
+                    return;
+                }
+                let _ = stream.write_all(trailing_body);
+            }
+            let _ = stream.flush();
+        });
+        (endpoint, stop_tx, server)
+    }
+
+    fn timeout_then_success_status_server() -> (String, mpsc::Sender<()>, thread::JoinHandle<usize>)
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let mut attempts = 0;
+            let deadline = std::time::Instant::now() + Duration::from_secs(8);
+            let Some(mut first) = accept_mock_request(&listener, &stop_rx, deadline) else {
+                return attempts;
+            };
+            attempts += 1;
+            if !read_mock_request(&mut first) {
+                return attempts;
+            }
+            let response = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            let first_response_deadline = std::time::Instant::now() + Duration::from_secs(3);
+            loop {
+                if !matches!(stop_rx.try_recv(), Err(mpsc::TryRecvError::Empty)) {
+                    return attempts;
+                }
+                match listener.accept() {
+                    Ok((mut second, _)) => {
+                        let _ = second.set_nonblocking(false);
+                        let _ = second.set_read_timeout(Some(Duration::from_secs(2)));
+                        let _ = second.set_write_timeout(Some(Duration::from_secs(2)));
+                        attempts += 1;
+                        if read_mock_request(&mut second) {
+                            let _ = second.write_all(response);
+                            let _ = second.flush();
+                        }
+                        return attempts;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if std::time::Instant::now() >= first_response_deadline {
+                            let _ = first.write_all(response);
+                            let _ = first.flush();
+                            return attempts;
+                        }
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => return attempts,
+                }
+            }
+        });
+        (endpoint, stop_tx, server)
+    }
+
+    fn accept_mock_request(
+        listener: &TcpListener,
+        stop: &mpsc::Receiver<()>,
+        deadline: std::time::Instant,
+    ) -> Option<std::net::TcpStream> {
+        loop {
+            if !matches!(stop.try_recv(), Err(mpsc::TryRecvError::Empty))
+                || std::time::Instant::now() >= deadline
+            {
+                return None;
+            }
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).ok()?;
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                    let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+                    return Some(stream);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(_) => return None,
+            }
+        }
+    }
+
+    fn read_mock_request(stream: &mut std::net::TcpStream) -> bool {
+        let mut request = Vec::new();
+        let mut byte = [0u8; 1];
+        while !request.ends_with(b"\r\n\r\n") {
+            match stream.read(&mut byte) {
+                Ok(0) | Err(_) => return false,
+                Ok(_) => request.push(byte[0]),
+            }
+            if request.len() >= 16 * 1024 {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[tokio::test]
+    async fn request_timeout_covers_delayed_response_headers() {
+        let (endpoint, stop, server) = delayed_http_response(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            Duration::from_millis(1500),
+        );
+        let bucket = timeout_test_bucket(endpoint, Some(Duration::from_millis(500)));
+        let request = ReqwestRequest::new(&bucket, "/object", Command::GetObject)
+            .await
+            .unwrap();
+
+        let result = tokio::time::timeout(Duration::from_secs(5), request.response()).await;
+        let _ = stop.send(());
+        server.join().unwrap();
+        let result = result.expect("request should finish within the fixture bound");
+        assert!(
+            matches!(&result, Err(crate::error::S3Error::Reqwest(error)) if error.is_timeout()),
+            "delayed headers should exceed the request timeout"
+        );
+    }
+
+    #[tokio::test]
+    async fn request_timeout_covers_body_stream_and_writer_consumption() {
+        let (endpoint, stop, server) = stalled_http_body(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nabc",
+            b"def",
+            Duration::from_millis(1500),
+        );
+        let bucket = timeout_test_bucket(endpoint, Some(Duration::from_millis(500)));
+        let mut body_stream = bucket.get_object_stream("/object").await.unwrap();
+        let mut prefix = Vec::new();
+        while prefix.len() < 3 {
+            let chunk = tokio::time::timeout(Duration::from_secs(1), body_stream.bytes.next())
+                .await
+                .expect("first body bytes should arrive promptly")
+                .expect("response body should contain its initial bytes")
+                .unwrap();
+            prefix.extend_from_slice(&chunk);
+        }
+        assert_eq!(&prefix[..3], b"abc");
+        let next = tokio::time::timeout(Duration::from_secs(2), body_stream.bytes.next())
+            .await
+            .expect("body timeout should be bounded");
+        assert!(matches!(
+            next.expect("body should report its timeout"),
+            Err(crate::error::S3Error::Reqwest(ref error)) if error.is_timeout()
+        ));
+        let _ = stop.send(());
+        server.join().unwrap();
+
+        let (endpoint, stop, server) = stalled_http_body(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nabc",
+            b"def",
+            Duration::from_millis(1500),
+        );
+        let bucket = timeout_test_bucket(endpoint, Some(Duration::from_millis(500)));
+        let mut writer = Vec::new();
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            bucket.get_object_to_writer("/object", &mut writer),
+        )
+        .await;
+        let _ = stop.send(());
+        server.join().unwrap();
+        let result = result.expect("writer timeout should be bounded");
+        assert!(matches!(
+            result,
+            Err(crate::error::S3Error::Reqwest(ref error)) if error.is_timeout()
+        ));
+        assert_eq!(writer, b"abc", "the complete prefix should be written once");
+    }
+
+    #[tokio::test]
+    async fn request_timeout_can_be_removed_after_bucket_creation() {
+        let (endpoint, stop, server) = delayed_http_response(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            Duration::from_millis(1500),
+        );
+        let mut bucket = *timeout_test_bucket(endpoint, None)
+            .with_request_timeout(Duration::from_millis(500))
+            .unwrap();
+        bucket.set_request_timeout(None);
+        let request = ReqwestRequest::new(&bucket, "/object", Command::GetObject)
+            .await
+            .unwrap();
+
+        let response = tokio::time::timeout(Duration::from_secs(5), request.response()).await;
+        let _ = stop.send(());
+        server.join().unwrap();
+        let response = response
+            .expect("request should finish within the fixture bound")
+            .expect("None should remove the prior per-request timeout");
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn response_status_applies_timeout_and_retries_the_request() {
+        let (endpoint, stop, server) = timeout_then_success_status_server();
+        let bucket = timeout_test_bucket(endpoint, Some(Duration::from_millis(500)));
+        let request = ReqwestRequest::new(&bucket, "/object", Command::GetObject)
+            .await
+            .unwrap();
+
+        let status = tokio::time::timeout(Duration::from_secs(5), request.response_status()).await;
+        let _ = stop.send(());
+        let attempts = server.join().unwrap();
+        let status = status
+            .expect("status retry should remain bounded")
+            .expect("the second response should succeed");
+        assert_eq!(status, 200);
+        assert_eq!(attempts, 2);
     }
 
     #[tokio::test]

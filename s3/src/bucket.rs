@@ -999,11 +999,6 @@ impl Bucket {
 
     #[cfg(feature = "with-tokio")]
     pub fn with_request_timeout(&self, request_timeout: Duration) -> Result<Box<Bucket>, S3Error> {
-        let options = ClientOptions {
-            request_timeout: Some(request_timeout),
-            ..Default::default()
-        };
-
         Ok(Box::new(Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
@@ -1014,9 +1009,9 @@ impl Bucket {
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
             #[cfg(feature = "with-tokio")]
-            http_client: client(&options)?,
+            http_client: self.http_client(),
             #[cfg(feature = "with-tokio")]
-            client_options: options,
+            client_options: self.client_options.clone(),
         }))
     }
 
@@ -3317,12 +3312,13 @@ impl Bucket {
         self.path_style = false;
     }
 
-    /// Configure bucket to apply this request timeout to all HTTP
-    /// requests, or no (infinity) timeout if `None`.  Defaults to
-    /// 30 seconds.
+    /// Configure the total timeout for HTTP requests, or disable the total
+    /// deadline with `None`. Defaults to 60 seconds.
     ///
-    /// Only the [`attohttpc`] and the [`hyper`] backends obey this option;
-    /// async code may instead await with a timeout.
+    /// Tokio and sync (`attohttpc`) backends apply this timeout through
+    /// response-body consumption. The async-std backend does not currently
+    /// enforce this option. With sync transports, `None` removes the total
+    /// deadline but transport-specific connect/read limits may still apply.
     pub fn set_request_timeout(&mut self, timeout: Option<Duration>) {
         self.request_timeout = timeout;
     }
@@ -6588,6 +6584,33 @@ mod test {
         .unwrap();
 
         assert_eq!(bucket.request_timeout(), Some(Duration::from_secs(10)));
+    }
+
+    #[cfg(all(
+        feature = "with-tokio",
+        any(feature = "tokio-native-tls", feature = "tokio-rustls-tls")
+    ))]
+    #[test]
+    fn with_request_timeout_preserves_tokio_client_options() {
+        let bucket = Bucket::new(
+            "test-bucket",
+            "us-east-1".parse().unwrap(),
+            Credentials::anonymous().unwrap(),
+        )
+        .unwrap()
+        .set_dangerous_config(true, true)
+        .unwrap()
+        .set_proxy(reqwest::Proxy::all("http://127.0.0.1:1234").unwrap())
+        .unwrap();
+
+        let updated = bucket
+            .with_request_timeout(Duration::from_millis(125))
+            .unwrap();
+
+        assert_eq!(updated.request_timeout(), Some(Duration::from_millis(125)));
+        assert!(updated.client_options.proxy.is_some());
+        assert!(updated.client_options.accept_invalid_certs);
+        assert!(updated.client_options.accept_invalid_hostnames);
     }
 
     #[maybe_async::test(

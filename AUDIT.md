@@ -195,11 +195,35 @@ Next repair: define provider identity and refresh behavior, test expiry margins 
 
 Next repair: choose and document a workspace dependency/release strategy. Validate the published dependency graph as well as workspace integration. Do not treat a local crate patch as shipped in `rust-s3`.
 
-### P2: Timeout behavior differs by backend and API
+### P2: Timeout behavior differs by backend and API — Tokio repaired, async-std open
 
-`set_request_timeout` only changes the public field; the cached Tokio client retains its configuration. `with_request_timeout` rebuilds the Tokio client, while the Surf request path does not consult the bucket timeout. Existing documentation also refers to an older Hyper backend and inconsistent defaults.
+At the baseline, `set_request_timeout` only changed the public field while the
+cached Tokio client retained its configuration. `with_request_timeout` rebuilt
+that client and reset proxy/TLS settings. The Surf request path did not consult
+the bucket timeout, and documentation referred to an older Hyper backend and
+inconsistent defaults.
 
-Next repair: specify the timeout contract before changing the infallible setter or client rebuild behavior. Verify delayed headers, stalled bodies, and streaming duration using local fixtures for each backend.
+Tokio now applies the bucket's timeout to each HTTP request, including the
+response body. Both response and status paths read the current field, and the
+timeout builder reuses the configured client. The default 60-second timeout is
+now enforced; `None` removes that total deadline. This is a per-request policy,
+not a deadline for an entire multi-request operation or its retries.
+
+Bounded local tests cover delayed headers, stalled public streams/writers,
+exact partial writer output without replay, clearing a builder-configured
+timeout, and preservation of proxy/TLS options. Disabling request timeout
+application reproduced both header and status-path regressions. The final
+full `make ci` gate passed in 110.55 seconds. All 25 targeted MinIO tests
+passed across Tokio native TLS, blocking, no-TLS, and rustls configurations.
+All 35 cloud tests passed across Tokio native TLS, rustls, and blocking against
+AWS, Wasabi, GCS, R2, and DigitalOcean. Independent listings confirmed empty,
+untruncated test prefixes after those runs.
+
+Async-std still does not enforce this bucket option. Surf's connection timeout
+alone would not establish body/stream parity; a shared absolute deadline needs
+to survive through consumption. Sync behavior is unchanged, and documentation
+now states that disabling its total deadline does not remove transport-specific
+connect/read limits.
 
 ### P2: R2 rejects generated body headers on bodyless requests — repaired and provider-verified
 
