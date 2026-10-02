@@ -125,7 +125,13 @@ fn validate_success_xml_response(
             Ok(Event::Start(element)) => {
                 for attr in element.attributes() {
                     match attr {
-                        Ok(attr) if attr.unescape_value().is_ok() => {}
+                        Ok(attr)
+                            if attr
+                                .decoded_and_normalized_value(
+                                    quick_xml::XmlVersion::Implicit1_0,
+                                    reader.decoder(),
+                                )
+                                .is_ok() => {}
                         _ => {
                             valid = false;
                             break;
@@ -145,7 +151,13 @@ fn validate_success_xml_response(
             Ok(Event::Empty(element)) => {
                 for attr in element.attributes() {
                     match attr {
-                        Ok(attr) if attr.unescape_value().is_ok() => {}
+                        Ok(attr)
+                            if attr
+                                .decoded_and_normalized_value(
+                                    quick_xml::XmlVersion::Implicit1_0,
+                                    reader.decoder(),
+                                )
+                                .is_ok() => {}
                         _ => {
                             valid = false;
                             break;
@@ -169,7 +181,9 @@ fn validate_success_xml_response(
                 depth -= 1;
             }
             Ok(Event::Text(text)) => {
-                if text.xml_content().is_err()
+                // quick-xml 0.38's xml_content() used XML 1.1 normalization.
+                // Keep that behavior explicit across the 0.41 API change.
+                if text.xml11_content().is_err()
                     || (depth == 0 && !text.as_ref().iter().all(u8::is_ascii_whitespace))
                 {
                     valid = false;
@@ -4547,6 +4561,44 @@ mod test {
             validate_success_xml_response(xml_response("<Other/>"), "CopyObjectResult"),
             Err(S3Error::HttpFailWithBody(200, _))
         ));
+    }
+
+    #[test]
+    fn xml_response_embedded_error_accepts_xml_11_text_and_decoded_attributes() {
+        let body = "<?xml version=\"1.1\"?>\n<CopyObjectResult note=\"café&amp;tea\">first\r\u{0085}second</CopyObjectResult>\n";
+        assert!(validate_success_xml_response(xml_response(body), "CopyObjectResult").is_ok());
+    }
+
+    #[test]
+    fn bucket_debug_redacts_nested_credentials() {
+        let credentials = Credentials::new(
+            Some("BUCKET_ACCESS_KEY_SENTINEL"),
+            Some("BUCKET_SECRET_KEY_SENTINEL"),
+            Some("BUCKET_SECURITY_TOKEN_SENTINEL"),
+            Some("BUCKET_SESSION_TOKEN_SENTINEL"),
+            None,
+        )
+        .unwrap();
+        let bucket = Bucket::new(
+            "debug-test-bucket",
+            "us-east-1".parse::<Region>().unwrap(),
+            credentials,
+        )
+        .unwrap();
+
+        for rendered in [format!("{bucket:?}"), format!("{bucket:#?}")] {
+            for sentinel in [
+                "BUCKET_ACCESS_KEY_SENTINEL",
+                "BUCKET_SECRET_KEY_SENTINEL",
+                "BUCKET_SECURITY_TOKEN_SENTINEL",
+                "BUCKET_SESSION_TOKEN_SENTINEL",
+            ] {
+                assert!(
+                    !rendered.contains(sentinel),
+                    "bucket debug output leaked a credential"
+                );
+            }
+        }
     }
 
     #[test]

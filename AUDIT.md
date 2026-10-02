@@ -445,6 +445,35 @@ results verify live object-property preservation; real-provider SSE-C and
 conditional-write scenarios remain outside the live matrix and have only
 synthetic local wire coverage.
 
+## XML dependency and credential integration follow-up
+
+The source now prepares `aws-creds 0.40.0` and `rust-s3 0.38.0`, both using
+quick-xml 0.41. S3 uses a path-plus-version dependency on the local credential
+crate, so its redacted credential formatting is now exercised through `Bucket`.
+A synthetic sentinel regression checks both ordinary and pretty Debug output.
+The XML adapter preserves the previous text-normalization behavior and uses the
+new decoder-aware attribute API. The full `make ci` gate passed without warnings.
+
+An isolated fresh resolution audited against the same RustSec database
+`db663534ae858abb3fbad408a041ce04209c377f` reports 10 vulnerability matches across
+10 IDs, down from 12: both quick-xml advisories are removed. The remaining matches
+are in h2, Hyper, Tokio 0.2, ring, rustls 0.18, and webpki, associated with the
+legacy async-std transport branches described above. Separate warnings remain:
+one notice, 11 unmaintained matches, and five unsoundness matches. This is not a
+clean security assessment or a claim that every listed code path is exploitable.
+
+`aws-creds` package creation and verification passed. S3 package listing passed,
+but registry-based packaging cannot resolve the new credential version until it
+is published. Neither crate has been published. [RELEASING.md](RELEASING.md)
+records the required release order and public quick-xml error-type compatibility
+impact behind the minor version bumps.
+
+The frozen dependency patch passed 57 MinIO tests across 11 configurations
+(28.12 aggregate test seconds) and all 100 selected cloud tests across AWS,
+Wasabi, GCS, R2, and DigitalOcean. All 40 cloud prefixes were independently
+verified empty, as were MinIO object and upload listings. The isolated MinIO
+server is retained temporarily for the next pagination regression.
+
 ## Order of work
 
 1. Land the reviewed streaming, signing query, and CI repairs with regression evidence.
