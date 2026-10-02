@@ -7,12 +7,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::ops::Deref;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use time::OffsetDateTime;
 use url::Url;
+
+#[cfg(feature = "http-credentials")]
+fn absolute_lexical_path(path: &Path) -> Result<PathBuf, CredentialsError> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(env::current_dir()?.join(path))
+    }
+}
 
 /// AWS access credentials: access key, secret key, and optional token.
 ///
@@ -62,7 +71,7 @@ use url::Url;
 /// env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
 /// let credentials = Credentials::new(None, None, None, None, None);
 /// ```
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Credentials {
     /// AWS public access key.
     pub access_key: Option<String>,
@@ -72,7 +81,35 @@ pub struct Credentials {
     pub security_token: Option<String>,
     pub session_token: Option<String>,
     pub expiration: Option<Rfc3339OffsetDateTime>,
+    #[serde(skip)]
+    refresh_source: Option<RefreshSource>,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum RefreshSource {
+    StsWebIdentity {
+        role_arn: String,
+        session_name: String,
+        token_file: PathBuf,
+    },
+    ContainerRelativeUri(String),
+    InstanceMetadata {
+        v2: bool,
+        not_ec2: bool,
+    },
+}
+
+impl PartialEq for Credentials {
+    fn eq(&self, other: &Self) -> bool {
+        self.access_key == other.access_key
+            && self.secret_key == other.secret_key
+            && self.security_token == other.security_token
+            && self.session_token == other.session_token
+            && self.expiration == other.expiration
+    }
+}
+
+impl Eq for Credentials {}
 
 impl std::fmt::Debug for Credentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -220,12 +257,37 @@ fn http_get(url: &str) -> attohttpc::Result<attohttpc::Response> {
     builder.send()
 }
 
+#[cfg(feature = "http-credentials")]
+fn refresh_sts_from_token_file<F>(
+    role_arn: &str,
+    session_name: &str,
+    token_file: &Path,
+    exchange: F,
+) -> Result<Credentials, CredentialsError>
+where
+    F: FnOnce(&str, &str, &str) -> Result<Credentials, CredentialsError>,
+{
+    let token = std::fs::read_to_string(token_file)?;
+    exchange(role_arn, session_name, &token)
+}
+
 impl Credentials {
     pub fn refresh(&mut self) -> Result<(), CredentialsError> {
+        self.refresh_with(Self::refresh_from_source)
+    }
+
+    fn refresh_with<F>(&mut self, refresh: F) -> Result<(), CredentialsError>
+    where
+        F: FnOnce(&RefreshSource) -> Result<Self, CredentialsError>,
+    {
         if let Some(expiration) = self.expiration {
             if expiration.0 <= OffsetDateTime::now_utc() {
                 debug!("Refreshing credentials!");
-                let refreshed = Credentials::default()?;
+                let source = self
+                    .refresh_source
+                    .clone()
+                    .ok_or(CredentialsError::NoRefreshSource)?;
+                let refreshed = refresh(&source)?;
                 *self = refreshed
             }
         }
@@ -233,11 +295,54 @@ impl Credentials {
     }
 
     #[cfg(feature = "http-credentials")]
+    fn refresh_from_source(source: &RefreshSource) -> Result<Self, CredentialsError> {
+        Self::refresh_from_source_with(source, |source| match source {
+            RefreshSource::StsWebIdentity {
+                role_arn,
+                session_name,
+                token_file,
+            } => refresh_sts_from_token_file(role_arn, session_name, token_file, Self::from_sts),
+            RefreshSource::ContainerRelativeUri(uri) => Self::fetch_container_credentials(uri),
+            RefreshSource::InstanceMetadata { v2, not_ec2 } => {
+                if *v2 {
+                    Self::from_instance_metadata_v2(*not_ec2)
+                } else {
+                    Self::from_instance_metadata(*not_ec2)
+                }
+            }
+        })
+    }
+
+    #[cfg(not(feature = "http-credentials"))]
+    fn refresh_from_source(_: &RefreshSource) -> Result<Self, CredentialsError> {
+        Err(CredentialsError::NoRefreshSource)
+    }
+
+    fn refresh_from_source_with<F>(
+        source: &RefreshSource,
+        refresh: F,
+    ) -> Result<Self, CredentialsError>
+    where
+        F: FnOnce(&RefreshSource) -> Result<Self, CredentialsError>,
+    {
+        let mut credentials = refresh(source)?;
+        credentials.refresh_source = Some(source.clone());
+        Ok(credentials)
+    }
+
+    #[cfg(feature = "http-credentials")]
     pub fn from_sts_env(session_name: &str) -> Result<Credentials, CredentialsError> {
         let role_arn = env::var("AWS_ROLE_ARN")?;
         let web_identity_token_file = env::var("AWS_WEB_IDENTITY_TOKEN_FILE")?;
-        let web_identity_token = std::fs::read_to_string(web_identity_token_file)?;
-        Credentials::from_sts(&role_arn, session_name, &web_identity_token)
+        let token_file = absolute_lexical_path(Path::new(&web_identity_token_file))?;
+        let web_identity_token = std::fs::read_to_string(&token_file)?;
+        let mut credentials = Credentials::from_sts(&role_arn, session_name, &web_identity_token)?;
+        credentials.refresh_source = Some(RefreshSource::StsWebIdentity {
+            role_arn,
+            session_name: session_name.to_owned(),
+            token_file,
+        });
+        Ok(credentials)
     }
 
     #[cfg(feature = "http-credentials")]
@@ -287,6 +392,7 @@ impl Credentials {
                     .credentials
                     .expiration,
             ),
+            refresh_source: None,
         })
     }
 
@@ -302,6 +408,7 @@ impl Credentials {
             security_token: None,
             session_token: None,
             expiration: None,
+            refresh_source: None,
         })
     }
 
@@ -321,6 +428,7 @@ impl Credentials {
                 security_token: security_token.map(|s| s.to_string()),
                 session_token: session_token.map(|s| s.to_string()),
                 expiration: None,
+                refresh_source: None,
             });
         }
 
@@ -353,6 +461,7 @@ impl Credentials {
             security_token,
             session_token,
             expiration: None,
+            refresh_source: None,
         })
     }
 
@@ -366,6 +475,15 @@ impl Credentials {
             return Err(CredentialsError::NotContainer);
         };
 
+        let mut credentials = Self::fetch_container_credentials(&credentials_path)?;
+        credentials.refresh_source = Some(RefreshSource::ContainerRelativeUri(credentials_path));
+        Ok(credentials)
+    }
+
+    #[cfg(feature = "http-credentials")]
+    fn fetch_container_credentials(
+        credentials_path: &str,
+    ) -> Result<Credentials, CredentialsError> {
         let resp: CredentialsFromInstanceMetadata = apply_timeout(attohttpc::get(format!(
             "http://169.254.170.2{}",
             credentials_path
@@ -379,6 +497,7 @@ impl Credentials {
             security_token: Some(resp.token),
             expiration: Some(resp.expiration),
             session_token: None,
+            refresh_source: None,
         })
     }
 
@@ -407,6 +526,7 @@ impl Credentials {
             security_token: Some(resp.token),
             expiration: Some(resp.expiration),
             session_token: None,
+            refresh_source: Some(RefreshSource::InstanceMetadata { v2: false, not_ec2 }),
         })
     }
 
@@ -447,6 +567,7 @@ impl Credentials {
             security_token: Some(resp.token),
             expiration: Some(resp.expiration),
             session_token: None,
+            refresh_source: Some(RefreshSource::InstanceMetadata { v2: true, not_ec2 }),
         })
     }
 
@@ -493,6 +614,7 @@ impl Credentials {
             security_token: data.get("aws_security_token").map(|s| s.to_string()),
             session_token: data.get("aws_session_token").map(|s| s.to_string()),
             expiration: None,
+            refresh_source: None,
         };
         Ok(credentials)
     }
@@ -547,6 +669,120 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
     use tempfile::NamedTempFile;
+
+    fn expired_credentials(refresh_source: Option<RefreshSource>) -> Credentials {
+        Credentials {
+            access_key: Some("old-access".into()),
+            secret_key: Some("old-secret".into()),
+            security_token: Some("old-security-token".into()),
+            session_token: Some("old-session-token".into()),
+            expiration: Some(OffsetDateTime::from_unix_timestamp(0).unwrap().into()),
+            refresh_source,
+        }
+    }
+
+    #[test]
+    fn expired_credentials_without_source_fail_without_mutation() {
+        let mut credentials = expired_credentials(None);
+        let original = credentials.clone();
+
+        assert!(matches!(
+            credentials.refresh(),
+            Err(CredentialsError::NoRefreshSource)
+        ));
+        assert_eq!(credentials, original);
+    }
+
+    #[test]
+    fn refresh_preserves_source_and_only_replaces_credentials_on_success() {
+        let source = RefreshSource::StsWebIdentity {
+            role_arn: "arn:aws:iam::123456789012:role/test".into(),
+            session_name: "session".into(),
+            token_file: PathBuf::from("/tmp/oidc-token"),
+        };
+        let mut credentials = expired_credentials(Some(source.clone()));
+        let original = credentials.clone();
+
+        let failed = credentials.refresh_with(|_| Err(CredentialsError::NoCredentials));
+        assert!(matches!(failed, Err(CredentialsError::NoCredentials)));
+        assert_eq!(credentials, original);
+        assert_eq!(credentials.refresh_source, Some(source.clone()));
+
+        let refreshed = Credentials::refresh_from_source_with(&source, |_| {
+            Ok(Credentials {
+                access_key: Some("new-access".into()),
+                secret_key: Some("new-secret".into()),
+                security_token: None,
+                session_token: Some("new-session-token".into()),
+                expiration: Some((OffsetDateTime::now_utc() + time::Duration::minutes(5)).into()),
+                refresh_source: None,
+            })
+        })
+        .unwrap();
+
+        assert_eq!(refreshed.access_key.as_deref(), Some("new-access"));
+        assert_eq!(refreshed.refresh_source, Some(source));
+    }
+
+    #[cfg(feature = "http-credentials")]
+    #[test]
+    fn sts_refresh_rereads_the_captured_token_file() {
+        let mut token_file = NamedTempFile::new().unwrap();
+        token_file.write_all(b"first-token").unwrap();
+        token_file.flush().unwrap();
+        let path = absolute_lexical_path(token_file.path()).unwrap();
+
+        for expected_token in ["first-token", "rotated-token"] {
+            if expected_token == "rotated-token" {
+                std::fs::write(token_file.path(), expected_token).unwrap();
+            }
+            let refreshed = refresh_sts_from_token_file(
+                "arn:aws:iam::123456789012:role/test",
+                "test-session",
+                &path,
+                |role_arn, session_name, token| {
+                    assert_eq!(role_arn, "arn:aws:iam::123456789012:role/test");
+                    assert_eq!(session_name, "test-session");
+                    assert_eq!(token, expected_token);
+                    Ok(Credentials::anonymous()?)
+                },
+            )
+            .unwrap();
+            assert_eq!(refreshed, Credentials::anonymous().unwrap());
+        }
+    }
+
+    #[cfg(feature = "http-credentials")]
+    #[test]
+    fn sts_token_file_paths_are_resolved_lexically() {
+        let relative = Path::new("rotating-token-file");
+        assert_eq!(
+            absolute_lexical_path(relative).unwrap(),
+            env::current_dir().unwrap().join(relative)
+        );
+
+        let absolute = env::current_dir().unwrap().join("rotating-token-file");
+        assert_eq!(absolute_lexical_path(&absolute).unwrap(), absolute);
+    }
+
+    #[test]
+    fn serialized_credentials_keep_the_five_field_wire_shape() {
+        let credentials = expired_credentials(Some(RefreshSource::ContainerRelativeUri(
+            "/v2/credentials/example".into(),
+        )));
+        let value = serde_json::to_value(&credentials).unwrap();
+        let fields = value.as_object().unwrap();
+        assert_eq!(fields.len(), 5);
+        assert!(fields.contains_key("access_key"));
+        assert!(fields.contains_key("secret_key"));
+        assert!(fields.contains_key("security_token"));
+        assert!(fields.contains_key("session_token"));
+        assert!(fields.contains_key("expiration"));
+
+        let decoded: Credentials = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded, credentials);
+        assert!(decoded.refresh_source.is_none());
+    }
 
     fn create_test_credentials_file(content: &str) -> NamedTempFile {
         let mut file = NamedTempFile::new().unwrap();
@@ -668,6 +904,7 @@ aws_secret_access_key = SECRET
             security_token: Some("SECURITY_TOKEN_SENTINEL".into()),
             session_token: Some("SESSION_TOKEN_SENTINEL".into()),
             expiration: Some(OffsetDateTime::from_unix_timestamp(0).unwrap().into()),
+            refresh_source: None,
         };
 
         for rendered in [format!("{credentials:?}"), format!("{credentials:#?}")] {
@@ -703,6 +940,7 @@ aws_secret_access_key = SECRET
             security_token: None,
             session_token: None,
             expiration: None,
+            refresh_source: None,
         };
 
         let rendered = format!("{credentials:?}");
@@ -777,6 +1015,7 @@ aws_secret_access_key = SECRET
             security_token: Some("SECURITY_TOKEN_SENTINEL".into()),
             session_token: Some("SESSION_TOKEN_SENTINEL".into()),
             expiration: Some(OffsetDateTime::from_unix_timestamp(0).unwrap().into()),
+            refresh_source: None,
         };
 
         let serialized = serde_json::to_value(&credentials).unwrap();
@@ -810,16 +1049,4 @@ fn test_instance_metadata_creds_deserialization() {
     "#,
     )
     .unwrap();
-}
-
-#[cfg(test)]
-#[ignore]
-#[test]
-fn test_credentials_refresh() {
-    let mut c = Credentials::default().expect("Could not generate credentials");
-    let e = Rfc3339OffsetDateTime(OffsetDateTime::now_utc());
-    c.expiration = Some(e);
-    std::thread::sleep(std::time::Duration::from_secs(3));
-    c.refresh().expect("Could not refresh");
-    assert!(c.expiration.is_none())
 }

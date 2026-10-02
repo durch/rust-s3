@@ -55,10 +55,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 #[cfg(feature = "with-tokio")]
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex as AsyncMutex, RwLock};
 
 #[cfg(feature = "with-async-std")]
-use async_std::sync::RwLock;
+use async_std::sync::{Mutex as AsyncMutex, RwLock};
 
 #[cfg(feature = "sync")]
 use std::sync::RwLock;
@@ -369,6 +369,8 @@ pub struct Bucket {
     pub name: String,
     pub region: Region,
     credentials: Arc<RwLock<Credentials>>,
+    #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+    credentials_refresh_gate: Arc<AsyncMutex<()>>,
     pub extra_headers: HeaderMap,
     pub extra_query: Query,
     pub request_timeout: Option<Duration>,
@@ -381,10 +383,52 @@ pub struct Bucket {
 }
 
 impl Bucket {
+    #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+    async fn credentials_refresh_with<F>(&self, refresh: F) -> Result<(), S3Error>
+    where
+        F: FnOnce(Credentials) -> Result<Credentials, crate::creds::error::CredentialsError>
+            + Send
+            + 'static,
+    {
+        let expired = {
+            let credentials = self.credentials.read().await;
+            credentials
+                .expiration
+                .is_some_and(|expiration| *expiration <= time::OffsetDateTime::now_utc())
+        };
+        if !expired {
+            return Ok(());
+        }
+
+        let _refresh_guard = self.credentials_refresh_gate.lock().await;
+        let credentials = { self.credentials.read().await.clone() };
+        if !credentials
+            .expiration
+            .is_some_and(|expiration| *expiration <= time::OffsetDateTime::now_utc())
+        {
+            return Ok(());
+        }
+
+        #[cfg(feature = "with-tokio")]
+        let refreshed = tokio::task::spawn_blocking(move || refresh(credentials))
+            .await
+            .map_err(|_| S3Error::Io(std::io::Error::other("credential refresh task failed")))??;
+
+        #[cfg(all(not(feature = "with-tokio"), feature = "with-async-std"))]
+        let refreshed = async_std::task::spawn_blocking(move || refresh(credentials)).await?;
+
+        *self.credentials.write().await = refreshed;
+        Ok(())
+    }
+
     #[maybe_async::async_impl]
     /// Credential refreshing is done automatically, but can be manually triggered.
     pub async fn credentials_refresh(&self) -> Result<(), S3Error> {
-        Ok(self.credentials.write().await.refresh()?)
+        self.credentials_refresh_with(|mut credentials| {
+            credentials.refresh()?;
+            Ok(credentials)
+        })
+        .await
     }
 
     #[maybe_async::sync_impl]
@@ -886,6 +930,8 @@ impl Bucket {
             name: name.into(),
             region,
             credentials: Arc::new(RwLock::new(credentials)),
+            #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+            credentials_refresh_gate: Arc::new(AsyncMutex::new(())),
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
@@ -917,6 +963,8 @@ impl Bucket {
             name: name.into(),
             region,
             credentials: Arc::new(RwLock::new(Credentials::anonymous()?)),
+            #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+            credentials_refresh_gate: Arc::new(AsyncMutex::new(())),
             extra_headers: HeaderMap::new(),
             extra_query: HashMap::new(),
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
@@ -934,6 +982,8 @@ impl Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
+            #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+            credentials_refresh_gate: self.credentials_refresh_gate.clone(),
             extra_headers: self.extra_headers.clone(),
             extra_query: self.extra_query.clone(),
             request_timeout: self.request_timeout,
@@ -951,6 +1001,8 @@ impl Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
+            #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+            credentials_refresh_gate: self.credentials_refresh_gate.clone(),
             extra_headers,
             extra_query: self.extra_query.clone(),
             request_timeout: self.request_timeout,
@@ -971,6 +1023,8 @@ impl Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
+            #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+            credentials_refresh_gate: self.credentials_refresh_gate.clone(),
             extra_headers: self.extra_headers.clone(),
             extra_query,
             request_timeout: self.request_timeout,
@@ -989,6 +1043,8 @@ impl Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
+            #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+            credentials_refresh_gate: self.credentials_refresh_gate.clone(),
             extra_headers: self.extra_headers.clone(),
             extra_query: self.extra_query.clone(),
             request_timeout: Some(request_timeout),
@@ -1003,6 +1059,8 @@ impl Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
+            #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+            credentials_refresh_gate: self.credentials_refresh_gate.clone(),
             extra_headers: self.extra_headers.clone(),
             extra_query: self.extra_query.clone(),
             request_timeout: Some(request_timeout),
@@ -1020,6 +1078,8 @@ impl Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
+            #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+            credentials_refresh_gate: self.credentials_refresh_gate.clone(),
             extra_headers: self.extra_headers.clone(),
             extra_query: self.extra_query.clone(),
             request_timeout: self.request_timeout,
@@ -1078,6 +1138,8 @@ impl Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
+            #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+            credentials_refresh_gate: self.credentials_refresh_gate.clone(),
             extra_headers: self.extra_headers.clone(),
             extra_query: self.extra_query.clone(),
             request_timeout: self.request_timeout,
@@ -1111,6 +1173,8 @@ impl Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
             credentials: self.credentials.clone(),
+            #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+            credentials_refresh_gate: self.credentials_refresh_gate.clone(),
             extra_headers: self.extra_headers.clone(),
             extra_query: self.extra_query.clone(),
             request_timeout: self.request_timeout,
@@ -3428,6 +3492,10 @@ impl Bucket {
     /// Change the credentials used by the Bucket.
     pub fn set_credentials(&mut self, credentials: Credentials) {
         self.credentials = Arc::new(RwLock::new(credentials));
+        #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+        {
+            self.credentials_refresh_gate = Arc::new(AsyncMutex::new(()));
+        }
     }
 
     /// Add an extra header to send with requests to S3.
@@ -6766,5 +6834,95 @@ mod test {
         );
         let exists = exists_result.unwrap();
         assert!(exists, "Test bucket should exist");
+    }
+
+    #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn credentials_refresh_is_singleflight_and_does_not_hold_read_lock() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Mutex, mpsc};
+        use std::time::Duration;
+
+        let mut initial =
+            Credentials::new(Some("old-access"), Some("old-secret"), None, None, None).unwrap();
+        initial.expiration = Some(time::OffsetDateTime::from_unix_timestamp(0).unwrap().into());
+        let bucket = Bucket::new("test-bucket", "us-east-1".parse().unwrap(), initial).unwrap();
+        let cloned = (*bucket).clone();
+
+        let refresh_count = Arc::new(AtomicUsize::new(0));
+        let (started_sender, started_receiver) = async_std::channel::bounded::<()>(1);
+        let (release_sender, release_receiver) = mpsc::channel();
+        let release_receiver = Arc::new(Mutex::new(release_receiver));
+
+        let first_count = refresh_count.clone();
+        let first_started = started_sender.clone();
+        let first_release = release_receiver.clone();
+        let first_refresh = bucket.credentials_refresh_with(move |mut credentials| {
+            first_count.fetch_add(1, Ordering::SeqCst);
+            let _ = first_started.try_send(());
+            first_release
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5))
+                .expect("test should release the blocked refresh");
+            credentials.access_key = Some("refreshed-access".into());
+            credentials.expiration =
+                Some((time::OffsetDateTime::now_utc() + time::Duration::minutes(5)).into());
+            Ok(credentials)
+        });
+
+        let second_count = refresh_count.clone();
+        let second_started = started_sender;
+        let second_release = release_receiver;
+        let second_refresh = cloned.credentials_refresh_with(move |mut credentials| {
+            second_count.fetch_add(1, Ordering::SeqCst);
+            let _ = second_started.try_send(());
+            second_release
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5))
+                .expect("test should release the blocked refresh");
+            credentials.access_key = Some("refreshed-access".into());
+            credentials.expiration =
+                Some((time::OffsetDateTime::now_utc() + time::Duration::minutes(5)).into());
+            Ok(credentials)
+        });
+
+        let read_bucket = (*bucket).clone();
+        let read_during_refresh = async move {
+            started_receiver.recv().await.unwrap();
+            let credentials =
+                async_std::future::timeout(Duration::from_secs(2), read_bucket.credentials())
+                    .await
+                    .expect("credential reads should not wait for the blocking refresh")
+                    .unwrap();
+            assert_eq!(credentials.access_key.as_deref(), Some("old-access"));
+            release_sender.send(()).unwrap();
+            release_sender.send(()).unwrap();
+        };
+
+        let refreshes = futures_util::future::join(first_refresh, second_refresh);
+        let (refresh_results, ()) = async_std::future::timeout(
+            Duration::from_secs(8),
+            futures_util::future::join(refreshes, read_during_refresh),
+        )
+        .await
+        .expect("refresh coordination should finish within the test deadline");
+        refresh_results.0.unwrap();
+        refresh_results.1.unwrap();
+
+        assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            bucket.credentials().await.unwrap().access_key.as_deref(),
+            Some("refreshed-access")
+        );
     }
 }

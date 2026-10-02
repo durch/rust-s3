@@ -28,3 +28,19 @@ Before publishing `rust-s3`, confirm the registry contains `aws-creds` 0.40.0
 and run package verification against that registry release. Until then, local
 path-based compilation validates workspace integration but cannot establish
 that the published dependency graph resolves for `rust-s3` consumers.
+
+The credential-refresh repair also changes `aws-creds` source compatibility.
+`Credentials` gains private refresh metadata, so external struct literals must
+use an existing constructor instead; public credential and expiration fields
+remain accessible. The new `CredentialsError::NoRefreshSource` variant requires
+updating exhaustive error matches.
+
+Serialized credentials retain their five-field format, but serialization does
+not persist a refresh source. Expired manually constructed or deserialized
+credentials therefore return `NoRefreshSource` instead of consulting the default
+provider chain. Credentials created from a directly supplied OIDC token have the
+same behavior: the library does not retain that bearer token. Callers must
+explicitly acquire fresh credentials. Token-file credentials reread the captured
+file; container and instance-metadata credentials refresh through their captured
+provider mechanism. This preserves the source, not an immutable remote IAM
+principal if the provider's configuration changes.
