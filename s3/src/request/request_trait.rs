@@ -74,6 +74,72 @@ mod generated_bodyless_header_tests {
             async_std::test
         )
     )]
+    async fn custom_endpoint_path_stays_in_url_but_not_host_authority() {
+        use http::header::{AUTHORIZATION, HOST};
+        use url::Url;
+
+        let credentials =
+            Credentials::new(Some("test-key"), Some("test-secret"), None, None, None).unwrap();
+        let bucket = Bucket::new(
+            "bucket",
+            Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint: "https://project.example:8443/storage/v1/s3".to_owned(),
+            },
+            credentials,
+        )
+        .unwrap()
+        .with_path_style();
+
+        let request = make_request(&bucket, Command::GetObject).await.unwrap();
+        let request_url = request.url().unwrap();
+        assert_eq!(
+            request_url.as_str(),
+            "https://project.example:8443/storage/v1/s3/bucket/key"
+        );
+
+        let headers = request.headers().await.unwrap();
+        assert_eq!(headers[HOST], "project.example:8443");
+        let mut signing_headers = headers.clone();
+        signing_headers.remove(AUTHORIZATION);
+        signing_headers.remove(http::header::DATE);
+        let canonical_request = request.canonical_request(&signing_headers).unwrap();
+        let canonical_lines = canonical_request.lines().collect::<Vec<_>>();
+        assert_eq!(canonical_lines[0], "GET");
+        assert_eq!(canonical_lines[1], "/storage/v1/s3/bucket/key");
+        assert!(canonical_request.contains("\nhost:project.example:8443\n"));
+        assert!(!canonical_request.contains("\nhost:project.example:8443/storage"));
+        let signed_headers = headers[AUTHORIZATION]
+            .to_str()
+            .unwrap()
+            .split("SignedHeaders=")
+            .nth(1)
+            .unwrap()
+            .split(',')
+            .next()
+            .unwrap();
+        assert!(signed_headers.split(';').any(|header| header == "host"));
+
+        let presigned = bucket.presign_get("/key", 3600, None).await.unwrap();
+        let presigned_url = Url::parse(&presigned).unwrap();
+        assert_eq!(presigned_url.host_str(), Some("project.example"));
+        assert_eq!(presigned_url.port(), Some(8443));
+        assert_eq!(presigned_url.path(), "/storage/v1/s3/bucket/key");
+        assert!(
+            presigned_url
+                .query_pairs()
+                .any(|(key, _)| key == "X-Amz-Signature")
+        );
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
     async fn delete_object_does_not_sign_generated_body_headers() {
         let credentials =
             Credentials::new(Some("test-key"), Some("test-secret"), None, None, None).unwrap();
