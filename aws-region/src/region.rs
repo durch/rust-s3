@@ -41,12 +41,18 @@ pub enum Region {
     UsWest2,
     /// ca-central-1
     CaCentral1,
+    /// ca-west-1
+    CaWest1,
     /// af-south-1
     AfSouth1,
     /// ap-east-1
     ApEast1,
+    /// ap-east-2
+    ApEast2,
     /// ap-south-1
     ApSouth1,
+    /// ap-south-2
+    ApSouth2,
     /// ap-northeast-1
     ApNortheast1,
     /// ap-northeast-2
@@ -57,6 +63,16 @@ pub enum Region {
     ApSoutheast1,
     /// ap-southeast-2
     ApSoutheast2,
+    /// ap-southeast-3
+    ApSoutheast3,
+    /// ap-southeast-4
+    ApSoutheast4,
+    /// ap-southeast-5
+    ApSoutheast5,
+    /// ap-southeast-6
+    ApSoutheast6,
+    /// ap-southeast-7
+    ApSoutheast7,
     /// cn-north-1
     CnNorth1,
     /// cn-northwest-1
@@ -67,6 +83,10 @@ pub enum Region {
     EuCentral1,
     /// eu-central-2
     EuCentral2,
+    /// eu-south-1
+    EuSouth1,
+    /// eu-south-2
+    EuSouth2,
     /// eu-west-1
     EuWest1,
     /// eu-west-2
@@ -79,6 +99,8 @@ pub enum Region {
     MeSouth1,
     /// me-central-1
     MeCentral1,
+    /// mx-central-1
+    MxCentral1,
     /// sa-east-1
     SaEast1,
     /// Digital Ocean nyc3
@@ -153,18 +175,28 @@ impl fmt::Display for Region {
             UsWest2 => write!(f, "us-west-2"),
             AfSouth1 => write!(f, "af-south-1"),
             CaCentral1 => write!(f, "ca-central-1"),
+            CaWest1 => write!(f, "ca-west-1"),
             ApEast1 => write!(f, "ap-east-1"),
+            ApEast2 => write!(f, "ap-east-2"),
             ApSouth1 => write!(f, "ap-south-1"),
+            ApSouth2 => write!(f, "ap-south-2"),
             ApNortheast1 => write!(f, "ap-northeast-1"),
             ApNortheast2 => write!(f, "ap-northeast-2"),
             ApNortheast3 => write!(f, "ap-northeast-3"),
             ApSoutheast1 => write!(f, "ap-southeast-1"),
             ApSoutheast2 => write!(f, "ap-southeast-2"),
+            ApSoutheast3 => write!(f, "ap-southeast-3"),
+            ApSoutheast4 => write!(f, "ap-southeast-4"),
+            ApSoutheast5 => write!(f, "ap-southeast-5"),
+            ApSoutheast6 => write!(f, "ap-southeast-6"),
+            ApSoutheast7 => write!(f, "ap-southeast-7"),
             CnNorth1 => write!(f, "cn-north-1"),
             CnNorthwest1 => write!(f, "cn-northwest-1"),
             EuNorth1 => write!(f, "eu-north-1"),
             EuCentral1 => write!(f, "eu-central-1"),
             EuCentral2 => write!(f, "eu-central-2"),
+            EuSouth1 => write!(f, "eu-south-1"),
+            EuSouth2 => write!(f, "eu-south-2"),
             EuWest1 => write!(f, "eu-west-1"),
             EuWest2 => write!(f, "eu-west-2"),
             EuWest3 => write!(f, "eu-west-3"),
@@ -172,6 +204,7 @@ impl fmt::Display for Region {
             IlCentral1 => write!(f, "il-central-1"),
             MeCentral1 => write!(f, "me-central-1"),
             MeSouth1 => write!(f, "me-south-1"),
+            MxCentral1 => write!(f, "mx-central-1"),
             DoNyc3 => write!(f, "nyc3"),
             DoAms3 => write!(f, "ams3"),
             DoSgp1 => write!(f, "sgp1"),
@@ -217,19 +250,29 @@ impl FromStr for Region {
             "us-west-1" => Ok(UsWest1),
             "us-west-2" => Ok(UsWest2),
             "ca-central-1" => Ok(CaCentral1),
+            "ca-west-1" => Ok(CaWest1),
             "af-south-1" => Ok(AfSouth1),
             "ap-east-1" => Ok(ApEast1),
+            "ap-east-2" => Ok(ApEast2),
             "ap-south-1" => Ok(ApSouth1),
+            "ap-south-2" => Ok(ApSouth2),
             "ap-northeast-1" => Ok(ApNortheast1),
             "ap-northeast-2" => Ok(ApNortheast2),
             "ap-northeast-3" => Ok(ApNortheast3),
             "ap-southeast-1" => Ok(ApSoutheast1),
             "ap-southeast-2" => Ok(ApSoutheast2),
+            "ap-southeast-3" => Ok(ApSoutheast3),
+            "ap-southeast-4" => Ok(ApSoutheast4),
+            "ap-southeast-5" => Ok(ApSoutheast5),
+            "ap-southeast-6" => Ok(ApSoutheast6),
+            "ap-southeast-7" => Ok(ApSoutheast7),
             "cn-north-1" => Ok(CnNorth1),
             "cn-northwest-1" => Ok(CnNorthwest1),
             "eu-north-1" => Ok(EuNorth1),
             "eu-central-1" => Ok(EuCentral1),
             "eu-central-2" => Ok(EuCentral2),
+            "eu-south-1" => Ok(EuSouth1),
+            "eu-south-2" => Ok(EuSouth2),
             "eu-west-1" => Ok(EuWest1),
             "eu-west-2" => Ok(EuWest2),
             "eu-west-3" => Ok(EuWest3),
@@ -237,6 +280,7 @@ impl FromStr for Region {
             "il-central-1" => Ok(IlCentral1),
             "me-central-1" => Ok(MeCentral1),
             "me-south-1" => Ok(MeSouth1),
+            "mx-central-1" => Ok(MxCentral1),
             "nyc3" => Ok(DoNyc3),
             "ams3" => Ok(DoAms3),
             "sgp1" => Ok(DoSgp1),
@@ -275,19 +319,29 @@ impl Region {
             UsWest1 => String::from("s3-us-west-1.amazonaws.com"),
             UsWest2 => String::from("s3-us-west-2.amazonaws.com"),
             CaCentral1 => String::from("s3-ca-central-1.amazonaws.com"),
+            CaWest1 => String::from("s3.ca-west-1.amazonaws.com"),
             AfSouth1 => String::from("s3-af-south-1.amazonaws.com"),
             ApEast1 => String::from("s3-ap-east-1.amazonaws.com"),
+            ApEast2 => String::from("s3.ap-east-2.amazonaws.com"),
             ApSouth1 => String::from("s3-ap-south-1.amazonaws.com"),
+            ApSouth2 => String::from("s3.ap-south-2.amazonaws.com"),
             ApNortheast1 => String::from("s3-ap-northeast-1.amazonaws.com"),
             ApNortheast2 => String::from("s3-ap-northeast-2.amazonaws.com"),
             ApNortheast3 => String::from("s3-ap-northeast-3.amazonaws.com"),
             ApSoutheast1 => String::from("s3-ap-southeast-1.amazonaws.com"),
             ApSoutheast2 => String::from("s3-ap-southeast-2.amazonaws.com"),
+            ApSoutheast3 => String::from("s3.ap-southeast-3.amazonaws.com"),
+            ApSoutheast4 => String::from("s3.ap-southeast-4.amazonaws.com"),
+            ApSoutheast5 => String::from("s3.ap-southeast-5.amazonaws.com"),
+            ApSoutheast6 => String::from("s3.ap-southeast-6.amazonaws.com"),
+            ApSoutheast7 => String::from("s3.ap-southeast-7.amazonaws.com"),
             CnNorth1 => String::from("s3.cn-north-1.amazonaws.com.cn"),
             CnNorthwest1 => String::from("s3.cn-northwest-1.amazonaws.com.cn"),
             EuNorth1 => String::from("s3-eu-north-1.amazonaws.com"),
             EuCentral1 => String::from("s3.eu-central-1.amazonaws.com"),
             EuCentral2 => String::from("s3.eu-central-2.amazonaws.com"),
+            EuSouth1 => String::from("s3.eu-south-1.amazonaws.com"),
+            EuSouth2 => String::from("s3.eu-south-2.amazonaws.com"),
             EuWest1 => String::from("s3-eu-west-1.amazonaws.com"),
             EuWest2 => String::from("s3-eu-west-2.amazonaws.com"),
             EuWest3 => String::from("s3-eu-west-3.amazonaws.com"),
@@ -295,6 +349,7 @@ impl Region {
             IlCentral1 => String::from("s3.il-central-1.amazonaws.com"),
             MeCentral1 => String::from("s3.me-central-1.amazonaws.com"),
             MeSouth1 => String::from("s3-me-south-1.amazonaws.com"),
+            MxCentral1 => String::from("s3.mx-central-1.amazonaws.com"),
             DoNyc3 => String::from("nyc3.digitaloceanspaces.com"),
             DoAms3 => String::from("ams3.digitaloceanspaces.com"),
             DoSgp1 => String::from("sgp1.digitaloceanspaces.com"),
@@ -402,6 +457,83 @@ fn test_region_me_central_1() {
     let region = "me-central-1".parse::<Region>().unwrap();
     assert_eq!(region.endpoint(), "s3.me-central-1.amazonaws.com");
     assert_eq!(region.to_string(), "me-central-1");
+}
+
+#[test]
+fn test_region_ap_east_2() {
+    let region = "ap-east-2".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.ap-east-2.amazonaws.com");
+    assert_eq!(region.to_string(), "ap-east-2");
+}
+
+#[test]
+fn test_region_ap_south_2() {
+    let region = "ap-south-2".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.ap-south-2.amazonaws.com");
+    assert_eq!(region.to_string(), "ap-south-2");
+}
+
+#[test]
+fn test_region_ap_southeast_3() {
+    let region = "ap-southeast-3".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.ap-southeast-3.amazonaws.com");
+    assert_eq!(region.to_string(), "ap-southeast-3");
+}
+
+#[test]
+fn test_region_ap_southeast_4() {
+    let region = "ap-southeast-4".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.ap-southeast-4.amazonaws.com");
+    assert_eq!(region.to_string(), "ap-southeast-4");
+}
+
+#[test]
+fn test_region_ap_southeast_5() {
+    let region = "ap-southeast-5".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.ap-southeast-5.amazonaws.com");
+    assert_eq!(region.to_string(), "ap-southeast-5");
+}
+
+#[test]
+fn test_region_ap_southeast_6() {
+    let region = "ap-southeast-6".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.ap-southeast-6.amazonaws.com");
+    assert_eq!(region.to_string(), "ap-southeast-6");
+}
+
+#[test]
+fn test_region_ap_southeast_7() {
+    let region = "ap-southeast-7".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.ap-southeast-7.amazonaws.com");
+    assert_eq!(region.to_string(), "ap-southeast-7");
+}
+
+#[test]
+fn test_region_ca_west_1() {
+    let region = "ca-west-1".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.ca-west-1.amazonaws.com");
+    assert_eq!(region.to_string(), "ca-west-1");
+}
+
+#[test]
+fn test_region_eu_south_1() {
+    let region = "eu-south-1".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.eu-south-1.amazonaws.com");
+    assert_eq!(region.to_string(), "eu-south-1");
+}
+
+#[test]
+fn test_region_eu_south_2() {
+    let region = "eu-south-2".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.eu-south-2.amazonaws.com");
+    assert_eq!(region.to_string(), "eu-south-2");
+}
+
+#[test]
+fn test_region_mx_central_1() {
+    let region = "mx-central-1".parse::<Region>().unwrap();
+    assert_eq!(region.endpoint(), "s3.mx-central-1.amazonaws.com");
+    assert_eq!(region.to_string(), "mx-central-1");
 }
 
 #[test]
