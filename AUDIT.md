@@ -214,11 +214,25 @@ five providers. All 40 cloud prefixes and every MinIO post-test object/upload
 listing were independently verified empty and untruncated. Superego's final
 review reported no concerns.
 
-### P2: Credential refresh can block async execution and change identity
+### P2: Credential refresh can block async execution and change identity — repaired in source
 
-`Bucket::credentials_refresh` calls synchronous credential refresh while holding an async write lock. `Credentials::refresh` reloads `Credentials::default()` only after expiration, rather than retaining the originating provider/profile. Refresh can therefore block runtime workers and resolve through a different source.
+Previously, refresh ran synchronous provider I/O under an async write lock and
+reloaded the default provider chain. Refresh now retains its originating STS
+token-file, container URI, or IMDS mechanism. Token-file refresh rereads the
+captured lexical path, allowing token rotation. Direct OIDC tokens are not
+retained; expired credentials without a refresh source return `NoRefreshSource`.
+Serialization retains its five public fields and deliberately omits the source.
+See `RELEASING.md` for constructor and exhaustive-error-match migration notes.
 
-Next repair: define provider identity and refresh behavior, test expiry margins and concurrent refresh, and isolate blocking I/O. This requires a deliberate credential design change and release coordination, not an opportunistic reorder of the provider chain.
+Async Bucket refresh uses a shared gate, rechecks expiry after acquiring it,
+runs provider work on a blocking worker, and replaces credentials only on
+success under a short write lock. Deterministic tests cover source preservation,
+failure atomicity, token-file rotation, and concurrent callers with responsive
+credential reads on Tokio and async-std. Cancelling the waiter can release the
+gate while its blocking worker continues; durable single-flight under
+cancellation and proactive expiry margins remain open. Live STS/IMDS rotation
+has not been verified, and source preservation does not pin a remote IAM
+principal against changes made at the provider.
 
 ### P2: Low-level UploadPart command differs from the working Bucket path
 
@@ -229,6 +243,16 @@ hash uses the empty-body hash. Current `Bucket` multipart helpers instead use
 handling. Provider tests of the Bucket helpers do not verify this low-level
 variant. Keep it outside the replay-safe allowlist until its wire behavior has
 focused signing and request tests; do not infer safety from its variant name.
+
+### P2: Signing reads credential fields independently
+
+The request trait reads the access key, secret key, and session/security token
+through separate Bucket lock acquisitions. Replacing the shared credentials
+between these reads can produce a signature assembled from different credential
+generations. This exists independently of the refresh-source repair; serializing
+refreshes does not make a multi-read signing sequence atomic. A separate repair
+should use one credential snapshot per signing attempt and cover concurrent
+rotation in both ordinary and presigned requests. No such repair is claimed here.
 
 ### P2: Workspace tests do not prove local credentials/region integration — credentials integrated in source
 
@@ -241,7 +265,7 @@ The credential release order and package-verification boundary are documented
 in [RELEASING.md](RELEASING.md). Registry verification awaits the credential
 release. Local region integration remains separate outstanding work.
 
-### P2: Timeout behavior differs by backend and API — Tokio repaired, async-std open
+### P2: Timeout behavior differs by backend and API — Tokio and async-std repaired in source
 
 At the baseline, `set_request_timeout` only changed the public field while the
 cached Tokio client retained its configuration. `with_request_timeout` rebuilt
@@ -265,11 +289,16 @@ All 35 cloud tests passed across Tokio native TLS, rustls, and blocking against
 AWS, Wasabi, GCS, R2, and DigitalOcean. Independent listings confirmed empty,
 untruncated test prefixes after those runs.
 
-Async-std still does not enforce this bucket option. Surf's connection timeout
-alone would not establish body/stream parity; a shared absolute deadline needs
-to survive through consumption. Sync behavior is unchanged, and documentation
-now states that disabling its total deadline does not remove transport-specific
-connect/read limits.
+Async-std now uses a reusable private Surf client with its transport timeout
+disabled and applies an absolute deadline per attempt, from send through body
+reads. A reader wrapper preserves the deadline in the public Surf response,
+buffered downloads, writer copies, and lazy streams. `None` removes the library
+deadline. Tests cover delayed headers, late body consumption, exact partial
+writer output, lazy streams, error-body reads, timeout changes, and connection
+reuse across native TLS, rustls, and Hyper, with `fail-on-err` on and off.
+Bypassing the body wrapper made the public-response regression test fail.
+These deadlines do not bound an arbitrary external writer's own blocked write.
+Sync behavior remains transport-specific.
 
 ### P2: R2 rejects generated body headers on bodyless requests — repaired and provider-verified
 
@@ -582,6 +611,27 @@ The frozen dependency patch passed 57 MinIO tests across 11 configurations
 Wasabi, GCS, R2, and DigitalOcean. All 40 cloud prefixes were independently
 verified empty, as were MinIO object and upload listings. The isolated MinIO
 server is retained temporarily for the next pagination regression.
+
+## Credential refresh and async-std deadline verification
+
+The combined frozen changes passed `make ci` in 145.97 seconds, including
+formatting, linting, runtime/TLS tests, examples, and representative doctests.
+Credential unit tests passed with HTTP support (13) and without it (11).
+The obsolete ignored default-provider fallback test was removed; its replacement
+is deterministic and requires no credentials. The gated refresh test passed on
+Tokio and async-std, and the public body deadline test rejects a deadline reset
+at the first body read. `aws-creds` package creation and verification passed;
+Cargo reported the existing yanked `spin 0.9.8` lockfile entry. No publication
+has occurred.
+
+Fresh binaries passed all 68 MinIO tests across 11 configurations and all 100
+cloud tests across eight configurations against AWS, Wasabi, GCS, R2, and
+DigitalOcean. All 40 cloud prefixes and all MinIO post-test object/upload
+listings were independently checked empty and untruncated. The temporary MinIO
+bucket was deleted (204, then 404), its owned process stopped, and generated
+credentials, certificates, and service data removed. Logs and results remain
+available locally. This verifies existing provider operations, not live STS or
+IMDS rotation, injected cloud failures, or cancellation safety.
 
 ## Order of work
 

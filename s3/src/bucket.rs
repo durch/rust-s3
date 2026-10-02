@@ -3376,13 +3376,13 @@ impl Bucket {
         self.path_style = false;
     }
 
-    /// Configure the total timeout for HTTP requests, or disable the total
-    /// deadline with `None`. Defaults to 60 seconds.
+    /// Configure the total per-attempt timeout for HTTP requests, or disable
+    /// the library-level deadline with `None`. Defaults to 60 seconds.
     ///
-    /// Tokio and sync (`attohttpc`) backends apply this timeout through
-    /// response-body consumption. The async-std backend does not currently
-    /// enforce this option. With sync transports, `None` removes the total
-    /// deadline but transport-specific connect/read limits may still apply.
+    /// Async backends apply this deadline from HTTP send through response-body
+    /// reads used by buffered downloads, writer copies, and lazy streams.
+    /// The synchronous backend uses its transport's timeout behavior; disabling
+    /// the library-level deadline does not remove transport-specific limits.
     pub fn set_request_timeout(&mut self, timeout: Option<Duration>) {
         self.request_timeout = timeout;
     }
