@@ -15,6 +15,15 @@ payloads may need to update their dependency and code. `CredentialsError` is
 exhaustive, so its payload change is especially visible. The 0.x minor version
 bumps communicate that compatibility impact; do not obscure it with aliases.
 
+The `rust-s3` 0.38.0 release also fixes multipart-upload pagination by carrying
+both the key marker and upload-ID marker. This changes the public
+`Command::ListMultipartUploads` fields, adds marker fields to
+`ListMultipartUploadsResult`, and adds an `upload_id_marker` argument to
+`Bucket::list_multiparts_uploads_page`. Callers that construct or destructure
+these public types, or call the page method directly, need to supply or accept
+the new optional marker. Directory buckets and compatible services may omit
+the upload-ID marker; continue with the returned key marker alone.
+
 Before publishing `rust-s3`, confirm the registry contains `aws-creds` 0.40.0
 and run package verification against that registry release. Until then, local
 path-based compilation validates workspace integration but cannot establish

@@ -801,6 +801,7 @@ pub trait Request {
                 prefix,
                 delimiter,
                 key_marker,
+                upload_id_marker,
                 max_uploads,
             } => {
                 let mut query_pairs = url.query_pairs_mut();
@@ -810,6 +811,9 @@ pub trait Request {
                 }
                 if let Some(key_marker) = key_marker {
                     query_pairs.append_pair("key-marker", &key_marker);
+                }
+                if let Some(upload_id_marker) = upload_id_marker {
+                    query_pairs.append_pair("upload-id-marker", &upload_id_marker);
                 }
                 if let Some(max_uploads) = max_uploads {
                     query_pairs.append_pair("max-uploads", max_uploads.to_string().as_str());

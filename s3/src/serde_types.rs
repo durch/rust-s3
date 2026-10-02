@@ -260,11 +260,13 @@ pub struct ListMultipartUploadsResult {
     /// Name of the bucket.
     pub name: String,
     #[serde(rename = "NextKeyMarker")]
-    /// When the response is truncated (that is, the IsTruncated element value in the response
-    /// is true), you can use the key name in this field as a marker in the subsequent request
-    /// to get next set of objects. Amazon S3 lists objects in UTF-8 character encoding in
-    /// lexicographical order.
+    /// When the response is truncated, use this key marker in the subsequent request. For
+    /// general-purpose buckets, also pass [`Self::next_upload_id_marker`] when present.
     pub next_marker: Option<String>,
+    #[serde(rename = "NextUploadIdMarker")]
+    /// Upload ID cursor for the next page. Some S3-compatible services, including directory
+    /// buckets, omit this field and continue with `NextKeyMarker` alone.
+    pub next_upload_id_marker: Option<String>,
     #[serde(rename = "Prefix")]
     /// The prefix, present if the request contained a prefix too, shows the search root for the
     /// uploads listed in this structure.
@@ -272,6 +274,9 @@ pub struct ListMultipartUploadsResult {
     #[serde(rename = "KeyMarker")]
     /// Indicates where in the bucket listing begins.
     pub marker: Option<String>,
+    #[serde(rename = "UploadIdMarker")]
+    /// Upload ID cursor supplied in the request, when present.
+    pub upload_id_marker: Option<String>,
     #[serde(rename = "EncodingType")]
     /// Specifies the encoding method to used
     pub encoding_type: Option<String>,

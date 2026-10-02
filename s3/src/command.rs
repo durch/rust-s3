@@ -105,6 +105,7 @@ pub enum Command<'a> {
         prefix: Option<&'a str>,
         delimiter: Option<&'a str>,
         key_marker: Option<String>,
+        upload_id_marker: Option<String>,
         max_uploads: Option<usize>,
     },
     ListObjects {

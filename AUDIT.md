@@ -124,13 +124,33 @@ and [completion](https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMul
 contracts. It does not add streaming checksum computation or change public
 Command variants or method signatures. Local and provider verification is recorded below.
 
-### P2: Multipart pagination drops the upload-ID cursor
+### P2: Multipart pagination drops the upload-ID cursor — repaired in source
 
-`ListMultipartUploadsResult` models `NextKeyMarker` but not `NextUploadIdMarker`. The command and page API likewise omit the upload-ID marker. The aggregate method advances by key only, so it can skip remaining uploads for the same key when a page boundary falls within that key.
+At the audit baseline, `ListMultipartUploadsResult` modeled `NextKeyMarker` but
+not `NextUploadIdMarker`. The command and page API likewise omitted the upload-ID
+marker. Advancing by key alone could skip remaining uploads for the same key
+when a page boundary fell within that key.
 
 The [AWS pagination contract](https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListMultipartUploads.html) requires both markers for general-purpose buckets. Directory buckets differ.
 
-Next repair: preserve both cursor components while considering semver impact of changing public structs/enums. Test multiple uploads for one key spanning pages, missing markers, and nonadvancing cursors.
+The command, response model, and page API now carry both markers. Aggregate
+listing follows the returned pair, clears an omitted upload-ID marker, and
+rejects missing key markers and repeated/cyclic cursor pairs on truncated
+responses. Same-key pages with advancing upload IDs remain valid. This changes
+public method/struct/enum shapes in the planned 0.38 minor release; migration
+details are in [RELEASING.md](RELEASING.md).
+
+Bounded local HTTP tests pass on Tokio, async-std, and sync. They check encoded
+upload IDs, same-key uploads spanning pages, key-only continuation, and missing,
+repeated, and cyclic cursors. Removing upload-ID query forwarding reproduced
+the regression; restoring it passed. The full `make ci` gate passed in 136.21
+seconds, including rebuilding changed artifacts. The exact ignored MinIO test
+also passed on all three native-TLS runtimes: two pending uploads sharing one
+key were returned exactly once across two one-item pages. All tracked uploads
+were aborted, and independent object/upload listings were empty and untruncated
+after each run. This establishes MinIO page-API behavior; aggregate edge cases
+have local fixture coverage, and cloud-provider multipart pagination was not
+tested in this follow-up.
 
 ### P2: Upload concurrency follows machine memory, not a caller budget
 

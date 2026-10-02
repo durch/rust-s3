@@ -37,7 +37,7 @@
 use block_on_proc::block_on;
 #[cfg(feature = "tags")]
 use minidom::Element;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use crate::bucket_ops::{BucketConfiguration, CreateBucketResponse};
@@ -3137,18 +3137,23 @@ impl Bucket {
         Ok(results)
     }
 
+    /// List one page of in-progress multipart uploads. Pass both returned cursor markers to
+    /// continue a truncated listing; directory buckets and some compatible services may omit
+    /// the upload ID marker.
     #[maybe_async::maybe_async]
     pub async fn list_multiparts_uploads_page(
         &self,
         prefix: Option<&str>,
         delimiter: Option<&str>,
         key_marker: Option<String>,
+        upload_id_marker: Option<String>,
         max_uploads: Option<usize>,
     ) -> Result<(ListMultipartUploadsResult, u16), S3Error> {
         let command = Command::ListMultipartUploads {
             prefix,
             delimiter,
             key_marker,
+            upload_id_marker,
             max_uploads,
         };
         let request = RequestImpl::new(self, "/", command).await?;
@@ -3159,7 +3164,9 @@ impl Bucket {
     }
 
     /// List the ongoing multipart uploads of an S3 bucket. This may be useful to cleanup failed
-    /// uploads, together with [`crate::bucket::Bucket::abort_upload`].
+    /// uploads, together with [`crate::bucket::Bucket::abort_upload`]. The method follows both
+    /// pagination markers when supplied by the service and returns an error if a truncated
+    /// response has no next key marker or repeats a cursor.
     ///
     /// # Example:
     ///
@@ -3193,7 +3200,6 @@ impl Bucket {
     /// # }
     /// ```
     #[maybe_async::maybe_async]
-    #[allow(clippy::assigning_clones)]
     pub async fn list_multiparts_uploads(
         &self,
         prefix: Option<&str>,
@@ -3201,21 +3207,44 @@ impl Bucket {
     ) -> Result<Vec<ListMultipartUploadsResult>, S3Error> {
         let the_bucket = self.to_owned();
         let mut results = Vec::new();
-        let mut next_marker: Option<String> = None;
+        let mut key_marker: Option<String> = None;
+        let mut upload_id_marker: Option<String> = None;
+        let mut seen_cursors = HashSet::new();
 
         loop {
+            if !seen_cursors.insert((key_marker.clone(), upload_id_marker.clone())) {
+                return Err(S3Error::InvalidMultipartUploadsPagination(
+                    "pagination cursor repeated",
+                ));
+            }
+
             let (list_multiparts_uploads_result, _) = the_bucket
-                .list_multiparts_uploads_page(prefix, delimiter, next_marker, None)
+                .list_multiparts_uploads_page(prefix, delimiter, key_marker, upload_id_marker, None)
                 .await?;
 
-            let is_truncated = list_multiparts_uploads_result.is_truncated;
-
-            next_marker = list_multiparts_uploads_result.next_marker.clone();
-            results.push(list_multiparts_uploads_result);
-
-            if !is_truncated {
+            if !list_multiparts_uploads_result.is_truncated {
+                results.push(list_multiparts_uploads_result);
                 break;
             }
+
+            let next_key_marker = list_multiparts_uploads_result.next_marker.clone().ok_or(
+                S3Error::InvalidMultipartUploadsPagination(
+                    "truncated response has no next key marker",
+                ),
+            )?;
+            let next_upload_id_marker =
+                list_multiparts_uploads_result.next_upload_id_marker.clone();
+            if seen_cursors
+                .contains(&(Some(next_key_marker.clone()), next_upload_id_marker.clone()))
+            {
+                return Err(S3Error::InvalidMultipartUploadsPagination(
+                    "pagination cursor repeated",
+                ));
+            }
+
+            key_marker = Some(next_key_marker);
+            upload_id_marker = next_upload_id_marker;
+            results.push(list_multiparts_uploads_result);
         }
 
         Ok(results)
@@ -3517,6 +3546,286 @@ mod test {
         // BSD accept can carry over O_NONBLOCK from the listener.
         stream.set_nonblocking(false)?;
         Ok(stream)
+    }
+
+    #[maybe_async::maybe_async]
+    async fn run_multipart_upload_listing_case(
+        responses: Vec<String>,
+    ) -> (
+        Result<Vec<crate::serde_types::ListMultipartUploadsResult>, S3Error>,
+        Result<Vec<String>, String>,
+    ) {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        fn read_request_target(
+            stream: &mut std::net::TcpStream,
+            deadline: Instant,
+        ) -> Result<String, String> {
+            let mut headers = Vec::new();
+            let mut byte = [0u8; 1];
+            while !headers.ends_with(b"\r\n\r\n") {
+                if headers.len() >= 16 * 1024 || Instant::now() >= deadline {
+                    return Err("request headers exceeded the fixture bound".to_owned());
+                }
+                match stream.read(&mut byte) {
+                    Ok(0) => return Err("client closed before sending request headers".to_owned()),
+                    Ok(_) => headers.push(byte[0]),
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) => return Err(format!("failed to read request headers: {error}")),
+                }
+            }
+            let request = String::from_utf8_lossy(&headers);
+            let mut fields = request
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .split_whitespace();
+            let method = fields.next().unwrap_or_default();
+            let target = fields.next().unwrap_or_default();
+            if method != "GET" || target.is_empty() {
+                return Err("unexpected request line in multipart listing fixture".to_owned());
+            }
+            Ok(target.to_owned())
+        }
+
+        fn send_listing_response(
+            stream: &mut std::net::TcpStream,
+            body: &str,
+        ) -> std::io::Result<()> {
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let (done_tx, done_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(8);
+            let mut requests = Vec::new();
+            for body in &responses {
+                let (stream, _) = loop {
+                    match listener.accept() {
+                        Ok(connection) => break connection,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            if Instant::now() >= deadline {
+                                return Err("timed out waiting for a pagination request".to_owned());
+                            }
+                            if done_rx.try_recv().is_ok() {
+                                return Err(
+                                    "client finished before all scripted requests".to_owned()
+                                );
+                            }
+                            thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(error) => return Err(format!("failed to accept request: {error}")),
+                    }
+                };
+                let mut stream = make_mock_stream_blocking(stream)
+                    .map_err(|error| format!("failed to configure accepted stream: {error}"))?;
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .map_err(|error| format!("failed to set read timeout: {error}"))?;
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(3)))
+                    .map_err(|error| format!("failed to set write timeout: {error}"))?;
+                let target = read_request_target(&mut stream, deadline)?;
+                requests.push(target);
+                send_listing_response(&mut stream, body)
+                    .map_err(|error| format!("failed to send listing page: {error}"))?;
+            }
+
+            loop {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        let mut stream = make_mock_stream_blocking(stream).map_err(|error| {
+                            format!("failed to configure extra stream: {error}")
+                        })?;
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(3)))
+                            .map_err(|error| format!("failed to set read timeout: {error}"))?;
+                        let target = read_request_target(&mut stream, deadline)?;
+                        requests.push(target);
+                        // Let an unexpected extra request complete so the client does not hang.
+                        let final_page = "<ListMultipartUploadsResult><Bucket>test-bucket</Bucket><IsTruncated>false</IsTruncated></ListMultipartUploadsResult>";
+                        send_listing_response(&mut stream, final_page)
+                            .map_err(|error| format!("failed to answer extra request: {error}"))?;
+                        return Err("client made more pagination requests than scripted".to_owned());
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if done_rx.recv_timeout(Duration::from_millis(10)).is_ok() {
+                            return Ok(requests);
+                        }
+                        if Instant::now() >= deadline {
+                            return Err("client did not finish before fixture deadline".to_owned());
+                        }
+                    }
+                    Err(error) => return Err(format!("failed to accept extra request: {error}")),
+                }
+            }
+        });
+
+        let credentials = Credentials::new(
+            Some("test_access_key"),
+            Some("test_secret_key"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let bucket = Bucket::new(
+            "test-bucket",
+            Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint,
+            },
+            credentials,
+        )
+        .unwrap()
+        .with_path_style()
+        .with_request_timeout(Duration::from_secs(4))
+        .unwrap();
+        let result = bucket.list_multiparts_uploads(Some("same-key"), None).await;
+        let _ = done_tx.send(());
+        let server_result = server.join().expect("multipart listing server panicked");
+        (result, server_result)
+    }
+
+    fn multipart_listing_xml(
+        next_key_marker: Option<&str>,
+        next_upload_id_marker: Option<&str>,
+        is_truncated: bool,
+        upload: Option<(&str, &str)>,
+    ) -> String {
+        let mut xml = String::from("<ListMultipartUploadsResult><Bucket>test-bucket</Bucket>");
+        if let Some(marker) = next_key_marker {
+            xml.push_str(&format!("<NextKeyMarker>{marker}</NextKeyMarker>"));
+        }
+        if let Some(marker) = next_upload_id_marker {
+            xml.push_str(&format!(
+                "<NextUploadIdMarker>{marker}</NextUploadIdMarker>"
+            ));
+        }
+        xml.push_str(&format!("<IsTruncated>{is_truncated}</IsTruncated>"));
+        if let Some((key, upload_id)) = upload {
+            xml.push_str(&format!(
+                "<Upload><Initiated>2026-01-01T00:00:00.000Z</Initiated><StorageClass>STANDARD</StorageClass><Key>{key}</Key><UploadId>{upload_id}</UploadId></Upload>"
+            ));
+        }
+        xml.push_str("</ListMultipartUploadsResult>");
+        xml
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn multipart_upload_pagination_uses_both_markers_and_clears_missing_upload_marker() {
+        fn query(target: &str) -> HashMap<String, String> {
+            url::Url::parse(&format!("http://localhost{target}"))
+                .unwrap()
+                .query_pairs()
+                .into_owned()
+                .collect()
+        }
+
+        let (result, requests) = run_multipart_upload_listing_case(vec![
+            multipart_listing_xml(
+                Some("same-key"),
+                Some("upload +/2"),
+                true,
+                Some(("same-key", "upload +/2")),
+            ),
+            multipart_listing_xml(None, None, false, Some(("same-key", "upload-2"))),
+        ])
+        .await;
+        let pages = result.expect("two-page listing should succeed");
+        let requests = requests.expect("mock server request sequence should succeed");
+        assert_eq!(pages.len(), 2);
+        let mut listed_ids = pages
+            .iter()
+            .flat_map(|page| page.uploads.iter().map(|upload| upload.id.clone()))
+            .collect::<Vec<_>>();
+        listed_ids.sort();
+        assert_eq!(listed_ids, ["upload +/2", "upload-2"]);
+        assert_eq!(requests.len(), 2);
+        let second_query = query(&requests[1]);
+        assert_eq!(second_query.get("key-marker").unwrap(), "same-key");
+        assert_eq!(second_query.get("upload-id-marker").unwrap(), "upload +/2");
+
+        let (result, requests) = run_multipart_upload_listing_case(vec![
+            multipart_listing_xml(Some("same-key"), Some("id-one"), true, None),
+            multipart_listing_xml(Some("later-key"), None, true, None),
+            multipart_listing_xml(None, None, false, None),
+        ])
+        .await;
+        assert_eq!(result.unwrap().len(), 3);
+        let requests = requests.expect("key-only continuation should succeed");
+        assert_eq!(requests.len(), 3);
+        let second_query = query(&requests[1]);
+        assert_eq!(second_query.get("upload-id-marker").unwrap(), "id-one");
+        let third_query = query(&requests[2]);
+        assert_eq!(third_query.get("key-marker").unwrap(), "later-key");
+        assert!(!third_query.contains_key("upload-id-marker"));
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn multipart_upload_pagination_rejects_missing_repeated_and_cyclic_cursors() {
+        let cases = vec![
+            (
+                "truncated response has no next key marker",
+                vec![multipart_listing_xml(None, Some("id-a"), true, None)],
+                1,
+            ),
+            (
+                "pagination cursor repeated",
+                vec![
+                    multipart_listing_xml(Some("same-key"), Some("id-a"), true, None),
+                    multipart_listing_xml(Some("same-key"), Some("id-a"), true, None),
+                ],
+                2,
+            ),
+            (
+                "pagination cursor repeated",
+                vec![
+                    multipart_listing_xml(Some("same-key"), Some("id-a"), true, None),
+                    multipart_listing_xml(Some("same-key"), Some("id-b"), true, None),
+                    multipart_listing_xml(Some("same-key"), Some("id-a"), true, None),
+                ],
+                3,
+            ),
+        ];
+
+        for (expected_reason, responses, expected_requests) in cases {
+            let (result, requests) = run_multipart_upload_listing_case(responses).await;
+            match result {
+                Err(S3Error::InvalidMultipartUploadsPagination(reason)) => {
+                    assert_eq!(reason, expected_reason);
+                }
+                other => panic!("expected pagination error, got {other:?}"),
+            }
+            let requests = requests.expect("mock server request sequence should succeed");
+            assert_eq!(requests.len(), expected_requests);
+        }
     }
 
     #[cfg(all(
@@ -5806,6 +6115,102 @@ mod test {
         let (status, copied) = copy_result.unwrap();
         assert_eq!(status, 200);
         assert_eq!(copied.as_slice(), content);
+    }
+
+    #[ignore]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn minio_multipart_upload_pagination_uses_key_and_upload_id_markers() {
+        let bucket = *test_minio_bucket();
+        let key = test_object_key(&format!("multipart-pagination/{}", uuid::Uuid::new_v4()));
+        let mut created_upload_ids = Vec::new();
+        let listing_result =
+            minio_list_multipart_pages(&bucket, &key, &mut created_upload_ids).await;
+
+        let mut cleanup_errors = Vec::new();
+        for upload_id in &created_upload_ids {
+            if let Err(error) = bucket.abort_upload(&key, upload_id).await {
+                cleanup_errors.push(error.to_string());
+            }
+        }
+
+        let listed_ids = listing_result.unwrap_or_else(|primary| {
+            panic!(
+                "MinIO multipart pagination failed: {primary}; cleanup errors: {cleanup_errors:?}"
+            )
+        });
+        assert!(
+            cleanup_errors.is_empty(),
+            "failed to abort test multipart uploads: {cleanup_errors:?}"
+        );
+        assert_eq!(listed_ids.len(), 2);
+    }
+
+    #[maybe_async::maybe_async]
+    async fn minio_list_multipart_pages(
+        bucket: &Bucket,
+        key: &str,
+        created_upload_ids: &mut Vec<String>,
+    ) -> Result<Vec<String>, String> {
+        for _ in 0..2 {
+            let upload = bucket
+                .initiate_multipart_upload(key, "application/octet-stream")
+                .await
+                .map_err(|error| error.to_string())?;
+            created_upload_ids.push(upload.upload_id);
+        }
+
+        let (first_page, first_status) = bucket
+            .list_multiparts_uploads_page(Some(key), None, None, None, Some(1))
+            .await
+            .map_err(|error| error.to_string())?;
+        if first_status != 200 || !first_page.is_truncated || first_page.uploads.len() != 1 {
+            return Err("first MinIO page did not contain one truncated upload".to_owned());
+        }
+        let next_key_marker = first_page
+            .next_marker
+            .clone()
+            .ok_or_else(|| "first MinIO page omitted NextKeyMarker".to_owned())?;
+        let next_upload_id_marker = first_page
+            .next_upload_id_marker
+            .clone()
+            .ok_or_else(|| "first MinIO page omitted NextUploadIdMarker".to_owned())?;
+
+        let (second_page, second_status) = bucket
+            .list_multiparts_uploads_page(
+                Some(key),
+                None,
+                Some(next_key_marker),
+                Some(next_upload_id_marker),
+                Some(1),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        if second_status != 200 || second_page.is_truncated || second_page.uploads.len() != 1 {
+            return Err("second MinIO page did not contain one upload".to_owned());
+        }
+
+        let mut listed_ids = first_page
+            .uploads
+            .iter()
+            .chain(second_page.uploads.iter())
+            .map(|upload| upload.id.clone())
+            .collect::<Vec<_>>();
+        listed_ids.sort();
+        let mut expected_ids = created_upload_ids.clone();
+        expected_ids.sort();
+        if listed_ids != expected_ids {
+            return Err(
+                "MinIO pagination did not return each created upload exactly once".to_owned(),
+            );
+        }
+        Ok(listed_ids)
     }
 
     #[ignore]

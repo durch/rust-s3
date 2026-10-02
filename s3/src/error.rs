@@ -11,6 +11,8 @@ pub enum S3Error {
     HttpFailWithBody(u16, String),
     #[error("Http request returned a non 2** code")]
     HttpFail,
+    #[error("invalid multipart uploads pagination: {0}")]
+    InvalidMultipartUploadsPagination(&'static str),
     #[error("header '{0}' cannot be applied to a streamed multipart upload")]
     UnsupportedMultipartHeader(http::header::HeaderName),
     #[error("aws-creds: {0}")]
