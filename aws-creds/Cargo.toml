@@ -33,6 +33,7 @@ http-credentials = ["attohttpc"]
 native-tls = ["http-credentials", "attohttpc/tls"]
 native-tls-vendored = ["http-credentials", "attohttpc/tls-vendored"]
 rustls-tls = ["http-credentials", "attohttpc/tls-rustls"]
+rustls-tls-ring = ["http-credentials", "attohttpc/tls-rustls-webpki-roots-ring"]
 
 [dev-dependencies]
 env_logger = "0.11"
