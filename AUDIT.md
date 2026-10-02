@@ -152,11 +152,30 @@ after each run. This establishes MinIO page-API behavior; aggregate edge cases
 have local fixture coverage, and cloud-provider multipart pagination was not
 tested in this follow-up.
 
-### P2: Upload concurrency follows machine memory, not a caller budget
+### P2: Upload concurrency follows machine memory, not a caller budget — upper bound repaired
 
-`calculate_max_concurrent_chunks` documents a maximum of 10 but clamps to 100. Each chunk is 8 MiB, so one upload can hold roughly 800 MiB of payload before transport copies and overhead. Multiple uploads independently use the same machine-wide memory estimate.
+The original `calculate_max_concurrent_chunks` documented a maximum of 10 but
+clamped to 100. Each chunk is 8 MiB, so one upload could queue roughly 800 MiB of
+payload before request-body copies and transport overhead. Multiple uploads
+independently use the same machine-wide memory estimate.
 
-Next repair: establish a conservative per-upload bound and a simple explicit configuration surface only if needed. Measure peak resident memory and throughput with concurrent uploads and slow readers/writers. Do not infer acceptable performance from unit tests.
+The implementation now restores the documented maximum of 10 and preserves the
+minimum of 2 and unknown-memory fallback of 3. Arithmetic stays in `u64` until
+after clamping. Boundary tests fail with the old upper bound and pass on Tokio
+and async-std with the fix. This is a per-upload chunk-count heuristic, not a
+process-wide memory budget or RSS guarantee.
+
+This host reports no available-memory estimate, so a proposed large scheduling
+fixture exercised fallback 3 even with the old upper bound. It was removed rather
+than retained as misleading, costly cap evidence. Peak RSS, throughput, and
+multi-upload budgeting remain unmeasured; add an explicit configuration surface
+only if measurements justify it.
+
+The full `make ci` gate passed in 112.72 seconds. Exact existing MinIO large-stream
+tests passed on the final Tokio-native and async-std-native binaries, with
+independent empty and untruncated object/upload listings afterward. These are
+compatibility checks of the existing scheduler, not measurements of the upper
+fanout bound on this host.
 
 ### P2: Retry policy lacks error and operation classification
 

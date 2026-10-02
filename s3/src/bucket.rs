@@ -1885,7 +1885,21 @@ impl Bucket {
     }
 
     /// Calculate the maximum number of concurrent chunks based on available memory.
-    /// Returns a value between 2 and 10, defaulting to 3 if memory detection fails.
+    /// Returns a per-upload count between 2 and 10, defaulting to 3 if detection fails.
+    /// This sizing input is not a process-wide memory or RSS limit.
+    #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+    fn max_concurrent_chunks_for_memory(available_memory: u64) -> usize {
+        const DEFAULT_CONCURRENT_CHUNKS: usize = 3;
+        const MAX_CONCURRENT_CHUNKS: usize = 10;
+
+        if available_memory == 0 {
+            return DEFAULT_CONCURRENT_CHUNKS;
+        }
+
+        let memory_per_chunk = CHUNK_SIZE as u64 * 3;
+        (available_memory / memory_per_chunk).clamp(2, MAX_CONCURRENT_CHUNKS as u64) as usize
+    }
+
     #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
     fn calculate_max_concurrent_chunks() -> usize {
         // Create a new System instance and refresh memory info
@@ -1895,24 +1909,7 @@ impl Bucket {
         // Get available memory in bytes
         let available_memory = system.available_memory();
 
-        // If we can't get memory info, use a conservative default
-        if available_memory == 0 {
-            return 3;
-        }
-
-        // CHUNK_SIZE is 8MB (8_388_608 bytes)
-        // Use a safety factor of 3 to leave room for other operations
-        // and account for memory that might be allocated during upload
-        let safety_factor = 3;
-        let memory_per_chunk = CHUNK_SIZE as u64 * safety_factor;
-
-        // Calculate how many chunks we can safely handle concurrently
-        let calculated_chunks = (available_memory / memory_per_chunk) as usize;
-
-        // Clamp between 2 and 100 for safety
-        // Minimum 2 to maintain some parallelism
-        // Maximum 100 to prevent too many concurrent connections
-        calculated_chunks.clamp(2, 100)
+        Self::max_concurrent_chunks_for_memory(available_memory)
     }
 
     #[maybe_async::async_impl]
@@ -3519,6 +3516,17 @@ mod test {
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+    #[test]
+    fn concurrent_chunk_calculation_is_bounded_and_has_a_fallback() {
+        let per_chunk = super::CHUNK_SIZE as u64 * 3;
+        assert_eq!(Bucket::max_concurrent_chunks_for_memory(0), 3);
+        assert_eq!(Bucket::max_concurrent_chunks_for_memory(per_chunk - 1), 2);
+        assert_eq!(Bucket::max_concurrent_chunks_for_memory(per_chunk * 9), 9);
+        assert_eq!(Bucket::max_concurrent_chunks_for_memory(per_chunk * 10), 10);
+        assert_eq!(Bucket::max_concurrent_chunks_for_memory(u64::MAX), 10);
     }
 
     fn test_object_key(suffix: &str) -> String {
