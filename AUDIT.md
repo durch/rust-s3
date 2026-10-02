@@ -92,6 +92,24 @@ Next repair: choose and document a workspace dependency/release strategy. Valida
 
 Next repair: specify the timeout contract before changing the infallible setter or client rebuild behavior. Verify delayed headers, stalled bodies, and streaming duration using local fixtures for each backend.
 
+### P2: R2 rejects generated body headers on bodyless requests — repaired and provider-verified
+
+Live R2 tests reproduced HTTP 403 on range GET in Tokio, async-std, and sync,
+after successful PUT, ordinary GET, and existence checks. The shared header
+builder generated and signed `Content-Length: 0`; R2's error body showed that
+header's value missing from its canonical request. Omitting generated body
+headers for ranges allowed both range reads to pass, then exposed the same
+problem on DELETE.
+
+The repair omits generated body headers for GET, HEAD, and DELETE commands,
+which all have empty request bodies in the current command model. Caller
+headers, byte ranges, URL construction, and the signing algorithm are unchanged.
+PUT and XML POST body headers and the existing CopyObject special case are
+preserved. This follows the recommendation for bodyless requests in
+[RFC 9110 section 8.6](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.6).
+Cross-runtime regressions cover ranges, DELETE, signed-header membership, and
+body-bearing operations. The post-repair provider matrix passed as recorded below.
+
 ## Further coverage needed
 
 - Signing: repeated header values and whitespace, dot-segment object keys, reserved characters in upload/version identifiers, and presigned requests using temporary credentials. Query ordering is the only signing repair in this batch.
@@ -235,8 +253,8 @@ The initial cloud library attempts stalled:
 
 Independent post-attempt listings confirmed zero objects and zero incomplete
 uploads under every attempted test prefix. The curl probe objects were deleted
-with HTTP 204. Temporary diagnostic Rust code was removed. Existing GCS Tokio
-rustls exclusions remain a coverage gap, not a passing configuration.
+with HTTP 204. Temporary diagnostic Rust code was removed. At that point, GCS Tokio
+rustls exclusions remained a coverage gap, not a passing configuration.
 
 Two local `make ci` attempts after prefix changes failed in the XML-response
 localhost fixture: first with async-std rustls, then with Tokio rustls. The
@@ -265,7 +283,8 @@ GCS (3), and DigitalOcean (2). R2 CRUD failed at the first range GET with HTTP
 `Content-Length` value where the shared header builder signed `0`. Native-TLS
 async-std and sync runs reproduced the same range failure. Each failed run's
 single object was independently removed and both listings were verified empty.
-R2 streaming tests and the remaining cloud runtime/TLS matrix remain pending.
+R2 streaming tests and the remaining cloud runtime/TLS matrix were still pending
+at that point.
 
 The prefix-enabled MinIO fixtures passed another 57 executions across the same
 11 configurations (28.76 aggregate test seconds). The first launch attempt
@@ -274,6 +293,43 @@ used a persistent foreground process and verified health before tests. Every
 successful run had empty, untruncated object and multipart listings. The owned
 bucket was deleted (204, followed by 404), the server stopped, and its data and
 generated credentials removed. These results precede the R2 range-header repair.
+
+
+## Completed provider matrix after bodyless-header repair
+
+All 100 selected cloud test executions passed against the configured AWS,
+Wasabi, GCS, R2, and DigitalOcean test buckets. The matrix comprises 15 tests
+per configuration for Tokio, async-std, and sync with native TLS and rustls
+(90), plus one blocking CRUD/range/list-pagination test per provider for each
+async runtime (10). GCS Tokio-rustls tests are now enabled and passed. There
+were no skipped or uncompiled selections. Independent signed listings verified
+zero objects and incomplete uploads under all 40 provider/configuration prefixes.
+
+The first blocking runs passed on four providers but exposed a fixture ordering
+assumption on R2. An independent signed curl probe returned `file2,file3` on
+page one and `file` on page two, with valid truncation and continuation fields.
+The three probe objects were removed and both listings verified empty. The
+fixture now verifies exact, duplicate-free keys across both pages while retaining
+strict page sizes, status, truncation, and token checks. It does not alter library
+ordering or claim that R2 provides lexicographic ordering. All ten cloud blocking
+tests passed after this fixture correction.
+
+The production header repair also passed all 57 MinIO executions across 11
+configurations (26.95 aggregate test seconds). Both blocking configurations were
+rerun after the listing assertion change: another 12 passes. Each prefix was
+verified empty; the disposable bucket was deleted (204, followed by 404), the
+owned server stopped, and its generated credentials and data removed.
+
+`make ci` passed after the production repair, covering all nine runtime/TLS
+configurations, error-feature checks, four doctest shapes, and both support
+crates. The subsequent change affected only the ignored blocking fixture; both
+blocking configurations were rebuilt and exercised on MinIO and all five cloud
+providers. Final formatting and diff checks passed.
+
+These results establish the selected success paths and real TLS connections to
+cloud providers. They do not establish failure/cancellation cleanup, exhaustive
+S3 API compatibility, throughput benchmarks, dependency remediation, hosted CI,
+or release of the local credential fix. Those roadmap items remain open.
 
 ## Order of work
 

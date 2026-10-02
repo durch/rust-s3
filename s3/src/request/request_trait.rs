@@ -34,6 +34,171 @@ pub struct ResponseData {
     headers: HashMap<String, String>,
 }
 
+#[cfg(all(
+    test,
+    any(feature = "sync", feature = "with-tokio", feature = "with-async-std")
+))]
+mod generated_bodyless_header_tests {
+    use super::Request;
+    use crate::bucket::Bucket;
+    use crate::command::Command;
+    use crate::error::S3Error;
+    use crate::region::Region;
+    use awscreds::Credentials;
+    use http::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE};
+
+    #[cfg(feature = "sync")]
+    type BackendRequest<'a> = crate::request::blocking::AttoRequest<'a>;
+    #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
+    type BackendRequest<'a> = crate::request::tokio_backend::ReqwestRequest<'a>;
+    #[cfg(all(
+        not(feature = "sync"),
+        not(feature = "with-tokio"),
+        feature = "with-async-std"
+    ))]
+    type BackendRequest<'a> = crate::request::async_std_backend::SurfRequest<'a>;
+
+    #[maybe_async::maybe_async]
+    async fn make_request<'a>(
+        bucket: &'a Bucket,
+        command: Command<'a>,
+    ) -> Result<BackendRequest<'a>, S3Error> {
+        BackendRequest::new(bucket, "key", command).await
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn delete_object_does_not_sign_generated_body_headers() {
+        let credentials =
+            Credentials::new(Some("test-key"), Some("test-secret"), None, None, None).unwrap();
+        let mut bucket = Bucket::new(
+            "bucket",
+            "us-east-1".parse::<Region>().unwrap(),
+            credentials,
+        )
+        .unwrap();
+        bucket.add_header("x-test-caller-extra", "kept");
+        let request = make_request(&bucket, Command::DeleteObject).await.unwrap();
+        let headers = request.headers().await.unwrap();
+
+        assert!(!headers.contains_key(CONTENT_LENGTH));
+        assert!(!headers.contains_key(CONTENT_TYPE));
+        assert_eq!(headers["x-test-caller-extra"], "kept");
+        let authorization = headers[AUTHORIZATION].to_str().unwrap();
+        assert!(!authorization.contains("content-length"));
+        assert!(!authorization.contains("content-type"));
+        assert!(authorization.contains("x-test-caller-extra"));
+
+        for command in [Command::GetObject, Command::HeadObject] {
+            let request = make_request(&bucket, command).await.unwrap();
+            let headers = request.headers().await.unwrap();
+            assert!(!headers.contains_key(CONTENT_LENGTH));
+            assert!(!headers.contains_key(CONTENT_TYPE));
+        }
+
+        bucket.add_header("content-length", "0");
+        bucket.add_header("content-type", "application/caller");
+        let request = make_request(&bucket, Command::DeleteObject).await.unwrap();
+        let headers = request.headers().await.unwrap();
+        assert_eq!(headers[CONTENT_LENGTH], "0");
+        assert_eq!(headers[CONTENT_TYPE], "application/caller");
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn generated_body_headers_remain_for_put_and_xml_post() {
+        let credentials =
+            Credentials::new(Some("test-key"), Some("test-secret"), None, None, None).unwrap();
+        let bucket = Bucket::new(
+            "bucket",
+            "us-east-1".parse::<Region>().unwrap(),
+            credentials,
+        )
+        .unwrap();
+
+        let empty_put = Command::PutObject {
+            content: b"",
+            content_type: "application/test",
+            custom_headers: None,
+            multipart: None,
+        };
+        let request = make_request(&bucket, empty_put).await.unwrap();
+        let headers = request.headers().await.unwrap();
+        assert_eq!(headers[CONTENT_LENGTH], "0");
+        assert_eq!(headers[CONTENT_TYPE], "application/test");
+
+        let put = Command::PutObject {
+            content: b"abc",
+            content_type: "application/test",
+            custom_headers: None,
+            multipart: None,
+        };
+        let request = make_request(&bucket, put).await.unwrap();
+        let headers = request.headers().await.unwrap();
+        assert_eq!(headers[CONTENT_LENGTH], "3");
+        assert_eq!(headers[CONTENT_TYPE], "application/test");
+        assert!(
+            headers[AUTHORIZATION]
+                .to_str()
+                .unwrap()
+                .contains("content-length")
+        );
+        assert!(
+            headers[AUTHORIZATION]
+                .to_str()
+                .unwrap()
+                .contains("content-type")
+        );
+
+        let request = make_request(&bucket, Command::CopyObject { from: "/source" })
+            .await
+            .unwrap();
+        let headers = request.headers().await.unwrap();
+        assert!(!headers.contains_key(CONTENT_LENGTH));
+        assert!(!headers.contains_key(CONTENT_TYPE));
+        assert_eq!(headers["x-amz-copy-source"], "/source");
+
+        let post = Command::CompleteMultipartUpload {
+            upload_id: "upload-id",
+            data: crate::serde_types::CompleteMultipartUploadData {
+                parts: vec![crate::serde_types::Part {
+                    part_number: 1,
+                    etag: "etag".into(),
+                }],
+            },
+        };
+        let expected_length = post.content_length().unwrap();
+        let request = make_request(&bucket, post).await.unwrap();
+        let headers = request.headers().await.unwrap();
+        assert_eq!(headers[CONTENT_LENGTH], expected_length.to_string());
+        assert_eq!(headers[CONTENT_TYPE], "application/xml");
+        assert!(
+            headers[AUTHORIZATION]
+                .to_str()
+                .unwrap()
+                .contains("content-length")
+        );
+        assert!(
+            headers[AUTHORIZATION]
+                .to_str()
+                .unwrap()
+                .contains("content-type")
+        );
+    }
+}
+
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 pub type DataStream = Pin<Box<dyn Stream<Item = StreamItem> + Send>>;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
@@ -730,24 +895,19 @@ pub trait Request {
 
         headers.insert(HOST, host_header.parse()?);
 
-        match self.command() {
-            Command::CopyObject { from } => {
-                headers.insert(HeaderName::from_static("x-amz-copy-source"), from.parse()?);
-            }
-            Command::ListObjects { .. } => {}
-            Command::ListObjectsV2 { .. } => {}
-            Command::HeadObject => {}
-            Command::GetObject => {}
-            Command::GetObjectTagging => {}
-            Command::GetBucketLocation => {}
-            Command::ListBuckets => {}
-            _ => {
-                headers.insert(
-                    CONTENT_LENGTH,
-                    self.command().content_length()?.to_string().parse()?,
-                );
-                headers.insert(CONTENT_TYPE, self.command().content_type().parse()?);
-            }
+        if let Command::CopyObject { from } = self.command() {
+            headers.insert(HeaderName::from_static("x-amz-copy-source"), from.parse()?);
+        } else if !matches!(
+            self.command().http_verb(),
+            crate::command::HttpMethod::Get
+                | crate::command::HttpMethod::Head
+                | crate::command::HttpMethod::Delete
+        ) {
+            headers.insert(
+                CONTENT_LENGTH,
+                self.command().content_length()?.to_string().parse()?,
+            );
+            headers.insert(CONTENT_TYPE, self.command().content_type().parse()?);
         }
         headers.insert(
             HeaderName::from_static("x-amz-content-sha256"),

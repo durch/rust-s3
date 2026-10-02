@@ -4113,14 +4113,7 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(
-            all(
-                not(feature = "sync"),
-                not(feature = "tokio-rustls-tls"),
-                feature = "with-tokio"
-            ),
-            tokio::test
-        ),
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
         async(
             all(not(feature = "sync"), feature = "with-async-std"),
             async_std::test
@@ -4272,14 +4265,7 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(
-            all(
-                not(feature = "sync"),
-                not(feature = "tokio-rustls-tls"),
-                feature = "with-tokio"
-            ),
-            tokio::test
-        ),
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
         async(
             all(not(feature = "sync"), feature = "with-async-std"),
             async_std::test
@@ -4408,10 +4394,13 @@ mod test {
             .unwrap();
         assert_eq!(code, 200);
         assert_eq!(result.contents.len(), 2);
-        assert_eq!(result.contents[0].key, s3_key);
-        assert_eq!(result.contents[1].key, s3_key_2);
+        assert!(result.is_truncated);
+        let mut listed_keys: Vec<String> =
+            result.contents.into_iter().map(|item| item.key).collect();
 
-        let cont_token = result.next_continuation_token.unwrap();
+        let cont_token = result
+            .next_continuation_token
+            .expect("truncated listing should include a continuation token");
 
         let (result, code) = bucket
             .list_page_blocking(
@@ -4424,8 +4413,13 @@ mod test {
             .unwrap();
         assert_eq!(code, 200);
         assert_eq!(result.contents.len(), 1);
-        assert_eq!(result.contents[0].key, s3_key_3);
+        assert!(!result.is_truncated);
         assert!(result.next_continuation_token.is_none());
+        listed_keys.extend(result.contents.into_iter().map(|item| item.key));
+        listed_keys.sort();
+        let mut expected_keys = vec![s3_key, s3_key_2, s3_key_3];
+        expected_keys.sort();
+        assert_eq!(listed_keys, expected_keys);
 
         // cleanup (and test Delete)
         let response_data = bucket.delete_object_blocking(&s3_path).unwrap();
@@ -4513,13 +4507,7 @@ mod test {
     #[ignore]
     #[maybe_async::test(
         feature = "sync",
-        async(
-            all(
-                not(any(feature = "sync", feature = "tokio-rustls-tls")),
-                feature = "with-tokio"
-            ),
-            tokio::test
-        ),
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
         async(
             all(not(feature = "sync"), feature = "with-async-std"),
             async_std::test

@@ -98,9 +98,24 @@ prefix's objects and multipart uploads, then verify both listings are empty.
 Use an unversioned test bucket for this procedure; deleting the current object
 does not clean up historical versions in a versioned bucket.
 
-The 2026-10-02 cloud attempt authenticated successfully through curl to all five
-configured providers. Initial Rust HTTPS stalls subsequently cleared. Default
-Tokio tests then passed on AWS, Wasabi, GCS, and DigitalOcean; R2 exposed a range
-GET signature mismatch, also reproduced with async-std and sync. The complete
-cloud matrix remains pending that repair. See [AUDIT.md](AUDIT.md) for exact
-coverage and cleanup evidence. MinIO success does not close this gap.
+The 2026-10-02 post-repair cloud matrix passed all 100 selected tests:
+
+| Provider | Six runtime/TLS configurations | Two blocking configurations | Total |
+| --- | ---: | ---: | ---: |
+| AWS | 30 | 2 | 32 |
+| Wasabi | 12 | 2 | 14 |
+| GCS | 18 | 2 | 20 |
+| R2 | 18 | 2 | 20 |
+| DigitalOcean | 12 | 2 | 14 |
+
+The six configurations are Tokio, async-std, and sync, each with native TLS and
+rustls. The two blocking configurations use Tokio and async-std native TLS.
+All selections compiled and ran; all 40 test prefixes were independently
+verified empty afterward. GCS tests include Tokio rustls. The blocking fixture
+checks exact keys across pages without assuming their order, while retaining
+strict pagination assertions; raw R2 responses exhibited a different ordering.
+
+The full local gate and MinIO matrix also passed. See [AUDIT.md](AUDIT.md) for
+repairs, historical failures, cleanup evidence, and the remaining limits. This
+matrix covers selected object operations, not bucket configuration, every S3
+API, failure/cancellation cleanup, or performance benchmarks.

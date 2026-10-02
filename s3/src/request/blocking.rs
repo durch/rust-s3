@@ -302,4 +302,58 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn range_get_omits_empty_body_headers_from_signature() -> Result<()> {
+        let region = "custom-region".parse()?;
+        let bucket = Bucket::new("my-first-bucket", region, fake_credentials())?;
+        let path = "/my-first/path";
+
+        for (start, end, expected_range) in [(0, None, "bytes=0-"), (10, Some(20), "bytes=10-20")] {
+            let request = AttoRequest::new(&bucket, path, Command::GetObjectRange { start, end })?;
+            let headers = request.headers()?;
+            assert_eq!(headers.get("Range").unwrap(), expected_range);
+            assert_eq!(headers.get("Accept").unwrap(), "application/octet-stream");
+            assert!(!headers.contains_key("Content-Length"));
+            assert!(!headers.contains_key("Content-Type"));
+            let authorization = headers.get("Authorization").unwrap().to_str()?;
+            let signed_headers = authorization
+                .split("SignedHeaders=")
+                .nth(1)
+                .and_then(|value| value.split(',').next())
+                .unwrap();
+            assert!(signed_headers.contains("range"));
+            assert!(!signed_headers.contains("content-length"));
+            assert!(!signed_headers.contains("content-type"));
+        }
+
+        let get = AttoRequest::new(&bucket, path, Command::GetObject)?;
+        let headers = get.headers()?;
+        assert!(!headers.contains_key("Content-Length"));
+        assert!(!headers.contains_key("Content-Type"));
+
+        let put = AttoRequest::new(
+            &bucket,
+            path,
+            Command::PutObject {
+                content: b"abc",
+                content_type: "application/test",
+                custom_headers: None,
+                multipart: None,
+            },
+        )?;
+        let headers = put.headers()?;
+        assert_eq!(headers.get("Content-Length").unwrap(), "3");
+        assert_eq!(headers.get("Content-Type").unwrap(), "application/test");
+        let authorization = headers.get("Authorization").unwrap().to_str()?;
+        let signed_headers = authorization
+            .split("SignedHeaders=")
+            .nth(1)
+            .and_then(|value| value.split(',').next())
+            .unwrap();
+        assert!(signed_headers.contains("content-length"));
+        assert!(signed_headers.contains("content-type"));
+
+        Ok(())
+    }
 }

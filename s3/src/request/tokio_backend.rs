@@ -384,6 +384,18 @@ mod tests {
         let headers = request.headers().await.unwrap();
         let range = headers.get(RANGE).unwrap();
         assert_eq!(range, "bytes=0-");
+        assert!(!headers.contains_key("Content-Length"));
+        assert!(!headers.contains_key("Content-Type"));
+        assert_eq!(headers.get("Accept").unwrap(), "application/octet-stream");
+        let authorization = headers.get("Authorization").unwrap().to_str().unwrap();
+        let signed_headers = authorization
+            .split("SignedHeaders=")
+            .nth(1)
+            .and_then(|value| value.split(',').next())
+            .unwrap();
+        assert!(signed_headers.contains("range"));
+        assert!(!signed_headers.contains("content-length"));
+        assert!(!signed_headers.contains("content-type"));
 
         let request = ReqwestRequest::new(
             &bucket,
@@ -398,5 +410,47 @@ mod tests {
         let headers = request.headers().await.unwrap();
         let range = headers.get(RANGE).unwrap();
         assert_eq!(range, "bytes=0-1");
+        assert!(!headers.contains_key("Content-Length"));
+        assert!(!headers.contains_key("Content-Type"));
+        let authorization = headers.get("Authorization").unwrap().to_str().unwrap();
+        let signed_headers = authorization
+            .split("SignedHeaders=")
+            .nth(1)
+            .and_then(|value| value.split(',').next())
+            .unwrap();
+        assert!(signed_headers.contains("range"));
+        assert!(!signed_headers.contains("content-length"));
+        assert!(!signed_headers.contains("content-type"));
+
+        let get = ReqwestRequest::new(&bucket, path, Command::GetObject)
+            .await
+            .unwrap();
+        let headers = get.headers().await.unwrap();
+        assert!(!headers.contains_key("Content-Length"));
+        assert!(!headers.contains_key("Content-Type"));
+
+        let put = ReqwestRequest::new(
+            &bucket,
+            path,
+            Command::PutObject {
+                content: b"abc",
+                content_type: "application/test",
+                custom_headers: None,
+                multipart: None,
+            },
+        )
+        .await
+        .unwrap();
+        let headers = put.headers().await.unwrap();
+        assert_eq!(headers.get("Content-Length").unwrap(), "3");
+        assert_eq!(headers.get("Content-Type").unwrap(), "application/test");
+        let authorization = headers.get("Authorization").unwrap().to_str().unwrap();
+        let signed_headers = authorization
+            .split("SignedHeaders=")
+            .nth(1)
+            .and_then(|value| value.split(',').next())
+            .unwrap();
+        assert!(signed_headers.contains("content-length"));
+        assert!(signed_headers.contains("content-type"));
     }
 }
