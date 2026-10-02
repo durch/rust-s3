@@ -1,7 +1,31 @@
 # rust-s3 PR triage — 2026-10-02
 
-This is a review snapshot, not an execution receipt. No PR was merged, closed,
-or commented on. The repository skill requires exact per-PR action approval.
+The original triage snapshot is preserved below. Current execution receipts
+are recorded here; public actions require per-PR approval.
+
+## Execution receipt: PR #468
+
+The maintainer approved #468 and, after the verification gaps were restated,
+instructed “merge it, and proceed.” GitHub confirmed the PR merged into master
+on 2026-10-02 at `14dd2937c62bc1625c659dff8b7d94aa9eaa5575`, preserving its
+original commit history. The connector returned HTTP 403 without changing the
+PR; `gh pr merge --merge --match-head-commit 01b6ccb9babf858475163a4b9bcd7dea3d56fd00`
+succeeded and `gh pr view` confirmed `MERGED`.
+
+Standalone verification at that exact PR head: 67 workspace unit tests and
+47 doctests passed. `make ci-all` stopped at `tokio-nativetls-clippy` on
+`clippy::useless_borrows_in_formatting` at request_trait.rs lines 463 and 471;
+that file is identical to remote baseline master. This stopped the full gate
+before provider execution. No pre-merge Actions runs were returned; those
+coverage gaps were accepted for this merge. Logs are retained in
+`/tmp/rust-s3-468-gate/`. Post-merge Actions runs 37031142425 and 37031142894
+were in progress when checked; no green post-merge CI claim is made.
+
+Local master incorporates upstream history via `9a38bc8`, with no source-tree
+change because the XML update was already in the audit work. The remaining
+audit changes are still local and unreleased. #452 remains a separate pending
+PR; the integration candidate's intermittent R2 TLS failures remain under
+investigation. No other PR was merged, closed, or commented on.
 
 ## Grounding and recommendation
 
