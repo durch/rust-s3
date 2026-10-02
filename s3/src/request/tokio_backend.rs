@@ -13,7 +13,6 @@ use crate::bucket::Bucket;
 use crate::command::Command;
 use crate::command::HttpMethod;
 use crate::error::S3Error;
-use crate::retry;
 use crate::utils::now_utc;
 
 use tokio_stream::StreamExt;
@@ -63,120 +62,125 @@ pub struct ReqwestRequest<'a> {
     pub sync: bool,
 }
 
+async fn request_response_attempt(
+    request: &ReqwestRequest<'_>,
+) -> Result<reqwest::Response, crate::request::RequestAttemptError> {
+    let headers = request
+        .headers()
+        .await?
+        .iter()
+        .map(|(k, v)| {
+            (
+                reqwest::header::HeaderName::from_str(k.as_str()),
+                reqwest::header::HeaderValue::from_str(v.to_str().unwrap_or_default()),
+            )
+        })
+        .filter(|(k, v)| k.is_ok() && v.is_ok())
+        .map(|(k, v)| (k.unwrap(), v.unwrap()))
+        .collect();
+
+    let client = request.bucket.http_client();
+    let method = match request.command.http_verb() {
+        HttpMethod::Delete => reqwest::Method::DELETE,
+        HttpMethod::Get => reqwest::Method::GET,
+        HttpMethod::Post => reqwest::Method::POST,
+        HttpMethod::Put => reqwest::Method::PUT,
+        HttpMethod::Head => reqwest::Method::HEAD,
+    };
+
+    let request_builder = client
+        .request(method, request.url()?.as_str())
+        .headers(headers)
+        .body(request.request_body()?);
+    let request_builder = if let Some(timeout) = request.bucket.request_timeout {
+        request_builder.timeout(timeout)
+    } else {
+        request_builder
+    };
+    let response = client.execute(request_builder.build()?).await?;
+
+    if cfg!(feature = "fail-on-err") && !response.status().is_success() {
+        let status = response.status().as_u16();
+        let text = response.text().await.map_err(|error| {
+            crate::request::RequestAttemptError::do_not_retry(S3Error::Reqwest(error))
+        })?;
+        return Err(S3Error::HttpFailWithBody(status, text).into());
+    }
+
+    Ok(response)
+}
+
 #[maybe_async]
 impl<'a> Request for ReqwestRequest<'a> {
     type Response = reqwest::Response;
     type HeaderMap = reqwest::header::HeaderMap;
 
     async fn response(&self) -> Result<Self::Response, S3Error> {
-        let headers = self
-            .headers()
-            .await?
-            .iter()
-            .map(|(k, v)| {
-                (
-                    reqwest::header::HeaderName::from_str(k.as_str()),
-                    reqwest::header::HeaderValue::from_str(v.to_str().unwrap_or_default()),
-                )
-            })
-            .filter(|(k, v)| k.is_ok() && v.is_ok())
-            .map(|(k, v)| (k.unwrap(), v.unwrap()))
-            .collect();
-
-        let client = self.bucket.http_client();
-
-        let method = match self.command.http_verb() {
-            HttpMethod::Delete => reqwest::Method::DELETE,
-            HttpMethod::Get => reqwest::Method::GET,
-            HttpMethod::Post => reqwest::Method::POST,
-            HttpMethod::Put => reqwest::Method::PUT,
-            HttpMethod::Head => reqwest::Method::HEAD,
-        };
-
-        let request = client
-            .request(method, self.url()?.as_str())
-            .headers(headers)
-            .body(self.request_body()?);
-
-        let request = if let Some(timeout) = self.bucket.request_timeout {
-            request.timeout(timeout)
-        } else {
-            request
-        };
-
-        let request = request.build()?;
-
-        // println!("Request: {:?}", request);
-
-        let response = client.execute(request).await?;
-
-        if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-            let status = response.status().as_u16();
-            let text = response.text().await?;
-            return Err(S3Error::HttpFailWithBody(status, text));
-        }
-
-        Ok(response)
+        request_response_attempt(self)
+            .await
+            .map_err(|error| error.error)
     }
 
     async fn response_status(&self) -> Result<u16, S3Error> {
-        retry! {
-            async {
-                let headers = self
-                    .headers()
-                    .await?
-                    .iter()
-                    .map(|(k, v)| {
-                        (
-                            reqwest::header::HeaderName::from_str(k.as_str()),
-                            reqwest::header::HeaderValue::from_str(v.to_str().unwrap_or_default()),
-                        )
-                    })
-                    .filter(|(k, v)| k.is_ok() && v.is_ok())
-                    .map(|(k, v)| (k.unwrap(), v.unwrap()))
-                    .collect();
+        crate::request::retry_request(&self.command, || async {
+            let headers = self
+                .headers()
+                .await?
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        reqwest::header::HeaderName::from_str(k.as_str()),
+                        reqwest::header::HeaderValue::from_str(v.to_str().unwrap_or_default()),
+                    )
+                })
+                .filter(|(k, v)| k.is_ok() && v.is_ok())
+                .map(|(k, v)| (k.unwrap(), v.unwrap()))
+                .collect();
 
-                let client = self.bucket.http_client();
+            let client = self.bucket.http_client();
 
-                let method = match self.command.http_verb() {
-                    HttpMethod::Delete => reqwest::Method::DELETE,
-                    HttpMethod::Get => reqwest::Method::GET,
-                    HttpMethod::Post => reqwest::Method::POST,
-                    HttpMethod::Put => reqwest::Method::PUT,
-                    HttpMethod::Head => reqwest::Method::HEAD,
-                };
+            let method = match self.command.http_verb() {
+                HttpMethod::Delete => reqwest::Method::DELETE,
+                HttpMethod::Get => reqwest::Method::GET,
+                HttpMethod::Post => reqwest::Method::POST,
+                HttpMethod::Put => reqwest::Method::PUT,
+                HttpMethod::Head => reqwest::Method::HEAD,
+            };
 
-                let request = client
-                    .request(method, self.url()?.as_str())
-                    .headers(headers)
-                    .body(self.request_body()?);
+            let request = client
+                .request(method, self.url()?.as_str())
+                .headers(headers)
+                .body(self.request_body()?);
 
-                let request = if let Some(timeout) = self.bucket.request_timeout {
-                    request.timeout(timeout)
-                } else {
-                    request
-                };
+            let request = if let Some(timeout) = self.bucket.request_timeout {
+                request.timeout(timeout)
+            } else {
+                request
+            };
 
-                let request = request.build()?;
-                let response = client.execute(request).await?;
-                let status = response.status().as_u16();
+            let request = request.build()?;
+            let response = client.execute(request).await.map_err(S3Error::from)?;
+            let status = response.status().as_u16();
 
-                if status == 404 {
-                    return Ok(status);
-                }
+            if status == 404 {
+                return Ok(status);
+            }
 
-                if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-                    let text = response.text().await?;
-                    return Err(S3Error::HttpFailWithBody(status, text));
-                }
+            if cfg!(feature = "fail-on-err") && !response.status().is_success() {
+                let text = response.text().await.map_err(|error| {
+                    crate::request::RequestAttemptError::do_not_retry(S3Error::Reqwest(error))
+                })?;
+                return Err(S3Error::HttpFailWithBody(status, text).into());
+            }
 
-                Ok(status)
-            }.await
-        }
+            Ok(status)
+        })
+        .await
     }
 
     async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
-        let response = retry! {self.response().await }?;
+        let response =
+            crate::request::retry_request(&self.command, || request_response_attempt(self)).await?;
         let status_code = response.status().as_u16();
         let mut headers = response.headers().clone();
         let response_headers = headers
@@ -220,7 +224,8 @@ impl<'a> Request for ReqwestRequest<'a> {
         writer: &mut T,
     ) -> Result<u16, S3Error> {
         use tokio::io::AsyncWriteExt;
-        let response = retry! {self.response().await}?;
+        let response =
+            crate::request::retry_request(&self.command, || request_response_attempt(self)).await?;
 
         let status_code = response.status();
         let mut stream = response.bytes_stream();
@@ -233,7 +238,8 @@ impl<'a> Request for ReqwestRequest<'a> {
     }
 
     async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
-        let response = retry! {self.response().await}?;
+        let response =
+            crate::request::retry_request(&self.command, || request_response_attempt(self)).await?;
         let status_code = response.status();
         let stream = response.bytes_stream().map_err(S3Error::Reqwest);
 
@@ -244,7 +250,8 @@ impl<'a> Request for ReqwestRequest<'a> {
     }
 
     async fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error> {
-        let response = retry! {self.response().await}?;
+        let response =
+            crate::request::retry_request(&self.command, || request_response_attempt(self)).await?;
         let status_code = response.status().as_u16();
         let headers = response.headers().clone();
         Ok((headers, status_code))

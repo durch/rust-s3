@@ -26,6 +26,38 @@ pub struct AttoRequest<'a> {
     pub sync: bool,
 }
 
+fn atto_response_attempt(
+    request: &AttoRequest<'_>,
+) -> Result<attohttpc::Response, crate::request::RequestAttemptError> {
+    let headers = request.headers()?;
+    let mut session = attohttpc::Session::new();
+    for (name, value) in headers.iter() {
+        session.header(
+            HeaderName::from_bytes(name.as_ref()).map_err(S3Error::from)?,
+            value.to_str().map_err(S3Error::from)?,
+        );
+    }
+    if let Some(timeout) = request.bucket.request_timeout {
+        session.timeout(timeout)
+    }
+    let builder = match request.command.http_verb() {
+        HttpMethod::Get => session.get(request.url()?),
+        HttpMethod::Delete => session.delete(request.url()?),
+        HttpMethod::Put => session.put(request.url()?),
+        HttpMethod::Post => session.post(request.url()?),
+        HttpMethod::Head => session.head(request.url()?),
+    };
+    let response = builder.bytes(&request.request_body()?).send()?;
+    if cfg!(feature = "fail-on-err") && !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().map_err(|error| {
+            crate::request::RequestAttemptError::do_not_retry(S3Error::Atto(error))
+        })?;
+        return Err(S3Error::HttpFailWithBody(status, body).into());
+    }
+    Ok(response)
+}
+
 impl<'a> Request for AttoRequest<'a> {
     type Response = attohttpc::Response;
     type HeaderMap = attohttpc::header::HeaderMap;
@@ -47,77 +79,52 @@ impl<'a> Request for AttoRequest<'a> {
     }
 
     fn response(&self) -> Result<Self::Response, S3Error> {
-        // Build headers
-        let headers = self.headers()?;
-
-        let mut session = attohttpc::Session::new();
-
-        for (name, value) in headers.iter() {
-            session.header(HeaderName::from_bytes(name.as_ref())?, value.to_str()?);
-        }
-
-        if let Some(timeout) = self.bucket.request_timeout {
-            session.timeout(timeout)
-        }
-
-        let request = match self.command.http_verb() {
-            HttpMethod::Get => session.get(self.url()?),
-            HttpMethod::Delete => session.delete(self.url()?),
-            HttpMethod::Put => session.put(self.url()?),
-            HttpMethod::Post => session.post(self.url()?),
-            HttpMethod::Head => session.head(self.url()?),
-        };
-
-        let response = request.bytes(&self.request_body()?).send()?;
-
-        if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-            let status = response.status().as_u16();
-            let text = response.text()?;
-            return Err(S3Error::HttpFailWithBody(status, text));
-        }
-
-        Ok(response)
+        atto_response_attempt(self).map_err(|error| error.error)
     }
 
     fn response_status(&self) -> Result<u16, S3Error> {
-        crate::retry! {
-            {
-                let headers = self.headers()?;
-                let mut session = attohttpc::Session::new();
+        crate::request::retry_request_sync(&self.command, || {
+            let headers = self.headers()?;
+            let mut session = attohttpc::Session::new();
 
-                for (name, value) in headers.iter() {
-                    session.header(HeaderName::from_bytes(name.as_ref())?, value.to_str()?);
-                }
-
-                if let Some(timeout) = self.bucket.request_timeout {
-                    session.timeout(timeout)
-                }
-
-                let request = match self.command.http_verb() {
-                    HttpMethod::Get => session.get(self.url()?),
-                    HttpMethod::Delete => session.delete(self.url()?),
-                    HttpMethod::Put => session.put(self.url()?),
-                    HttpMethod::Post => session.post(self.url()?),
-                    HttpMethod::Head => session.head(self.url()?),
-                };
-
-                let response = request.bytes(&self.request_body()?).send()?;
-                let status = response.status().as_u16();
-
-                if status == 404 {
-                    Ok(status)
-                } else if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-                    let text = response.text()?;
-                    Err(S3Error::HttpFailWithBody(status, text))
-                } else {
-                    Ok(status)
-                }
+            for (name, value) in headers.iter() {
+                session.header(
+                    HeaderName::from_bytes(name.as_ref()).map_err(S3Error::from)?,
+                    value.to_str().map_err(S3Error::from)?,
+                );
             }
-        }
+
+            if let Some(timeout) = self.bucket.request_timeout {
+                session.timeout(timeout)
+            }
+
+            let request = match self.command.http_verb() {
+                HttpMethod::Get => session.get(self.url()?),
+                HttpMethod::Delete => session.delete(self.url()?),
+                HttpMethod::Put => session.put(self.url()?),
+                HttpMethod::Post => session.post(self.url()?),
+                HttpMethod::Head => session.head(self.url()?),
+            };
+
+            let response = request.bytes(&self.request_body()?).send()?;
+            let status = response.status().as_u16();
+
+            if status == 404 {
+                Ok(status)
+            } else if cfg!(feature = "fail-on-err") && !response.status().is_success() {
+                let text = response.text().map_err(|error| {
+                    crate::request::RequestAttemptError::do_not_retry(S3Error::Atto(error))
+                })?;
+                Err(S3Error::HttpFailWithBody(status, text).into())
+            } else {
+                Ok(status)
+            }
+        })
     }
 
     fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
-        let response = crate::retry! {self.response()}?;
+        let response =
+            crate::request::retry_request_sync(&self.command, || atto_response_attempt(self))?;
         let status_code = response.status().as_u16();
 
         let response_headers = response
@@ -163,7 +170,8 @@ impl<'a> Request for AttoRequest<'a> {
     }
 
     fn response_data_to_writer<T: Write + ?Sized>(&self, writer: &mut T) -> Result<u16, S3Error> {
-        let mut response = crate::retry! {self.response()}?;
+        let mut response =
+            crate::request::retry_request_sync(&self.command, || atto_response_attempt(self))?;
 
         let status_code = response.status();
         io::copy(&mut response, writer)?;
@@ -172,7 +180,8 @@ impl<'a> Request for AttoRequest<'a> {
     }
 
     fn response_header(&self) -> Result<(Self::HeaderMap, u16), S3Error> {
-        let response = crate::retry! {self.response()}?;
+        let response =
+            crate::request::retry_request_sync(&self.command, || atto_response_attempt(self))?;
         let status_code = response.status().as_u16();
         let headers = response.headers().clone();
         Ok((headers, status_code))

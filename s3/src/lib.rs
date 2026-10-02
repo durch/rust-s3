@@ -37,10 +37,20 @@ const EMPTY_PAYLOAD_SHA: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934
 
 static RETRIES: AtomicU8 = AtomicU8::new(1);
 
-/// Sets the number of retries for operations that may fail and need to be retried.
+/// Sets the maximum number of retries for eligible request attempts.
 ///
 /// This function stores the specified number of retries in an atomic variable,
-/// which can be safely shared across threads. This is used by the retry! macro to automatically retry all requests.
+/// which can be safely shared across threads. Request retries are limited to
+/// reads and multipart part uploads whose upload ID, part number, and bytes are
+/// unchanged. Ambiguous mutations such as ordinary uploads, deletes, and
+/// multipart initiation or completion are not automatically replayed.
+///
+/// With `fail-on-err`, HTTP statuses 408, 429, 500, 502, 503, and 504 can be
+/// retried for eligible operations. Without `fail-on-err`, HTTP responses keep
+/// the raw-status behavior and HTTP statuses are not retried. Transport
+/// libraries expose different error detail, so some connection or TLS failures
+/// may also be retried for eligible operations. The exported [`retry!`] macro
+/// retains its independent behavior.
 ///
 /// # Arguments
 ///
@@ -55,14 +65,15 @@ pub fn set_retries(retries: u8) {
     RETRIES.store(retries, std::sync::atomic::Ordering::SeqCst);
 }
 
-/// Retrieves the current number of retries set for operations.
+/// Retrieves the maximum number of retries configured for eligible request attempts.
 ///
 /// This function loads the value of the atomic variable storing the number of retries,
 /// which can be safely accessed across threads.
 ///
 /// # Returns
 ///
-/// The number of retries currently set, as a `u64`.
+/// The number of retries currently set. This is an additional-attempt count,
+/// so zero means one total attempt.
 ///
 /// # Example
 ///

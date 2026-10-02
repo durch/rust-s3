@@ -87,6 +87,7 @@ tokio-nativetls-test-not-ignored:
 	cargo test --tests --examples
 tokio-nativetls-test-ignored:
 	cargo test -- --ignored
+
 tokio-nativetls-blocking-test-ignored:
 	cargo test --features blocking -- --ignored
 
@@ -124,6 +125,7 @@ async-std-clippy-native-tls:
 async-std-test-not-ignored-native-tls:
 	cargo test --tests --examples --no-default-features --features async-std-native-tls --features aws-creds/http-credentials
 async-std-fail-on-err-test:
+	cargo test --lib --no-default-features --features async-std-native-tls,fail-on-err,aws-creds/http-credentials request_retry_
 	cargo test --lib --no-default-features --features async-std-native-tls,fail-on-err,aws-creds/http-credentials xml_response_embedded_error_
 	cargo test --lib --no-default-features --features async-std-native-tls,fail-on-err,aws-creds/http-credentials multipart_stream_errors_attempt_abort_and_preserve_primary_error
 async-std-test-ignored-native-tls:
@@ -145,6 +147,7 @@ async-std-test-blocking-ignored-rustls-tls:
 # below for the supported API shape rather than once per TLS backend.
 sync-test-not-ignored: sync-nativetls-test-not-ignored sync-rustlstls-test-not-ignored sync-nossl-test-not-ignored sync-fail-on-err-test
 sync-fail-on-err-test:
+	cargo test --lib --no-default-features --features sync,sync-native-tls,fail-on-err,aws-creds/http-credentials request_retry_
 	cargo test --lib --no-default-features --features sync,sync-native-tls,fail-on-err,aws-creds/http-credentials xml_response_embedded_error_
 	cargo test --lib --no-default-features --features sync,sync-native-tls,fail-on-err,aws-creds/http-credentials multipart_stream_errors_attempt_abort_and_preserve_primary_error
 sync-all: sync-test-not-ignored

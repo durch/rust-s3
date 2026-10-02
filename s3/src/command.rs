@@ -179,6 +179,35 @@ pub enum Command<'a> {
 }
 
 impl<'a> Command<'a> {
+    /// Whether this command can be replayed after an ambiguous transport failure.
+    ///
+    /// This intentionally describes request semantics rather than HTTP verbs:
+    /// some PUT/POST/DELETE operations create additional state when replayed.
+    pub(crate) fn is_retry_safe(&self) -> bool {
+        matches!(
+            self,
+            Command::HeadObject
+                | Command::GetObject
+                | Command::GetObjectTorrent
+                | Command::GetObjectRange { .. }
+                | Command::GetObjectTagging
+                | Command::ListMultipartUploads { .. }
+                | Command::ListObjects { .. }
+                | Command::ListObjectsV2 { .. }
+                | Command::GetBucketLocation
+                | Command::GetBucketCors { .. }
+                | Command::GetBucketLifecycle
+                | Command::ListBuckets
+                | Command::GetObjectAttributes { .. }
+        ) || matches!(
+            self,
+            Command::PutObject {
+                multipart: Some(_),
+                ..
+            }
+        )
+    }
+
     pub fn http_verb(&self) -> HttpMethod {
         match *self {
             Command::GetObject

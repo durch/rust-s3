@@ -26,6 +26,40 @@ pub struct SurfRequest<'a> {
     pub sync: bool,
 }
 
+async fn surf_response_attempt(
+    request: &SurfRequest<'_>,
+) -> Result<surf::Response, crate::request::RequestAttemptError> {
+    let headers = request.headers().await?;
+    let builder = match request.command.http_verb() {
+        HttpMethod::Get => surf::Request::builder(Method::Get, request.url()?),
+        HttpMethod::Delete => surf::Request::builder(Method::Delete, request.url()?),
+        HttpMethod::Put => surf::Request::builder(Method::Put, request.url()?),
+        HttpMethod::Post => surf::Request::builder(Method::Post, request.url()?),
+        HttpMethod::Head => surf::Request::builder(Method::Head, request.url()?),
+    };
+    let mut request_builder = builder.body(request.request_body()?);
+    for (name, value) in headers.iter() {
+        request_builder = request_builder.header(
+            HeaderName::from_bytes(AsRef::<[u8]>::as_ref(&name).to_vec())
+                .expect("Could not parse header name"),
+            HeaderValue::from_bytes(AsRef::<[u8]>::as_ref(&value).to_vec())
+                .expect("Could not parse header value"),
+        );
+    }
+    let mut response = request_builder
+        .send()
+        .await
+        .map_err(crate::request::RequestAttemptError::surf_send_error)?;
+    if cfg!(feature = "fail-on-err") && !response.status().is_success() {
+        let status = u16::from(response.status());
+        let body = response.body_string().await.map_err(|error| {
+            crate::request::RequestAttemptError::do_not_retry(S3Error::Surf(error.to_string()))
+        })?;
+        return Err(S3Error::HttpFailWithBody(status, body).into());
+    }
+    Ok(response)
+}
+
 #[maybe_async]
 impl<'a> Request for SurfRequest<'a> {
     type Response = surf::Response;
@@ -48,83 +82,59 @@ impl<'a> Request for SurfRequest<'a> {
     }
 
     async fn response(&self) -> Result<surf::Response, S3Error> {
-        // Build headers
-        let headers = self.headers().await?;
-
-        let request = match self.command.http_verb() {
-            HttpMethod::Get => surf::Request::builder(Method::Get, self.url()?),
-            HttpMethod::Delete => surf::Request::builder(Method::Delete, self.url()?),
-            HttpMethod::Put => surf::Request::builder(Method::Put, self.url()?),
-            HttpMethod::Post => surf::Request::builder(Method::Post, self.url()?),
-            HttpMethod::Head => surf::Request::builder(Method::Head, self.url()?),
-        };
-
-        let mut request = request.body(self.request_body()?);
-
-        for (name, value) in headers.iter() {
-            request = request.header(
-                HeaderName::from_bytes(AsRef::<[u8]>::as_ref(&name).to_vec())
-                    .expect("Could not parse heaeder name"),
-                HeaderValue::from_bytes(AsRef::<[u8]>::as_ref(&value).to_vec())
-                    .expect("Could not parse header value"),
-            );
-        }
-
-        let response = request
-            .send()
+        surf_response_attempt(self)
             .await
-            .map_err(|e| S3Error::Surf(e.to_string()))?;
-
-        if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-            return Err(S3Error::HttpFail);
-        }
-
-        Ok(response)
+            .map_err(|error| error.error)
     }
 
     async fn response_status(&self) -> Result<u16, S3Error> {
-        crate::retry! {
-            async {
-                let headers = self.headers().await?;
+        crate::request::retry_request(&self.command, || async {
+            let headers = self.headers().await?;
 
-                let request = match self.command.http_verb() {
-                    HttpMethod::Get => surf::Request::builder(Method::Get, self.url()?),
-                    HttpMethod::Delete => surf::Request::builder(Method::Delete, self.url()?),
-                    HttpMethod::Put => surf::Request::builder(Method::Put, self.url()?),
-                    HttpMethod::Post => surf::Request::builder(Method::Post, self.url()?),
-                    HttpMethod::Head => surf::Request::builder(Method::Head, self.url()?),
-                };
+            let request = match self.command.http_verb() {
+                HttpMethod::Get => surf::Request::builder(Method::Get, self.url()?),
+                HttpMethod::Delete => surf::Request::builder(Method::Delete, self.url()?),
+                HttpMethod::Put => surf::Request::builder(Method::Put, self.url()?),
+                HttpMethod::Post => surf::Request::builder(Method::Post, self.url()?),
+                HttpMethod::Head => surf::Request::builder(Method::Head, self.url()?),
+            };
 
-                let mut request = request.body(self.request_body()?);
+            let mut request = request.body(self.request_body()?);
 
-                for (name, value) in headers.iter() {
-                    request = request.header(
-                        HeaderName::from_bytes(AsRef::<[u8]>::as_ref(&name).to_vec())
-                            .expect("Could not parse heaeder name"),
-                        HeaderValue::from_bytes(AsRef::<[u8]>::as_ref(&value).to_vec())
-                            .expect("Could not parse header value"),
-                    );
-                }
+            for (name, value) in headers.iter() {
+                request = request.header(
+                    HeaderName::from_bytes(AsRef::<[u8]>::as_ref(&name).to_vec())
+                        .expect("Could not parse heaeder name"),
+                    HeaderValue::from_bytes(AsRef::<[u8]>::as_ref(&value).to_vec())
+                        .expect("Could not parse header value"),
+                );
+            }
 
-                let response = request
-                    .send()
-                    .await
-                    .map_err(|e| S3Error::Surf(e.to_string()))?;
-                let status = u16::from(response.status());
+            let mut response = request
+                .send()
+                .await
+                .map_err(crate::request::RequestAttemptError::surf_send_error)?;
+            let status = u16::from(response.status());
 
-                if status == 404 {
-                    Ok(status)
-                } else if cfg!(feature = "fail-on-err") && !response.status().is_success() {
-                    Err(S3Error::HttpFail)
-                } else {
-                    Ok(status)
-                }
-            }.await
-        }
+            if status == 404 {
+                Ok(status)
+            } else if cfg!(feature = "fail-on-err") && !response.status().is_success() {
+                let body = response.body_string().await.map_err(|error| {
+                    crate::request::RequestAttemptError::do_not_retry(S3Error::Surf(
+                        error.to_string(),
+                    ))
+                })?;
+                Err(S3Error::HttpFailWithBody(status, body).into())
+            } else {
+                Ok(status)
+            }
+        })
+        .await
     }
 
     async fn response_data(&self, etag: bool) -> Result<ResponseData, S3Error> {
-        let mut response = crate::retry! {self.response().await}?;
+        let mut response =
+            crate::request::retry_request(&self.command, || surf_response_attempt(self)).await?;
         let status_code = response.status();
 
         let response_headers = response
@@ -169,7 +179,8 @@ impl<'a> Request for SurfRequest<'a> {
         &self,
         writer: &mut T,
     ) -> Result<u16, S3Error> {
-        let mut response = crate::retry! {self.response().await}?;
+        let mut response =
+            crate::request::retry_request(&self.command, || surf_response_attempt(self)).await?;
 
         let status_code = response.status();
 
@@ -181,7 +192,8 @@ impl<'a> Request for SurfRequest<'a> {
 
     async fn response_header(&self) -> Result<(HeaderMap, u16), S3Error> {
         let mut header_map = HeaderMap::new();
-        let response = crate::retry! {self.response().await}?;
+        let response =
+            crate::request::retry_request(&self.command, || surf_response_attempt(self)).await?;
         let status_code = response.status();
 
         for (name, value) in response.iter() {
@@ -196,7 +208,8 @@ impl<'a> Request for SurfRequest<'a> {
     }
 
     async fn response_data_to_stream(&self) -> Result<ResponseDataStream, S3Error> {
-        let mut response = crate::retry! {self.response().await}?;
+        let mut response =
+            crate::request::retry_request(&self.command, || surf_response_attempt(self)).await?;
         let status_code = response.status();
 
         let body = body_stream(response.take_body());

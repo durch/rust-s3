@@ -4534,15 +4534,13 @@ mod test {
                     } else {
                         (204, "")
                     };
-                    for _ in 0..if status >= 300 { failure_attempts } else { 1 } {
-                        steps.push(("DELETE ", "uploadId=upload-id", status, body, false));
-                    }
+                    // Cleanup is an ambiguous state-changing request and is never replayed.
+                    steps.push(("DELETE ", "uploadId=upload-id", status, body, false));
                 }
                 MultipartFailureCase::SmallPut => {
                     steps.push(("DELETE ", "uploadId=upload-id", 204, "", false));
-                    for _ in 0..failure_attempts {
-                        steps.push(("PUT ", "multipart-test", 500, put_failure, false));
-                    }
+                    // Ordinary PUT is also not replayed after an ambiguous failure.
+                    steps.push(("PUT ", "multipart-test", 500, put_failure, false));
                 }
                 MultipartFailureCase::Part => {
                     for _ in 0..failure_attempts {
@@ -4561,14 +4559,8 @@ mod test {
                     } else {
                         (200, completion_embedded_error)
                     };
-                    let attempts = if status >= 300 && cfg!(feature = "fail-on-err") {
-                        failure_attempts
-                    } else {
-                        1
-                    };
-                    for _ in 0..attempts {
-                        steps.push(("POST ", "uploadId=upload-id", status, body, false));
-                    }
+                    // Completion may have succeeded remotely even when its response failed.
+                    steps.push(("POST ", "uploadId=upload-id", status, body, false));
                     steps.push(("DELETE ", "uploadId=upload-id", 204, "", false));
                 }
             }
@@ -4737,16 +4729,12 @@ mod test {
             let expected_requests = match case {
                 MultipartFailureCase::Reader => 2 + usize::from(cfg!(feature = "sync")),
                 MultipartFailureCase::Part => 2 + failure_attempts,
-                MultipartFailureCase::Completion => {
-                    3 + usize::from(cfg!(feature = "sync")) + failure_attempts
-                }
+                MultipartFailureCase::Completion => 4 + usize::from(cfg!(feature = "sync")),
                 MultipartFailureCase::CompletionEmbeddedError => {
                     4 + usize::from(cfg!(feature = "sync"))
                 }
-                MultipartFailureCase::Abort => {
-                    1 + usize::from(cfg!(feature = "sync")) + failure_attempts
-                }
-                MultipartFailureCase::SmallPut => 2 + failure_attempts,
+                MultipartFailureCase::Abort => 2 + usize::from(cfg!(feature = "sync")),
+                MultipartFailureCase::SmallPut => 3,
             };
             assert_eq!(requests.len(), expected_requests);
             if !matches!(case, MultipartFailureCase::SmallPut) {

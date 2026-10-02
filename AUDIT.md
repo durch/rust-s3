@@ -26,7 +26,11 @@ Examples include [bytes reserve overflow](https://rustsec.org/advisories/RUSTSEC
 
 Feature-specific `cargo tree` checks confirm that `async-std-rustls-tls` selects rustls 0.18.1 via Surf/http-client/async-tls, and `with-async-std-hyper` selects Hyper 0.13.10 via Surf/http-client. Those older major-version constraints will not all be repaired by refreshing the lockfile.
 
-Next repair: preserve this baseline, resolve and audit a fresh graph separately, classify production feature paths and reachability, and upgrade supported dependencies in tested groups. Establish an explicit maintenance plan for async-std without silently removing a supported runtime. No dependency upgrade or clean security bill is claimed in this batch.
+The preserved baseline and fresh-resolution follow-ups are recorded below. The
+quick-xml constraint is now upgraded to 0.41; ten advisory IDs remain in the
+fresh graph's legacy async-std transport branches. The next dependency repair
+requires a maintenance plan for those backends while preserving supported
+runtime/TLS configurations. No clean security bill is claimed.
 
 
 #### Fresh dependency resolution, 2026-10-02
@@ -63,11 +67,11 @@ AWS explicitly documents this behavior for [multipart completion](https://docs.a
 
 Repair: copy and multipart completion now validate the XML document structure and operation-specific root for 2xx responses. Embedded `<Error>` responses retain the raw body in `HttpFailWithBody`, including service codes and request identifiers present in that body. Invalid/truncated XML and unexpected roots return errors. Whitespace heartbeats, namespace variations, and optional fields are supported. Non-2xx handling remains unchanged, and validation does not add automatic retries. Local tests cover all three runtimes with `fail-on-err` both enabled and disabled. Successful copy and multipart operations also pass against local MinIO as recorded below; transport interruption and hosted-provider coverage remain outstanding. No general response-body rule was added to unrelated operations.
 
-### P1: Credential debug output exposes secrets — local credential crate repaired; release pending
+### P1: Credential debug output exposes secrets — repaired and integrated in source; release pending
 
 At the audit baseline, `aws-creds/src/credentials.rs` derived `Debug` for `Credentials` and `StsResponseCredentials`, including secret keys and session tokens. `Bucket` also derives `Debug` over its credential storage. This is a disclosure path if consumers log these types; this audit did not inspect or find an actual secret leak.
 
-Repair: local `aws-creds` now manually redacts key and token values in `Debug`, including nested STS credential output, while retaining field presence and expiration. Synthetic sentinel tests cover normal/pretty formatting and unchanged serialization. Credential resolution is unchanged. Release coordination remains necessary: `rust-s3` still uses the published `aws-creds`, so this local repair does not yet fix `Bucket` debug output through that dependency.
+Repair: local `aws-creds` now manually redacts key and token values in `Debug`, including nested STS credential output, while retaining field presence and expiration. Synthetic sentinel tests cover normal/pretty formatting and unchanged serialization. Credential resolution is unchanged. S3 now uses the local crate through a path-plus-version dependency, with a `Bucket` Debug regression confirming integration. Publishing the coordinated releases remains outstanding; source integration is not a fix delivered to registry consumers.
 
 ### P1: Multipart failures can leave incomplete uploads behind — repaired in source
 
@@ -77,8 +81,8 @@ abort error could also replace the original failure, and non-2xx completion
 could return apparent success with `fail-on-err` disabled.
 
 After successful initiation, returned failures now take one logical best-effort
-abort path and preserve the original error. Existing transport retries may make
-more than one wire request. Async part futures are dropped before cleanup; sync
+abort path and preserve the original error. The later retry-policy repair
+excludes abort and completion from automatic replay. Async part futures are dropped before cleanup; sync
 streaming uses a private raw part sender to avoid duplicating the public chunk
 helper's abort. Its small-file fallback retains its deliberate abort and existing
 status-return behavior. Public signatures and standalone multipart helpers are
@@ -177,11 +181,38 @@ independent empty and untruncated object/upload listings afterward. These are
 compatibility checks of the existing scheduler, not measurements of the upper
 fanout bound on this host.
 
-### P2: Retry policy lacks error and operation classification
+### P2: Retry policy lacks error and operation classification — repaired in source
 
-`retry!` retries every error up to a global count, using deterministic quadratic delays. It has no transient/permanent classification, jitter, or per-operation replay policy. Backends also expose different error detail (`HttpFail` versus status/body), making consistent decisions harder.
+At the baseline, the backends used the generic `retry!` macro to retry every
+error up to a global count, without classifying replay safety or service errors.
+The public macro remains unchanged; backend requests now use a private policy
+that allows reads and multipart PUTs with a stable upload ID, part number, and
+immutable body. Ordinary PUTs, initiation, completion, copy, delete, abort, and
+configuration mutations are not automatically replayed after ambiguous failures.
 
-Next repair: use a local fault-injection server to establish behavior for permission failures, throttling, disconnects before/after request transmission, and non-idempotent operations. Keep replay safety separate from transport failures; preserve the final service error.
+With `fail-on-err`, HTTP 408, 429, 500, 502, 503, and 504 are retry candidates for
+eligible operations. Without it, raw HTTP responses remain successful transport
+results and do not trigger status-based retries. Surf now retains service status
+and body in `HttpFailWithBody`. Backend transport-error granularity differs:
+Surf and Reqwest send failures can include permanent connection/TLS errors;
+sync retries a narrow set of I/O failures. No error-message parsing is used.
+
+Body consumption stays outside replay. Failed error-body reads retain their
+original backend error and are explicitly nonretryable. Internal retry logging
+does not print request URLs, credentials, or service bodies. The global retry
+count and quadratic delay remain; jitter and caller-specific retry budgets are
+still separate work. Local wire tests cover service and transport failures,
+mutation non-replay, identical part replay, final-error preservation, and the
+sync status path.
+
+All six native-TLS runtime/`fail-on-err` combinations passed 12 retry tests and
+the existing multipart failure fixture. The full `make ci` gate passed in
+118.76 seconds; the subsequently strengthened, independent six-status table
+passed on all three runtimes. The frozen patch then passed 68 exact MinIO tests
+across 11 configurations and 100 cloud tests across eight configurations and
+five providers. All 40 cloud prefixes and every MinIO post-test object/upload
+listing were independently verified empty and untruncated. Superego's final
+review reported no concerns.
 
 ### P2: Credential refresh can block async execution and change identity
 
@@ -189,11 +220,26 @@ Next repair: use a local fault-injection server to establish behavior for permis
 
 Next repair: define provider identity and refresh behavior, test expiry margins and concurrent refresh, and isolate blocking I/O. This requires a deliberate credential design change and release coordination, not an opportunistic reorder of the provider chain.
 
-### P2: Workspace tests do not prove local credentials/region integration
+### P2: Low-level UploadPart command differs from the working Bucket path
 
-`s3/Cargo.toml` depends on registry versions of `aws-creds` and `aws-region`; the local path alternatives are commented out. `cargo test --workspace` tests local crates individually while `rust-s3` links registry copies. A local provider fix can pass its own tests without being used by the S3 tests.
+The public `Command::UploadPart` variant carries an upload ID, part number, and
+content, but its URL arm does not forward the multipart query and its payload
+hash uses the empty-body hash. Current `Bucket` multipart helpers instead use
+`Command::PutObject { multipart: Some(..) }`, which has separate URL and payload
+handling. Provider tests of the Bucket helpers do not verify this low-level
+variant. Keep it outside the replay-safe allowlist until its wire behavior has
+focused signing and request tests; do not infer safety from its variant name.
 
-Next repair: choose and document a workspace dependency/release strategy. Validate the published dependency graph as well as workspace integration. Do not treat a local crate patch as shipped in `rust-s3`.
+### P2: Workspace tests do not prove local credentials/region integration — credentials integrated in source
+
+At the baseline, `s3/Cargo.toml` depended on registry versions of `aws-creds` and
+`aws-region`, so workspace tests could exercise support crates independently
+while S3 linked registry copies. S3 now uses local `aws-creds` through a
+path-plus-version dependency; `aws-region` still comes from the registry.
+
+The credential release order and package-verification boundary are documented
+in [RELEASING.md](RELEASING.md). Registry verification awaits the credential
+release. Local region integration remains separate outstanding work.
 
 ### P2: Timeout behavior differs by backend and API — Tokio repaired, async-std open
 
