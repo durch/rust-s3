@@ -11,6 +11,8 @@ pub enum S3Error {
     HttpFailWithBody(u16, String),
     #[error("Http request returned a non 2** code")]
     HttpFail,
+    #[error("header '{0}' cannot be applied to a streamed multipart upload")]
+    UnsupportedMultipartHeader(http::header::HeaderName),
     #[error("aws-creds: {0}")]
     Credentials(#[from] crate::creds::error::CredentialsError),
     #[error("aws-region: {0}")]

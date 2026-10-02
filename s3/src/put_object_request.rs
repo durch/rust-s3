@@ -213,6 +213,17 @@ impl<'a> PutObjectRequest<'a> {
 /// a best-effort basis. Cancelling the future cannot run an asynchronous abort,
 /// and in-flight parts or a lost completion response can leave remote state
 /// uncertain.
+///
+/// On multipart uploads, headers supplied to this builder are routed by request:
+/// object metadata and other custom headers are sent at initiation, SSE-C headers
+/// are repeated for initiation, parts, and completion, requester-pays and expected
+/// bucket-owner headers are sent on each request, and `If-Match`/`If-None-Match`
+/// are sent at completion. `Content-MD5`, checksum headers, `Content-Length`,
+/// `Transfer-Encoding`, and `x-amz-content-sha256` are rejected because one
+/// builder value cannot describe the streamed part bodies. `with_content_type`
+/// controls the generated content type for initiation and parts. Bucket-level
+/// extra headers keep their existing raw behavior and must be valid for every
+/// request made by the multipart upload.
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 #[derive(Debug, Clone)]
 pub struct PutObjectStreamRequest<'a> {

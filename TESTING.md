@@ -74,7 +74,8 @@ five ignored tests in each of nine runtime/TLS feature configurations, plus six
 in each of two native-TLS blocking configurations (57 executions). The tests
 check CRUD, byte ranges, metadata, copied content, bulk deletion, tag readback,
 small streaming uploads, and exact bytes through a 20 MB multipart upload and
-download. Async configurations also verify every downloaded stream chunk;
+download. Async streaming fixtures also verify builder metadata, cache control,
+and content type through HEAD on both small and multipart uploads. Async configurations also verify every downloaded stream chunk;
 blocking tests include list pagination and deletion status checks.
 
 These are HTTP tests of a real local MinIO server. They do not verify TLS
@@ -121,3 +122,11 @@ The full local gate and MinIO matrix also passed. See [AUDIT.md](AUDIT.md) for
 repairs, historical failures, cleanup evidence, and the remaining limits. This
 matrix covers selected object operations, not bucket configuration, every S3
 API, failure/cancellation cleanup, or performance benchmarks.
+
+The credential-free suite also captures local HTTP requests below, exactly at,
+and above the 8 MiB multipart threshold. It checks per-call header routing,
+bucket-header precedence, generated body headers, and abort controls, and verifies
+unsupported checksum/framing headers fail before initiation. All values are
+synthetic; this does not establish real-provider SSE-C or conditional-write
+support. Those header paths have local wire coverage, while provider runs verify
+metadata, cache control, content type, and object bytes.

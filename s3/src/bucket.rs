@@ -236,6 +236,77 @@ fn response_error_from_data(response_data: ResponseData) -> S3Error {
     }
 }
 
+#[cfg(all(
+    not(feature = "sync"),
+    any(feature = "with-tokio", feature = "with-async-std")
+))]
+#[derive(Default)]
+struct MultipartHeaderPlan {
+    initiate: HeaderMap,
+    part: HeaderMap,
+    complete: HeaderMap,
+    abort: HeaderMap,
+}
+
+#[cfg(all(
+    not(feature = "sync"),
+    any(feature = "with-tokio", feature = "with-async-std")
+))]
+impl MultipartHeaderPlan {
+    fn from_headers(headers: Option<&HeaderMap>) -> Result<Self, S3Error> {
+        let mut plan = Self::default();
+        let Some(headers) = headers else {
+            return Ok(plan);
+        };
+
+        for (name, value) in headers {
+            let name_text = name.as_str();
+            if name_text == "content-md5"
+                || name_text == "content-length"
+                || name_text == "transfer-encoding"
+                || name_text == "x-amz-content-sha256"
+                || name_text.starts_with("x-amz-checksum-")
+                || name_text.starts_with("x-amz-sdk-checksum-")
+            {
+                return Err(S3Error::UnsupportedMultipartHeader(name.clone()));
+            }
+
+            // The request's explicit content_type argument generates this
+            // header after custom headers are merged, so it remains authoritative.
+            if name_text == "content-type" {
+                continue;
+            }
+
+            if matches!(
+                name_text,
+                "x-amz-expected-bucket-owner" | "x-amz-request-payer"
+            ) {
+                plan.initiate.insert(name.clone(), value.clone());
+                plan.part.insert(name.clone(), value.clone());
+                plan.complete.insert(name.clone(), value.clone());
+                plan.abort.insert(name.clone(), value.clone());
+            } else if matches!(
+                name_text,
+                "x-amz-server-side-encryption-customer-algorithm"
+                    | "x-amz-server-side-encryption-customer-key"
+                    | "x-amz-server-side-encryption-customer-key-md5"
+            ) {
+                plan.initiate.insert(name.clone(), value.clone());
+                plan.part.insert(name.clone(), value.clone());
+                plan.complete.insert(name.clone(), value.clone());
+            } else if matches!(name_text, "if-match" | "if-none-match") {
+                plan.complete.insert(name.clone(), value.clone());
+            } else {
+                // PutObject properties and provider-specific custom headers are
+                // applied at multipart initiation, where S3 stores object metadata.
+                plan.initiate.insert(name.clone(), value.clone());
+            }
+        }
+
+        Ok(plan)
+    }
+}
+
 #[cfg(feature = "sync")]
 fn part_from_response(response_data: ResponseData, part_number: u32) -> Result<Part, S3Error> {
     if !(200..300).contains(&response_data.status_code()) {
@@ -1755,11 +1826,12 @@ impl Bucket {
         part_number: u32,
         upload_id: &str,
         content_type: &str,
+        custom_headers: &HeaderMap,
     ) -> Result<ResponseData, S3Error> {
         let command = Command::PutObject {
             content: &chunk,
             multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
-            custom_headers: None,
+            custom_headers: Some(custom_headers.clone()),
             content_type,
         };
         let request = RequestImpl::new(self, path, command).await?;
@@ -1771,12 +1843,20 @@ impl Bucket {
         &self,
         path: &str,
         upload_id: &str,
+        abort_headers: &HeaderMap,
         error: S3Error,
     ) -> Result<T, S3Error> {
         // Cleanup is best effort. Keep the operation's original error even if
         // the abort fails (for example, if completion already reached S3).
-        let _ = self.abort_upload(path, upload_id).await;
+        let bucket = self.with_overlaid_extra_headers(abort_headers);
+        let _ = bucket.abort_upload(path, upload_id).await;
         Err(error)
+    }
+
+    fn with_overlaid_extra_headers(&self, overlay: &HeaderMap) -> Bucket {
+        let mut bucket = self.clone();
+        bucket.extra_headers.extend(overlay.clone());
+        bucket
     }
 
     #[maybe_async::async_impl]
@@ -1857,7 +1937,9 @@ impl Bucket {
             ));
         }
 
-        let msg = self
+        let header_plan = MultipartHeaderPlan::from_headers(custom_headers.as_ref())?;
+        let initiate_bucket = self.with_overlaid_extra_headers(&header_plan.initiate);
+        let msg = initiate_bucket
             .initiate_multipart_upload(s3_path, content_type)
             .await?;
         let path = msg.key;
@@ -1890,6 +1972,7 @@ impl Bucket {
             let path_clone = path.clone();
             let upload_id_clone = upload_id.clone();
             let content_type_clone = content_type.to_string();
+            let part_headers = header_plan.part.clone();
             let bucket_clone = self.clone();
 
             active_uploads.push(
@@ -1901,6 +1984,7 @@ impl Bucket {
                             1,
                             &upload_id_clone,
                             &content_type_clone,
+                            &part_headers,
                         )
                         .await;
                     (1, result)
@@ -1929,6 +2013,7 @@ impl Bucket {
                     let path_clone = path.clone();
                     let upload_id_clone = upload_id.clone();
                     let content_type_clone = content_type.to_string();
+                    let part_headers = header_plan.part.clone();
                     let bucket_clone = self.clone();
 
                     active_uploads.push(
@@ -1940,6 +2025,7 @@ impl Bucket {
                                     current_part,
                                     &upload_id_clone,
                                     &content_type_clone,
+                                    &part_headers,
                                 )
                                 .await;
                             (current_part, result)
@@ -1967,7 +2053,7 @@ impl Bucket {
             Ok(result) => result,
             Err(error) => {
                 return self
-                    .abort_upload_after_failure(&path, upload_id, error)
+                    .abort_upload_after_failure(&path, upload_id, &header_plan.abort, error)
                     .await;
             }
         };
@@ -1985,7 +2071,8 @@ impl Bucket {
                 part_number: i as u32 + 1,
             })
             .collect::<Vec<Part>>();
-        let response_data = match self
+        let complete_bucket = self.with_overlaid_extra_headers(&header_plan.complete);
+        let response_data = match complete_bucket
             .complete_multipart_upload(&path, &msg.upload_id, inner_data)
             .await
         {
@@ -1993,12 +2080,12 @@ impl Bucket {
             Ok(response_data) => {
                 let error = response_error_from_data(response_data);
                 return self
-                    .abort_upload_after_failure(&path, upload_id, error)
+                    .abort_upload_after_failure(&path, upload_id, &header_plan.abort, error)
                     .await;
             }
             Err(error) => {
                 return self
-                    .abort_upload_after_failure(&path, upload_id, error)
+                    .abort_upload_after_failure(&path, upload_id, &header_plan.abort, error)
                     .await;
             }
         };
@@ -2043,6 +2130,7 @@ impl Bucket {
                         part_number,
                         upload_id,
                         content_type,
+                        &HeaderMap::new(),
                     )?;
                     let part = part_from_response(response_data, part_number)?;
                     etags.push(part.etag);
@@ -2069,6 +2157,7 @@ impl Bucket {
                     part_number,
                     upload_id,
                     content_type,
+                    &HeaderMap::new(),
                 )?;
                 let part = part_from_response(response_data, part_number)?;
                 etags.push(part.etag);
@@ -2077,7 +2166,9 @@ impl Bucket {
 
         match upload_result {
             Ok(status_code) => Ok(status_code),
-            Err(error) if needs_abort => self.abort_upload_after_failure(&path, upload_id, error),
+            Err(error) if needs_abort => {
+                self.abort_upload_after_failure(&path, upload_id, &HeaderMap::new(), error)
+            }
             Err(error) => Err(error),
         }
     }
@@ -3414,6 +3505,565 @@ mod test {
         Ok(stream)
     }
 
+    #[cfg(all(
+        not(feature = "sync"),
+        any(feature = "with-tokio", feature = "with-async-std")
+    ))]
+    #[derive(Debug)]
+    struct MultipartWireRequest {
+        line: String,
+        headers: HashMap<String, String>,
+        content_length: usize,
+    }
+
+    #[cfg(all(
+        not(feature = "sync"),
+        any(feature = "with-tokio", feature = "with-async-std")
+    ))]
+    #[maybe_async::maybe_async]
+    async fn run_multipart_header_case(
+        size: usize,
+        fail_reader: bool,
+        custom_headers: HeaderMap,
+    ) -> (
+        Result<(), S3Error>,
+        Result<Vec<MultipartWireRequest>, String>,
+    ) {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        fn read_request(
+            stream: &mut std::net::TcpStream,
+            deadline: Instant,
+        ) -> Result<MultipartWireRequest, String> {
+            let mut raw_headers = Vec::new();
+            let mut byte = [0u8; 1];
+            while !raw_headers.ends_with(b"\r\n\r\n") {
+                if raw_headers.len() >= 16 * 1024 || Instant::now() >= deadline {
+                    return Err("header limit or deadline exceeded".to_owned());
+                }
+                stream
+                    .read_exact(&mut byte)
+                    .map_err(|error| format!("read headers: {error}"))?;
+                raw_headers.push(byte[0]);
+            }
+
+            let header_text = String::from_utf8_lossy(&raw_headers);
+            let mut lines = header_text.lines();
+            let line = lines.next().unwrap_or_default().to_owned();
+            let mut headers = HashMap::new();
+            for header in lines {
+                if let Some((name, value)) = header.split_once(':') {
+                    let name = name.trim().to_ascii_lowercase();
+                    if name != "authorization" && name != "x-amz-security-token" {
+                        headers.insert(name, value.trim().to_owned());
+                    }
+                }
+            }
+            let content_length = headers
+                .get("content-length")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
+            if content_length > super::CHUNK_SIZE + 16 * 1024 {
+                return Err("request body exceeded test cap".to_owned());
+            }
+            let mut body = vec![0; content_length];
+            stream
+                .read_exact(&mut body)
+                .map_err(|error| format!("read request body: {error}"))?;
+
+            Ok(MultipartWireRequest {
+                line,
+                headers,
+                content_length,
+            })
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let (done_tx, done_rx) = mpsc::channel();
+        let rejected_headers = custom_headers.clone();
+        let server = thread::spawn(move || {
+            let expected = if rejected_headers.contains_key("content-length")
+                || rejected_headers.contains_key("content-md5")
+                || rejected_headers.contains_key("transfer-encoding")
+                || rejected_headers.contains_key("x-amz-content-sha256")
+                || rejected_headers.keys().any(|name| {
+                    name.as_str().starts_with("x-amz-checksum-")
+                        || name.as_str().starts_with("x-amz-sdk-checksum-")
+                }) {
+                Vec::new()
+            } else if fail_reader {
+                vec!["init", "abort"]
+            } else if size < super::CHUNK_SIZE {
+                vec!["put"]
+            } else {
+                let part_count = size.div_ceil(super::CHUNK_SIZE);
+                let mut steps = vec!["init"];
+                steps.extend(std::iter::repeat_n("part", part_count));
+                steps.push("complete");
+                steps
+            };
+
+            let deadline = Instant::now() + Duration::from_secs(12);
+            let mut requests = Vec::new();
+            for step in expected {
+                let (mut stream, _) = loop {
+                    if Instant::now() >= deadline {
+                        return Err(format!("accept deadline after {} requests", requests.len()));
+                    }
+                    match listener.accept() {
+                        Ok(pair) => break pair,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => return Err(format!("accept request: {error}")),
+                    }
+                };
+                stream
+                    .set_nonblocking(false)
+                    .map_err(|error| error.to_string())?;
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(4)))
+                    .map_err(|error| error.to_string())?;
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(4)))
+                    .map_err(|error| error.to_string())?;
+                let request = read_request(&mut stream, deadline)?;
+
+                let (status, body, etag) = match step {
+                    "init" => {
+                        if !request.line.starts_with("POST ") || !request.line.contains("uploads") {
+                            return Err(format!("unexpected initiation request: {}", request.line));
+                        }
+                        (
+                            200,
+                            "<InitiateMultipartUploadResult><Bucket>test-bucket</Bucket><Key>multipart-header-test</Key><UploadId>header-upload-id</UploadId></InitiateMultipartUploadResult>",
+                            "",
+                        )
+                    }
+                    "part" => {
+                        if !request.line.starts_with("PUT ")
+                            || !request.line.contains("partNumber=")
+                        {
+                            return Err(format!("unexpected part request: {}", request.line));
+                        }
+                        (200, "", "ETag: \"part-etag\"\r\n")
+                    }
+                    "complete" => {
+                        if !request.line.starts_with("POST ") || !request.line.contains("uploadId=")
+                        {
+                            return Err(format!("unexpected completion request: {}", request.line));
+                        }
+                        (200, "<CompleteMultipartUploadResult/>", "")
+                    }
+                    "abort" => {
+                        if !request.line.starts_with("DELETE ")
+                            || !request.line.contains("uploadId=")
+                        {
+                            return Err(format!("unexpected abort request: {}", request.line));
+                        }
+                        (204, "", "")
+                    }
+                    _ => {
+                        if !request.line.starts_with("PUT ") || request.line.contains('?') {
+                            return Err(format!("unexpected small PUT request: {}", request.line));
+                        }
+                        (200, "", "ETag: \"small-etag\"\r\n")
+                    }
+                };
+
+                let response = format!(
+                    "HTTP/1.1 {status} OK\r\nContent-Length: {}\r\n{etag}Connection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .map_err(|error| format!("write response: {error}"))?;
+                requests.push(request);
+            }
+
+            // The operation signals only after returning, so this also catches
+            // an unexpected extra request without a timing-based sleep.
+            loop {
+                if done_rx.try_recv().is_ok() {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            stream
+                                .set_nonblocking(false)
+                                .map_err(|error| error.to_string())?;
+                            stream
+                                .set_read_timeout(Some(Duration::from_secs(4)))
+                                .map_err(|error| error.to_string())?;
+                            requests.push(read_request(&mut stream, deadline)?);
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                        Err(error) => return Err(format!("final accept check: {error}")),
+                    }
+                    return Ok(requests);
+                }
+                if Instant::now() >= deadline {
+                    return Err(format!(
+                        "operation completion deadline after {} requests",
+                        requests.len()
+                    ));
+                }
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream
+                            .set_nonblocking(false)
+                            .map_err(|error| error.to_string())?;
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(4)))
+                            .map_err(|error| error.to_string())?;
+                        let request = read_request(&mut stream, deadline)?;
+                        requests.push(request);
+                        return Ok(requests);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => return Err(format!("accept extra request: {error}")),
+                }
+            }
+        });
+
+        let credentials = Credentials::new(
+            Some("test-access-key"),
+            Some("test-secret-key"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let mut bucket = Bucket::new(
+            "test-bucket",
+            Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint,
+            },
+            credentials,
+        )
+        .unwrap()
+        .with_path_style();
+        bucket.add_header("x-amz-meta-uploader", "bucket-level-value");
+        bucket.add_header("x-amz-request-payer", "owner-level-value");
+        bucket.add_header("x-test-global-option", "raw-global-value");
+        let mut reader = MultipartFaultReader {
+            remaining: size,
+            fail_at_eof: fail_reader,
+        };
+        let result = bucket
+            .put_object_stream_builder("/multipart-header-test")
+            .with_content_type("text/plain")
+            .with_headers(custom_headers)
+            .execute_stream(&mut reader)
+            .await
+            .map(|_| ());
+        let _ = done_tx.send(());
+        let server_result = server.join().expect("multipart header server panicked");
+        (result, server_result)
+    }
+
+    #[cfg(all(
+        not(feature = "sync"),
+        any(feature = "with-tokio", feature = "with-async-std")
+    ))]
+    fn multipart_test_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in [
+            ("x-amz-meta-uploader", "synthetic-test"),
+            ("content-type", "application/x-custom-overridden"),
+            ("cache-control", "public, max-age=120"),
+            ("content-disposition", "attachment; filename=test.bin"),
+            ("x-amz-storage-class", "STANDARD_IA"),
+            ("x-amz-server-side-encryption", "aws:kms"),
+            (
+                "x-amz-server-side-encryption-aws-kms-key-id",
+                "synthetic-kms-key",
+            ),
+            ("x-test-provider-option", "init-only"),
+            ("x-amz-server-side-encryption-customer-algorithm", "AES256"),
+            (
+                "x-amz-server-side-encryption-customer-key",
+                "synthetic-key-value",
+            ),
+            (
+                "x-amz-server-side-encryption-customer-key-md5",
+                "synthetic-key-md5",
+            ),
+            ("x-amz-expected-bucket-owner", "123456789012"),
+            ("x-amz-request-payer", "requester"),
+            ("if-match", "\"existing-etag\""),
+            ("if-none-match", "\"other-etag\""),
+        ] {
+            headers.insert(
+                HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        headers
+    }
+
+    #[cfg(all(
+        not(feature = "sync"),
+        any(feature = "with-tokio", feature = "with-async-std")
+    ))]
+    fn assert_wire_header(request: &MultipartWireRequest, name: &str, expected: Option<&str>) {
+        assert_eq!(
+            request.headers.get(name).map(String::as_str),
+            expected,
+            "{} {name}",
+            request.line
+        );
+    }
+
+    #[cfg(all(
+        not(feature = "sync"),
+        any(feature = "with-tokio", feature = "with-async-std")
+    ))]
+    #[maybe_async::maybe_async]
+    async fn assert_multipart_builder_header_routing() {
+        let headers = multipart_test_headers();
+        for size in [
+            super::CHUNK_SIZE - 1,
+            super::CHUNK_SIZE,
+            super::CHUNK_SIZE + 1,
+        ] {
+            let (result, server_result) =
+                run_multipart_header_case(size, false, headers.clone()).await;
+            assert!(result.is_ok(), "stream upload failed: {result:?}");
+            let requests = server_result.expect("local HTTP fixture failed");
+
+            if size < super::CHUNK_SIZE {
+                assert_eq!(requests.len(), 1);
+                let put = &requests[0];
+                assert!(put.line.starts_with("PUT "));
+                for name in [
+                    "x-amz-meta-uploader",
+                    "cache-control",
+                    "content-disposition",
+                    "x-amz-storage-class",
+                    "x-amz-server-side-encryption",
+                    "x-amz-server-side-encryption-aws-kms-key-id",
+                    "x-test-provider-option",
+                    "x-amz-server-side-encryption-customer-algorithm",
+                    "x-amz-server-side-encryption-customer-key",
+                    "x-amz-server-side-encryption-customer-key-md5",
+                    "x-amz-expected-bucket-owner",
+                    "x-amz-request-payer",
+                    "if-match",
+                    "if-none-match",
+                ] {
+                    assert_wire_header(put, name, Some(headers[name].to_str().unwrap()));
+                }
+                assert_wire_header(put, "x-test-global-option", Some("raw-global-value"));
+                assert_wire_header(put, "content-type", Some("text/plain"));
+                assert_wire_header(put, "content-length", Some(&size.to_string()));
+                assert!(put.headers.contains_key("content-md5"));
+                continue;
+            }
+
+            let initiate = requests
+                .iter()
+                .find(|request| request.line.contains("uploads"))
+                .expect("multipart initiation request missing");
+            assert_wire_header(initiate, "content-type", Some("text/plain"));
+            assert_wire_header(initiate, "content-length", Some("0"));
+            for name in [
+                "x-amz-meta-uploader",
+                "cache-control",
+                "content-disposition",
+                "x-amz-storage-class",
+                "x-amz-server-side-encryption",
+                "x-amz-server-side-encryption-aws-kms-key-id",
+                "x-test-provider-option",
+                "x-amz-server-side-encryption-customer-algorithm",
+                "x-amz-server-side-encryption-customer-key",
+                "x-amz-server-side-encryption-customer-key-md5",
+                "x-amz-expected-bucket-owner",
+                "x-amz-request-payer",
+            ] {
+                assert_wire_header(initiate, name, Some(headers[name].to_str().unwrap()));
+            }
+            assert_wire_header(initiate, "x-test-global-option", Some("raw-global-value"));
+            for name in ["if-match", "if-none-match"] {
+                assert_wire_header(initiate, name, None);
+            }
+
+            let parts = requests
+                .iter()
+                .filter(|request| request.line.contains("partNumber="))
+                .collect::<Vec<_>>();
+            let mut part_numbers_and_lengths = parts
+                .iter()
+                .map(|request| {
+                    let target = request.line.split_whitespace().nth(1).unwrap();
+                    let query = target.split_once('?').unwrap().1;
+                    let part_number = query
+                        .split('&')
+                        .find_map(|pair| pair.strip_prefix("partNumber="))
+                        .unwrap()
+                        .parse::<u32>()
+                        .unwrap();
+                    (part_number, request.content_length)
+                })
+                .collect::<Vec<_>>();
+            part_numbers_and_lengths.sort_unstable_by_key(|(part_number, _)| *part_number);
+            let expected_parts = if size == super::CHUNK_SIZE {
+                vec![(1, super::CHUNK_SIZE)]
+            } else {
+                vec![(1, super::CHUNK_SIZE), (2, 1)]
+            };
+            assert_eq!(part_numbers_and_lengths, expected_parts);
+            for part in parts {
+                assert_wire_header(part, "content-type", Some("text/plain"));
+                assert_wire_header(
+                    part,
+                    "content-length",
+                    Some(&part.content_length.to_string()),
+                );
+                assert!(part.headers.contains_key("content-md5"));
+                for name in [
+                    "x-amz-server-side-encryption-customer-algorithm",
+                    "x-amz-server-side-encryption-customer-key",
+                    "x-amz-server-side-encryption-customer-key-md5",
+                    "x-amz-expected-bucket-owner",
+                    "x-amz-request-payer",
+                ] {
+                    assert_wire_header(part, name, Some(headers[name].to_str().unwrap()));
+                }
+                assert_wire_header(part, "x-test-global-option", Some("raw-global-value"));
+                for name in [
+                    "x-amz-meta-uploader",
+                    "cache-control",
+                    "content-disposition",
+                    "x-amz-storage-class",
+                    "x-amz-server-side-encryption",
+                    "x-amz-server-side-encryption-aws-kms-key-id",
+                    "x-test-provider-option",
+                    "if-match",
+                    "if-none-match",
+                ] {
+                    assert_wire_header(part, name, None);
+                }
+            }
+
+            let complete = requests
+                .iter()
+                .find(|request| {
+                    request.line.starts_with("POST ") && request.line.contains("uploadId=")
+                })
+                .expect("multipart completion request missing");
+            assert_wire_header(complete, "content-type", Some("application/xml"));
+            assert!(complete.content_length > 0);
+            for name in [
+                "x-amz-server-side-encryption-customer-algorithm",
+                "x-amz-server-side-encryption-customer-key",
+                "x-amz-server-side-encryption-customer-key-md5",
+                "x-amz-expected-bucket-owner",
+                "x-amz-request-payer",
+                "if-match",
+                "if-none-match",
+            ] {
+                assert_wire_header(complete, name, Some(headers[name].to_str().unwrap()));
+            }
+            assert_wire_header(complete, "x-test-global-option", Some("raw-global-value"));
+            for name in [
+                "x-amz-meta-uploader",
+                "cache-control",
+                "content-disposition",
+                "x-amz-storage-class",
+                "x-amz-server-side-encryption",
+                "x-amz-server-side-encryption-aws-kms-key-id",
+                "x-test-provider-option",
+            ] {
+                assert_wire_header(complete, name, None);
+            }
+        }
+
+        let (result, server_result) =
+            run_multipart_header_case(super::CHUNK_SIZE, true, headers.clone()).await;
+        assert!(matches!(
+            result,
+            Err(S3Error::Io(error)) if error.to_string() == "injected reader failure"
+        ));
+        let requests = server_result.expect("abort fixture failed");
+        assert_eq!(requests.len(), 2);
+        let abort = requests
+            .iter()
+            .find(|request| request.line.starts_with("DELETE "))
+            .expect("multipart abort request missing");
+        for name in ["x-amz-expected-bucket-owner", "x-amz-request-payer"] {
+            assert_wire_header(abort, name, Some(headers[name].to_str().unwrap()));
+        }
+        assert_wire_header(abort, "x-test-global-option", Some("raw-global-value"));
+        for name in [
+            "x-amz-server-side-encryption-customer-algorithm",
+            "x-amz-server-side-encryption-customer-key",
+            "x-amz-server-side-encryption-customer-key-md5",
+            "x-amz-meta-uploader",
+            "cache-control",
+            "if-match",
+            "if-none-match",
+        ] {
+            assert_wire_header(abort, name, None);
+        }
+        assert!(matches!(
+            abort.headers.get("content-length").map(String::as_str),
+            None | Some("0")
+        ));
+        assert!(matches!(
+            abort.headers.get("content-type").map(String::as_str),
+            None | Some("application/octet-stream")
+        ));
+
+        for rejected_name in [
+            "content-md5",
+            "content-length",
+            "transfer-encoding",
+            "x-amz-content-sha256",
+            "x-amz-checksum-sha256",
+            "x-amz-sdk-checksum-algorithm",
+        ] {
+            let mut rejected = HeaderMap::new();
+            rejected.insert(
+                HeaderName::from_bytes(rejected_name.as_bytes()).unwrap(),
+                HeaderValue::from_static("synthetic-value"),
+            );
+            let (result, server_result) =
+                run_multipart_header_case(super::CHUNK_SIZE, false, rejected).await;
+            assert!(matches!(
+                result,
+                Err(S3Error::UnsupportedMultipartHeader(ref name)) if name.as_str() == rejected_name
+            ));
+            assert!(
+                server_result.expect("rejection fixture failed").is_empty(),
+                "rejected headers must fail before initiation"
+            );
+        }
+    }
+
+    #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
+    #[tokio::test]
+    async fn multipart_stream_builder_routes_headers_by_operation() {
+        assert_multipart_builder_header_routing().await;
+    }
+
+    #[cfg(all(
+        not(feature = "sync"),
+        not(feature = "with-tokio"),
+        feature = "with-async-std"
+    ))]
+    #[async_std::test]
+    async fn multipart_stream_builder_routes_headers_by_operation() {
+        assert_multipart_builder_header_routing().await;
+    }
+
     #[allow(dead_code)]
     #[derive(Clone, Copy, Debug)]
     enum MultipartFailureCase {
@@ -4673,6 +5323,15 @@ mod test {
         file.flush().await.unwrap();
         let mut reader = File::open(local_path).await.unwrap();
 
+        #[cfg(not(feature = "sync"))]
+        let response = bucket
+            .put_object_stream_builder(&remote_path)
+            .with_content_type("application/x-rust-s3-stream-test")
+            .with_headers(streaming_builder_test_headers())
+            .execute_stream(&mut reader)
+            .await
+            .unwrap();
+        #[cfg(feature = "sync")]
         let response = bucket
             .put_object_stream(&mut reader, &remote_path)
             .await
@@ -4681,6 +5340,23 @@ mod test {
         assert_eq!(response.status_code(), 200);
         #[cfg(feature = "sync")]
         assert_eq!(response, 200);
+        #[cfg(not(feature = "sync"))]
+        {
+            let (head, code) = bucket.head_object(&remote_path).await.unwrap();
+            assert_eq!(code, 200);
+            assert_eq!(
+                head.content_type.as_deref(),
+                Some("application/x-rust-s3-stream-test")
+            );
+            assert_eq!(head.cache_control.as_deref(), Some("public, max-age=120"));
+            assert_eq!(
+                head.metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.get("stream-marker"))
+                    .map(String::as_str),
+                Some("multipart-builder")
+            );
+        }
         let mut writer = Vec::new();
         let code = bucket
             .get_object_to_writer(&remote_path, &mut writer)
@@ -4780,6 +5456,15 @@ mod test {
         #[cfg(feature = "sync")]
         let mut reader = std::io::Cursor::new(&content);
 
+        #[cfg(not(feature = "sync"))]
+        let response = bucket
+            .put_object_stream_builder(&remote_path)
+            .with_content_type("application/x-rust-s3-stream-test")
+            .with_headers(streaming_builder_test_headers())
+            .execute_stream(&mut reader)
+            .await
+            .unwrap();
+        #[cfg(feature = "sync")]
         let response = bucket
             .put_object_stream(&mut reader, &remote_path)
             .await
@@ -4788,6 +5473,23 @@ mod test {
         assert_eq!(response.status_code(), 200);
         #[cfg(feature = "sync")]
         assert_eq!(response, 200);
+        #[cfg(not(feature = "sync"))]
+        {
+            let (head, code) = bucket.head_object(&remote_path).await.unwrap();
+            assert_eq!(code, 200);
+            assert_eq!(
+                head.content_type.as_deref(),
+                Some("application/x-rust-s3-stream-test")
+            );
+            assert_eq!(head.cache_control.as_deref(), Some("public, max-age=120"));
+            assert_eq!(
+                head.metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.get("stream-marker"))
+                    .map(String::as_str),
+                Some("multipart-builder")
+            );
+        }
         let mut writer = Vec::new();
         let code = bucket
             .get_object_to_writer(&remote_path, &mut writer)
@@ -4798,6 +5500,23 @@ mod test {
 
         let response_data = bucket.delete_object(&remote_path).await.unwrap();
         assert_eq!(response_data.status_code(), 204);
+    }
+
+    #[cfg(all(
+        not(feature = "sync"),
+        any(feature = "with-tokio", feature = "with-async-std")
+    ))]
+    fn streaming_builder_test_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=120"),
+        );
+        headers.insert(
+            HeaderName::from_static("x-amz-meta-stream-marker"),
+            HeaderValue::from_static("multipart-builder"),
+        );
+        headers
     }
 
     #[cfg(feature = "blocking")]

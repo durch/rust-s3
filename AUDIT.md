@@ -99,11 +99,30 @@ already sent can still be processed. AWS documents that
 The tests do not simulate concurrent in-flight part cancellation or every
 transport/ETag failure. Full local and provider follow-up is recorded below.
 
-### P1: Large uploads silently lose custom headers
+### P1: Large uploads silently lose custom headers — repaired and provider-verified
 
-The small-object branch applies `custom_headers` to the PUT builder. The multipart branch calls `initiate_multipart_upload` and `make_multipart_request` without forwarding them. Metadata, storage class, and encryption settings can therefore change at the 8 MiB threshold.
+At the baseline, the small-object branch applied builder `custom_headers`, while
+the multipart branch forwarded none of them. Metadata, cache policy, storage
+class, encryption settings, and write conditions could silently change at 8 MiB.
 
-Next repair: classify which headers belong on initiation versus upload parts, then test both sides of the threshold. Passing every header to every multipart operation would be incorrect.
+The repair privately routes per-call headers by multipart operation. Object
+properties and unknown provider-specific headers go to initiation. SSE-C headers
+are carried through initiation, parts, and completion; expected-owner and
+requester-pays controls also reach abort. `If-Match` and `If-None-Match` go to
+completion. The explicit content-type argument remains authoritative, matching
+the existing small-PUT behavior; completion retains its XML content type.
+
+Per-call body framing and whole-object checksum headers that cannot safely be
+reused for streamed parts now return `UnsupportedMultipartHeader` before
+initiation. The error contains only the header name. Small PUTs and bucket-global
+extra-header behavior are unchanged. Global extras remain caller-controlled;
+the per-call routing policy does not validate or reinterpret them.
+
+The policy follows AWS's [multipart initiation](https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateMultipartUpload.html),
+[part upload](https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPart.html),
+and [completion](https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html)
+contracts. It does not add streaming checksum computation or change public
+Command variants or method signatures. Local and provider verification is recorded below.
 
 ### P2: Multipart pagination drops the upload-ID cursor
 
@@ -401,9 +420,34 @@ and generated credentials were removed. This provider rerun establishes
 success-path compatibility after the cleanup change; failure cleanup evidence
 comes from the bounded local fault fixtures, not injected cloud failures.
 
+
+## Multipart header verification follow-up
+
+Tokio and async-std passed synthetic wire tests below, at, and above the multipart
+threshold. The tests verify object properties, SSE-C, conditions, owner/payer
+controls including abort, generated body headers, bucket-global/per-call
+precedence, part numbers independent of arrival order, and rejection before any
+request. Disabling routing reproduced the missing per-call metadata at initiation;
+restoring it passed. Public sync behavior remains unchanged.
+
+The complete `make ci` gate passed with no warnings in 290.80 seconds, including
+rebuilding changed artifacts. The frozen source then passed all 57 MinIO tests
+across 11 configurations (31.68 aggregate test seconds) and all 100 cloud tests
+across the five providers and eight runtime/TLS/blocking configurations. Async
+small and multipart upload fixtures now verify persisted metadata, cache control,
+and content type through HEAD, alongside exact payload bytes. Sync fixtures
+retain their existing checks.
+
+All 40 cloud prefixes were independently verified empty. MinIO listings were
+empty and untruncated, its bucket deletion returned 204 followed by 404, and the
+owned server, synthetic credentials, data, and certificates were removed. These
+results verify live object-property preservation; real-provider SSE-C and
+conditional-write scenarios remain outside the live matrix and have only
+synthetic local wire coverage.
+
 ## Order of work
 
 1. Land the reviewed streaming, signing query, and CI repairs with regression evidence.
-2. Remediate the remaining dependency advisories, release and integrate credential redaction, and preserve multipart upload headers in separate changes. Source fixes for false-success responses and local credential formatting are recorded above.
+2. Remediate the remaining dependency advisories, release and integrate credential redaction, and address the remaining lifecycle and API findings in separate changes. Source fixes for false-success responses and local credential formatting are recorded above.
 3. Resolve cursor correctness, retry semantics, refresh identity, and timeout parity with a shared local fault-test suite.
 4. Establish provider compatibility and performance baselines before expanding API coverage.
