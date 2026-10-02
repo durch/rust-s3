@@ -19,13 +19,37 @@ that file is identical to remote baseline master. This stopped the full gate
 before provider execution. No pre-merge Actions runs were returned; those
 coverage gaps were accepted for this merge. Logs are retained in
 `/tmp/rust-s3-468-gate/`. Post-merge Actions runs 37031142425 and 37031142894
-were in progress when checked; no green post-merge CI claim is made.
+completed: run 37031142425 passed; build run 37031142894 failed on the same
+two unchanged-master Clippy errors. Its second test step was skipped. Failed
+job logs are retained in `/tmp/rust-s3-468-gate/post-merge-failed.log`.
 
 Local master incorporates upstream history via `9a38bc8`, with no source-tree
 change because the XML update was already in the audit work. The remaining
 audit changes are still local and unreleased. #452 remains a separate pending
 PR; the integration candidate's intermittent R2 TLS failures remain under
 investigation. No other PR was merged, closed, or commented on.
+
+## Follow-up: matched R2 trials
+
+Luna's source review found that #452 preserves computed Content-Length and
+Content-Type for upload parts; its production delta changes header selection
+for other commands. The observed failure is TLS `BadRecordMac`, not a provider
+SignatureDoesNotMatch response. That distinguishes the error class but does
+not establish the cause.
+
+Two serial baseline/candidate pairs used the existing hash-verified
+Tokio/rustls binaries from `a2ffc58` and `2b1d1eb`, running the R2 CRUD, large
+multipart, and small-stream tests under fresh scoped prefixes. All 12 tests
+passed, and all four prefixes were independently checked empty. Together with
+the preceding baseline and candidate comparison, this does not show a
+consistently reproducible candidate regression. The three earlier TLS failures
+remain part of the evidence; no clean reliability claim is made. Receipts are
+`/tmp/rust-s3-pr-integration-8c9fb2bd7d/paired-r2-results.json`.
+
+#452 still needs its own public merge approval and standalone gate assessment.
+Before changing transport defaults, isolate concurrency, HTTP negotiation, or
+connection reuse with bounded diagnostic trials. #468 approval does not cover
+merging #452 or publishing the remaining local audit changes.
 
 ## Grounding and recommendation
 
