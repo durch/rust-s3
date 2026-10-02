@@ -5029,21 +5029,32 @@ mod test {
                 " \n<?xml version=\"1.0\"?>\n<Error><Code>InternalError</Code><RequestId>multipart-req</RequestId></Error> \n",
                 "<CopyObjectResult>",
             ];
-            let deadline = Instant::now() + Duration::from_secs(8);
             let mut count = 0;
-            while count < responses.len() && Instant::now() < deadline {
-                let (stream, _) = match listener.accept() {
-                    Ok(pair) => pair,
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::sleep(Duration::from_millis(5));
-                        continue;
-                    }
-                    Err(error) => {
-                        return Err(format!(
-                            "stage=accept completed_requests={count} next_request={} error_kind={:?} error={error}",
-                            count + 1,
-                            error.kind()
-                        ));
+            while count < responses.len() {
+                // This test makes five sequential requests, each with its own
+                // client timeout. Bound each accept separately so time spent
+                // on earlier calls does not consume later calls' window.
+                let request_deadline = Instant::now() + Duration::from_secs(8);
+                let (stream, _) = loop {
+                    match listener.accept() {
+                        Ok(pair) => break pair,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            if Instant::now() < request_deadline {
+                                thread::sleep(Duration::from_millis(5));
+                                continue;
+                            }
+                            return Err(format!(
+                                "stage=accept_deadline completed_requests={count} expected_requests={} deadline_elapsed=true",
+                                responses.len()
+                            ));
+                        }
+                        Err(error) => {
+                            return Err(format!(
+                                "stage=accept completed_requests={count} next_request={} error_kind={:?} error={error}",
+                                count + 1,
+                                error.kind()
+                            ));
+                        }
                     }
                 };
                 let mut request = Vec::new();
@@ -5057,7 +5068,7 @@ mod test {
                     .map_err(|error| server_error("set_write_timeout", count, &error))?;
                 let mut byte = [0u8; 1];
                 while !request.ends_with(b"\r\n\r\n") {
-                    if request.len() >= 16 * 1024 || Instant::now() >= deadline {
+                    if request.len() >= 16 * 1024 || Instant::now() >= request_deadline {
                         return Err(server_error(
                             "read_headers_bounds",
                             count,
@@ -5098,15 +5109,7 @@ mod test {
                     .map_err(|error| server_error("write_response", count, &error))?;
                 count += 1;
             }
-            if count == responses.len() {
-                Ok(count)
-            } else {
-                Err(format!(
-                    "stage=accept_deadline completed_requests={count} expected_requests={} deadline_elapsed={}",
-                    responses.len(),
-                    Instant::now() >= deadline
-                ))
-            }
+            Ok(count)
         });
 
         let credentials = Credentials::new(
