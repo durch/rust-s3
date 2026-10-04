@@ -30,6 +30,11 @@ these public types, or call the page method directly, need to supply or accept
 the new optional marker. Directory buckets and compatible services may omit
 the upload-ID marker; continue with the returned key marker alone.
 
+The 0.38.0 release also adds bucket-policy operations and corresponding
+variants to the public `Command` enum. Downstream code with exhaustive
+`Command` matches must handle `GetBucketPolicy`, `PutBucketPolicy`, and
+`DeleteBucketPolicy`.
+
 Before publishing `rust-s3`, confirm the registry contains `aws-creds` 0.40.0
 and run package verification against that registry release. Until then, local
 path-based compilation validates workspace integration but cannot establish

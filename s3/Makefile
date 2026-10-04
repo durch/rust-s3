@@ -134,6 +134,7 @@ async-std-fail-on-err-test:
 	cargo test --lib --no-default-features --features async-std-native-tls,fail-on-err,aws-creds/http-credentials request_retry_
 	cargo test --lib --no-default-features --features async-std-native-tls,fail-on-err,aws-creds/http-credentials xml_response_embedded_error_
 	cargo test --lib --no-default-features --features async-std-native-tls,fail-on-err,aws-creds/http-credentials multipart_stream_errors_attempt_abort_and_preserve_primary_error
+	cargo test --lib --no-default-features --features async-std-native-tls,fail-on-err,aws-creds/http-credentials bucket_policy_
 async-std-test-ignored-native-tls:
 	cargo test --no-default-features --features async-std-native-tls --features aws-creds/http-credentials -- --ignored
 async-std-test-blocking-ignored-native-tls:
@@ -156,6 +157,7 @@ sync-fail-on-err-test:
 	cargo test --lib --no-default-features --features sync,sync-native-tls,fail-on-err,aws-creds/http-credentials request_retry_
 	cargo test --lib --no-default-features --features sync,sync-native-tls,fail-on-err,aws-creds/http-credentials xml_response_embedded_error_
 	cargo test --lib --no-default-features --features sync,sync-native-tls,fail-on-err,aws-creds/http-credentials multipart_stream_errors_attempt_abort_and_preserve_primary_error
+	cargo test --lib --no-default-features --features sync,sync-native-tls,fail-on-err,aws-creds/http-credentials bucket_policy_
 sync-all: sync-test-not-ignored
 sync-nativetls: sync-nativetls-test
 sync-nativetls-clippy:

@@ -519,6 +519,8 @@ pub trait Request {
         } else if let Command::PutBucketCors { configuration, .. } = &self.command() {
             let cors = configuration.to_string();
             cors.as_bytes().to_vec()
+        } else if let Command::PutBucketPolicy { policy } = &self.command() {
+            policy.as_bytes().to_vec()
         } else if let Command::DeleteObjects { data } = &self.command() {
             data.to_string().as_bytes().to_vec()
         } else {
@@ -797,6 +799,11 @@ pub trait Request {
             | Command::DeleteBucketCors { .. } => {
                 url_str.push_str("?cors");
             }
+            Command::GetBucketPolicy
+            | Command::PutBucketPolicy { .. }
+            | Command::DeleteBucketPolicy => {
+                url_str.push_str("?policy");
+            }
             Command::GetObjectAttributes { version_id, .. } => {
                 if let Some(version_id) = version_id {
                     url_str.push_str(&format!("?attributes&versionId={}", version_id));
@@ -1059,6 +1066,10 @@ pub trait Request {
                 HeaderName::from_static("x-amz-expected-bucket-owner"),
                 expected_bucket_owner.parse()?,
             );
+        } else if let Command::PutBucketPolicy { policy } = self.command() {
+            let digest = md5::compute(policy.as_bytes());
+            let hash = general_purpose::STANDARD.encode(digest.as_ref());
+            headers.insert(HeaderName::from_static("content-md5"), hash.parse()?);
         } else if let Command::GetBucketCors {
             expected_bucket_owner,
         } = self.command()

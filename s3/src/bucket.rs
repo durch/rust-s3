@@ -1430,6 +1430,131 @@ impl Bucket {
         request.response_data(false).await
     }
 
+    /// Retrieves the bucket policy response, including its JSON body and HTTP status.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[cfg_attr(feature = "with-tokio", tokio::main)]
+    /// # #[cfg_attr(all(not(feature = "with-tokio"), feature = "with-async-std"), async_std::main)]
+    /// # #[cfg_attr(all(feature = "sync", not(feature = "with-tokio"), not(feature = "with-async-std")), tokio::main)]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
+    /// let response = bucket.get_bucket_policy().await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let response = bucket.get_bucket_policy()?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(all(feature = "blocking", not(feature = "sync")))]
+    /// let response = bucket.get_bucket_policy_blocking()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn get_bucket_policy(&self) -> Result<ResponseData, S3Error> {
+        let request = RequestImpl::new(self, "", Command::GetBucketPolicy).await?;
+        request.response_data(false).await
+    }
+
+    /// Sets the bucket policy from a JSON string.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[cfg_attr(feature = "with-tokio", tokio::main)]
+    /// # #[cfg_attr(all(not(feature = "with-tokio"), feature = "with-async-std"), async_std::main)]
+    /// # #[cfg_attr(all(feature = "sync", not(feature = "with-tokio"), not(feature = "with-async-std")), tokio::main)]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// let policy = r#"{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::rust-s3-test/policy-probe"}]}"#;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
+    /// let response = bucket.put_bucket_policy(policy).await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let response = bucket.put_bucket_policy(policy)?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(all(feature = "blocking", not(feature = "sync")))]
+    /// let response = bucket.put_bucket_policy_blocking(policy)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn put_bucket_policy(&self, policy: &str) -> Result<ResponseData, S3Error> {
+        let command = Command::PutBucketPolicy {
+            policy: policy.to_string(),
+        };
+        let request = RequestImpl::new(self, "", command).await?;
+        request.response_data(false).await
+    }
+
+    /// Deletes the bucket policy.
+    ///
+    /// # Example:
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[cfg_attr(feature = "with-tokio", tokio::main)]
+    /// # #[cfg_attr(all(not(feature = "with-tokio"), feature = "with-async-std"), async_std::main)]
+    /// # #[cfg_attr(all(feature = "sync", not(feature = "with-tokio"), not(feature = "with-async-std")), tokio::main)]
+    /// # async fn main() -> Result<()> {
+    ///
+    /// let bucket_name = "rust-s3-test";
+    /// let region = "us-east-1".parse()?;
+    /// let credentials = Credentials::default()?;
+    /// let bucket = Bucket::new(bucket_name, region, credentials)?;
+    ///
+    /// // Async variant with `tokio` or `async-std` features
+    /// #[cfg(not(feature = "sync"))]
+    /// let response = bucket.delete_bucket_policy().await?;
+    ///
+    /// // `sync` feature will produce an identical method
+    /// #[cfg(feature = "sync")]
+    /// let response = bucket.delete_bucket_policy()?;
+    ///
+    /// // Blocking variant, generated with `blocking` feature in combination
+    /// // with `tokio` or `async-std` features.
+    /// #[cfg(all(feature = "blocking", not(feature = "sync")))]
+    /// let response = bucket.delete_bucket_policy_blocking()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[maybe_async::maybe_async]
+    pub async fn delete_bucket_policy(&self) -> Result<ResponseData, S3Error> {
+        let request = RequestImpl::new(self, "", Command::DeleteBucketPolicy).await?;
+        request.response_data(false).await
+    }
+
     /// Gets torrent from an S3 path.
     ///
     /// # Example:
@@ -7786,5 +7911,393 @@ mod test {
             bucket.credentials().await.unwrap().access_key.as_deref(),
             Some("refreshed-access")
         );
+    }
+
+    #[derive(Clone, Copy)]
+    enum BucketPolicyOperation {
+        Get,
+        Put,
+        Delete,
+        #[cfg(feature = "blocking")]
+        BlockingGet,
+    }
+
+    struct BucketPolicyWireRequest {
+        method: String,
+        target: String,
+        headers: HashMap<String, String>,
+        body: Vec<u8>,
+    }
+
+    #[maybe_async::maybe_async]
+    async fn run_bucket_policy_wire_case(
+        operation: BucketPolicyOperation,
+        policy: &str,
+        response_status: u16,
+        response_body: &str,
+    ) -> (
+        Result<ResponseData, S3Error>,
+        Result<BucketPolicyWireRequest, String>,
+    ) {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let body = response_body.as_bytes().to_vec();
+        let server = thread::spawn(move || -> Result<BucketPolicyWireRequest, String> {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break (stream, ()),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if Instant::now() >= deadline {
+                            return Err("bucket policy request accept deadline".to_owned());
+                        }
+                        thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(error) => return Err(format!("accept policy request: {error}")),
+                }
+            };
+            stream.set_nonblocking(false).map_err(|e| e.to_string())?;
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .map_err(|e| e.to_string())?;
+            stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .map_err(|e| e.to_string())?;
+
+            let mut raw_headers = Vec::new();
+            let mut byte = [0u8; 1];
+            while !raw_headers.ends_with(b"\r\n\r\n") {
+                if raw_headers.len() >= 16 * 1024 || Instant::now() >= deadline {
+                    return Err("bucket policy request headers exceeded bounds".to_owned());
+                }
+                stream.read_exact(&mut byte).map_err(|e| e.to_string())?;
+                raw_headers.push(byte[0]);
+            }
+            let header_text = String::from_utf8_lossy(&raw_headers);
+            let mut lines = header_text.lines();
+            let request_line = lines.next().unwrap_or_default();
+            let mut fields = HashMap::new();
+            for line in lines {
+                if let Some((name, value)) = line.split_once(':') {
+                    fields.insert(name.trim().to_ascii_lowercase(), value.trim().to_owned());
+                }
+            }
+            let content_length = fields
+                .get("content-length")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
+            if content_length > 16 * 1024 {
+                return Err("bucket policy request body exceeded bound".to_owned());
+            }
+            let mut request_body = vec![0; content_length];
+            stream
+                .read_exact(&mut request_body)
+                .map_err(|e| e.to_string())?;
+
+            let reason = match response_status {
+                403 => "Forbidden",
+                404 => "Not Found",
+                204 => "No Content",
+                _ => "OK",
+            };
+            write!(
+                stream,
+                "HTTP/1.1 {response_status} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .map_err(|e| e.to_string())?;
+            stream.write_all(&body).map_err(|e| e.to_string())?;
+
+            let mut first = request_line.split_whitespace();
+            Ok(BucketPolicyWireRequest {
+                method: first.next().unwrap_or_default().to_owned(),
+                target: first.next().unwrap_or_default().to_owned(),
+                headers: fields,
+                body: request_body,
+            })
+        });
+
+        let credentials = Credentials::new(
+            Some("test-access-key"),
+            Some("test-secret-key"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let bucket = Bucket::new(
+            "test-bucket",
+            Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint,
+            },
+            credentials,
+        )
+        .unwrap()
+        .with_path_style()
+        .with_request_timeout(Duration::from_secs(5))
+        .unwrap();
+
+        let result = match operation {
+            BucketPolicyOperation::Get => bucket.get_bucket_policy().await,
+            BucketPolicyOperation::Put => bucket.put_bucket_policy(policy).await,
+            BucketPolicyOperation::Delete => bucket.delete_bucket_policy().await,
+            #[cfg(feature = "blocking")]
+            BucketPolicyOperation::BlockingGet => {
+                let bucket = bucket.clone();
+                thread::spawn(move || bucket.get_bucket_policy_blocking())
+                    .join()
+                    .expect("blocking bucket policy call panicked")
+            }
+        };
+        let captured = server.join().expect("bucket policy server panicked");
+        (result, captured)
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn bucket_policy_wire_contract_and_errors() {
+        use base64::Engine as _;
+        use sha2::Digest as _;
+
+        let policy = r#"{"Version":"2012-10-17","Note":"café"}"#;
+        let json_body = r#"{"Version":"2012-10-17","Statement":[]}"#;
+        let missing_body = "<Error><Code>NoSuchBucketPolicy</Code></Error>";
+        let forbidden_body = "<Error><Code>AccessDenied</Code></Error>";
+
+        let (get, capture) =
+            run_bucket_policy_wire_case(BucketPolicyOperation::Get, "", 200, json_body).await;
+        let get = get.unwrap();
+        let capture = capture.unwrap();
+        assert_eq!(get.status_code(), 200);
+        assert_eq!(get.as_slice(), json_body.as_bytes());
+        assert_eq!(capture.method, "GET");
+        assert_eq!(capture.target, "/test-bucket/?policy");
+        assert!(capture.body.is_empty());
+        assert_eq!(
+            capture
+                .headers
+                .get("x-amz-content-sha256")
+                .map(String::as_str),
+            Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        );
+        assert!(!capture.headers.contains_key("content-md5"));
+        let get_authorization = capture.headers.get("authorization").unwrap();
+        assert!(!get_authorization.contains("content-length"));
+        assert!(!get_authorization.contains("content-type"));
+        assert!(capture.headers.contains_key("authorization"));
+
+        let (put, capture) =
+            run_bucket_policy_wire_case(BucketPolicyOperation::Put, policy, 204, "").await;
+        assert_eq!(put.unwrap().status_code(), 204);
+        let capture = capture.unwrap();
+        assert_eq!(capture.method, "PUT");
+        assert_eq!(capture.target, "/test-bucket/?policy");
+        assert_eq!(capture.body, policy.as_bytes());
+        assert_eq!(
+            capture.headers.get("content-length").map(String::as_str),
+            Some(policy.len().to_string().as_str())
+        );
+        assert_eq!(
+            capture.headers.get("content-type").map(String::as_str),
+            Some("application/json")
+        );
+        assert_eq!(
+            capture.headers.get("content-md5").map(String::as_str),
+            Some(
+                base64::engine::general_purpose::STANDARD
+                    .encode(md5::compute(policy.as_bytes()).0)
+                    .as_str()
+            )
+        );
+        let payload_hash = hex::encode(sha2::Sha256::digest(policy.as_bytes()));
+        assert_eq!(
+            capture.headers.get("x-amz-content-sha256"),
+            Some(&payload_hash)
+        );
+        let authorization = capture.headers.get("authorization").unwrap();
+        assert!(authorization.starts_with("AWS4-HMAC-SHA256 Credential=test-access-key/"));
+        assert!(
+            authorization.contains(
+                "SignedHeaders=content-length;content-md5;content-type;host;x-amz-content-sha256;x-amz-date"
+            ),
+            "unexpected SigV4 signed headers: {authorization}"
+        );
+
+        let (delete, capture) =
+            run_bucket_policy_wire_case(BucketPolicyOperation::Delete, "", 204, "").await;
+        assert_eq!(delete.unwrap().status_code(), 204);
+        let capture = capture.unwrap();
+        assert_eq!(capture.method, "DELETE");
+        assert_eq!(capture.target, "/test-bucket/?policy");
+        assert!(capture.body.is_empty());
+        assert_eq!(
+            capture
+                .headers
+                .get("x-amz-content-sha256")
+                .map(String::as_str),
+            Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        );
+        assert!(!capture.headers.contains_key("content-md5"));
+        let delete_authorization = capture.headers.get("authorization").unwrap();
+        assert!(!delete_authorization.contains("content-length"));
+        assert!(!delete_authorization.contains("content-type"));
+
+        let (missing, capture) =
+            run_bucket_policy_wire_case(BucketPolicyOperation::Get, "", 404, missing_body).await;
+        if cfg!(feature = "fail-on-err") {
+            assert!(
+                matches!(missing, Err(S3Error::HttpFailWithBody(404, body)) if body.contains("NoSuchBucketPolicy"))
+            );
+        } else {
+            let missing = missing.unwrap();
+            assert_eq!(missing.status_code(), 404);
+            assert!(missing.as_str().unwrap().contains("NoSuchBucketPolicy"));
+        }
+        assert_eq!(capture.unwrap().target, "/test-bucket/?policy");
+
+        let (forbidden, _) =
+            run_bucket_policy_wire_case(BucketPolicyOperation::Get, "", 403, forbidden_body).await;
+        if cfg!(feature = "fail-on-err") {
+            assert!(
+                matches!(forbidden, Err(S3Error::HttpFailWithBody(403, body)) if body.contains("AccessDenied"))
+            );
+        } else {
+            let forbidden = forbidden.unwrap();
+            assert_eq!(forbidden.status_code(), 403);
+            assert!(forbidden.as_str().unwrap().contains("AccessDenied"));
+        }
+
+        #[cfg(feature = "blocking")]
+        {
+            let (blocking, capture) =
+                run_bucket_policy_wire_case(BucketPolicyOperation::BlockingGet, "", 200, json_body)
+                    .await;
+            assert_eq!(blocking.unwrap().status_code(), 200);
+            assert_eq!(capture.unwrap().target, "/test-bucket/?policy");
+        }
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn bucket_policy_virtual_host_signing_uses_policy_query() {
+        use super::RequestImpl;
+        use crate::command::Command;
+        use crate::request::Request as _;
+        use http::header::{AUTHORIZATION, HOST};
+
+        let credentials = Credentials::new(
+            Some("test-access-key"),
+            Some("test-secret-key"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let bucket = Bucket::new(
+            "test-bucket",
+            Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint: "http://example.test:9000/base".to_owned(),
+            },
+            credentials,
+        )
+        .unwrap();
+        let request = RequestImpl::new(&bucket, "", Command::GetBucketPolicy)
+            .await
+            .unwrap();
+        let headers = request.headers().await.unwrap();
+        assert_eq!(headers.get(HOST).unwrap(), "test-bucket.example.test:9000");
+        let authorization = headers.get(AUTHORIZATION).unwrap().to_str().unwrap();
+        assert!(authorization.starts_with("AWS4-HMAC-SHA256 Credential=test-access-key/"));
+        assert!(authorization.contains("SignedHeaders=host;x-amz-content-sha256;x-amz-date"));
+
+        let canonical = request.canonical_request(&headers).unwrap();
+        assert!(canonical.contains("GET\n/base/\npolicy=\n"), "{canonical}");
+    }
+
+    #[ignore = "requires a disposable pre-created bucket and explicit provider credentials"]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn bucket_policy_provider_roundtrip() {
+        let bucket_name = env::var("RUST_S3_POLICY_BUCKET")
+            .expect("RUST_S3_POLICY_BUCKET must name a disposable, pre-created bucket");
+        let region = env::var("RUST_S3_POLICY_REGION").expect("RUST_S3_POLICY_REGION is required");
+        let endpoint =
+            env::var("RUST_S3_POLICY_ENDPOINT").expect("RUST_S3_POLICY_ENDPOINT is required");
+        let access_key =
+            env::var("RUST_S3_POLICY_ACCESS_KEY").expect("RUST_S3_POLICY_ACCESS_KEY is required");
+        let secret_key =
+            env::var("RUST_S3_POLICY_SECRET_KEY").expect("RUST_S3_POLICY_SECRET_KEY is required");
+        let policy_json = env::var("RUST_S3_POLICY_JSON").expect("RUST_S3_POLICY_JSON is required");
+        let expected: serde_json::Value = serde_json::from_str(&policy_json)
+            .expect("RUST_S3_POLICY_JSON must contain valid JSON");
+        let credentials =
+            Credentials::new(Some(&access_key), Some(&secret_key), None, None, None).unwrap();
+        let mut bucket = Bucket::new(
+            &bucket_name,
+            Region::Custom { region, endpoint },
+            credentials,
+        )
+        .unwrap()
+        .with_path_style();
+        if let Ok(owner) = env::var("RUST_S3_POLICY_EXPECTED_OWNER") {
+            bucket.add_header("x-amz-expected-bucket-owner", &owner);
+        }
+
+        let initial = bucket.get_bucket_policy().await;
+        if cfg!(feature = "fail-on-err") {
+            assert!(
+                matches!(initial, Err(S3Error::HttpFailWithBody(404, body)) if body.contains("NoSuchBucketPolicy"))
+            );
+        } else {
+            let initial = initial.unwrap();
+            assert_eq!(initial.status_code(), 404);
+            assert!(initial.as_str().unwrap().contains("NoSuchBucketPolicy"));
+        }
+
+        let put = bucket.put_bucket_policy(&policy_json).await.unwrap();
+        assert!(matches!(put.status_code(), 200 | 204));
+        let fetched = bucket.get_bucket_policy().await.unwrap();
+        assert_eq!(fetched.status_code(), 200);
+        let actual: serde_json::Value = serde_json::from_slice(fetched.as_slice()).unwrap();
+        assert_eq!(actual, expected);
+
+        let deleted = bucket.delete_bucket_policy().await.unwrap();
+        assert!(matches!(deleted.status_code(), 200 | 204));
+        let missing = bucket.get_bucket_policy().await;
+        if cfg!(feature = "fail-on-err") {
+            assert!(
+                matches!(missing, Err(S3Error::HttpFailWithBody(404, body)) if body.contains("NoSuchBucketPolicy"))
+            );
+        } else {
+            let missing = missing.unwrap();
+            assert_eq!(missing.status_code(), 404);
+            assert!(missing.as_str().unwrap().contains("NoSuchBucketPolicy"));
+        }
     }
 }
