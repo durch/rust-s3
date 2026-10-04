@@ -1094,7 +1094,7 @@ impl Bucket {
 
     /// Configures a bucket to accept invalid SSL certificates and hostnames.
     ///
-    /// This method is available only when either the `tokio-native-tls` or `tokio-rustls-tls` feature is enabled.
+    /// This method is available only when one of the `tokio-native-tls`, `tokio-rustls-tls`, or `tokio-rustls-tls-ring` features is enabled.
     ///
     /// # Parameters
     ///
@@ -1124,7 +1124,11 @@ impl Bucket {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    #[cfg(any(
+        feature = "tokio-native-tls",
+        feature = "tokio-rustls-tls",
+        feature = "tokio-rustls-tls-ring"
+    ))]
     pub fn set_dangerous_config(
         &self,
         accept_invalid_certs: bool,
@@ -1155,7 +1159,11 @@ impl Bucket {
         since = "0.37.3",
         note = "use `set_dangerous_config`; this misspelled method remains for compatibility"
     )]
-    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    #[cfg(any(
+        feature = "tokio-native-tls",
+        feature = "tokio-rustls-tls",
+        feature = "tokio-rustls-tls-ring"
+    ))]
     pub fn set_dangereous_config(
         &self,
         accept_invalid_certs: bool,
@@ -5271,7 +5279,11 @@ mod test {
     }
 
     #[test]
-    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    #[cfg(any(
+        feature = "tokio-native-tls",
+        feature = "tokio-rustls-tls",
+        feature = "tokio-rustls-tls-ring"
+    ))]
     #[allow(deprecated)]
     fn dangerous_config_correct_spelling_and_compat_alias_set_same_options() {
         let bucket = Bucket::new(
@@ -6647,7 +6659,11 @@ mod test {
 
     #[cfg(all(
         feature = "with-tokio",
-        any(feature = "tokio-native-tls", feature = "tokio-rustls-tls")
+        any(
+            feature = "tokio-native-tls",
+            feature = "tokio-rustls-tls",
+            feature = "tokio-rustls-tls-ring"
+        )
     ))]
     #[test]
     fn with_request_timeout_preserves_tokio_client_options() {
@@ -6755,7 +6771,11 @@ mod test {
     }
 
     #[ignore]
-    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    #[cfg(any(
+        feature = "tokio-native-tls",
+        feature = "tokio-rustls-tls",
+        feature = "tokio-rustls-tls-ring"
+    ))]
     #[maybe_async::test(
         feature = "sync",
         async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),

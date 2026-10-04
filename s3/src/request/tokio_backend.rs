@@ -20,9 +20,17 @@ use tokio_stream::StreamExt;
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ClientOptions {
     pub proxy: Option<reqwest::Proxy>,
-    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    #[cfg(any(
+        feature = "tokio-native-tls",
+        feature = "tokio-rustls-tls",
+        feature = "tokio-rustls-tls-ring"
+    ))]
     pub accept_invalid_certs: bool,
-    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    #[cfg(any(
+        feature = "tokio-native-tls",
+        feature = "tokio-rustls-tls",
+        feature = "tokio-rustls-tls-ring"
+    ))]
     pub accept_invalid_hostnames: bool,
 }
 
@@ -40,13 +48,21 @@ pub(crate) fn client(options: &ClientOptions) -> Result<reqwest::Client, S3Error
     };
 
     cfg_if::cfg_if! {
-        if #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))] {
+        if #[cfg(any(
+            feature = "tokio-native-tls",
+            feature = "tokio-rustls-tls",
+            feature = "tokio-rustls-tls-ring"
+        ))] {
             let client = client.danger_accept_invalid_certs(options.accept_invalid_certs);
         }
     }
 
     cfg_if::cfg_if! {
-        if #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))] {
+        if #[cfg(any(
+            feature = "tokio-native-tls",
+            feature = "tokio-rustls-tls",
+            feature = "tokio-rustls-tls-ring"
+        ))] {
             let client = client.danger_accept_invalid_hostnames(options.accept_invalid_hostnames);
         }
     }

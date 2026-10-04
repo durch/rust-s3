@@ -1,7 +1,7 @@
 # Test and CI coverage
 
 `make` and `make ci` run the full credential-free local suite: format check,
-clippy, all nine S3 runtime/TLS library and example configurations, representative
+clippy, all ten S3 runtime/TLS library and example configurations, representative
 API doctests, and the `aws-region` and `aws-creds` test suites. Ignored provider
 tests are opt-in through `make integration-test` or `make test-ignored` from
 `s3/`. `make test-all` and `make ci-all` include those integrations and require
@@ -18,6 +18,7 @@ the default `tags` feature and for the `blocking` API:
 | Tokio | native TLS | default features | library tests and examples; default feature set includes `tags` |
 | Tokio | no TLS | `with-tokio`, `aws-creds/http-credentials` | library tests and examples |
 | Tokio | rustls | `with-tokio`, `tokio-rustls-tls`, `aws-creds/http-credentials` | library tests and examples |
+| Tokio | rustls with ring | `tokio-rustls-tls-ring`, `aws-creds/http-credentials` | library tests and examples |
 | async-std | base/no TLS | `with-async-std-hyper`, `aws-creds/http-credentials` | library tests and examples |
 | async-std | native TLS | `async-std-native-tls`, `aws-creds/http-credentials` | library tests and examples |
 | async-std | rustls | `async-std-rustls-tls`, `aws-creds/http-credentials` | library tests and examples |
@@ -30,7 +31,7 @@ Doctests run for default Tokio, Tokio with `blocking`, async-std native TLS with
 examples are compiled in that representative configuration; the other sync TLS
 variants still run their library and example coverage.
 
-The nine configurations cover `fail-on-err` disabled across all three
+The ten configurations cover `fail-on-err` disabled across all three
 runtimes. Default Tokio native TLS covers it enabled for Tokio. Two focused
 library-test commands also enable `fail-on-err` for async-std native TLS and
 sync native TLS, using the `xml_response_embedded_error_` and
@@ -39,8 +40,9 @@ These checks cover embedded response errors and multipart cleanup without
 repeating the full runtime matrix.
 
 The GitHub workflow runs formatting and support-crate checks once, then runs
-three bounded S3 jobs for Tokio, async-std, and sync. Each runtime job covers all
-three TLS configurations. Cargo registry and build caches are scoped by runtime,
+three bounded S3 jobs for Tokio, async-std, and sync. Tokio covers native TLS, no
+TLS, and rustls with both configured crypto providers; async-std and sync each
+cover three TLS configurations. Cargo registry and build caches are scoped by runtime,
 resolved workspace manifest, and Rust compiler fingerprint; cache paths exclude
 Cargo configuration and credentials. The repository ignores `Cargo.lock`, so
 CI resolves dependencies at run time and does not promise a fixed dependency
