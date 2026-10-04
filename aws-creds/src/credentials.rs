@@ -12,6 +12,8 @@ use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use time::OffsetDateTime;
+#[cfg(feature = "http-credentials")]
+use url::Host;
 use url::Url;
 
 #[cfg(feature = "http-credentials")]
@@ -85,18 +87,49 @@ pub struct Credentials {
     refresh_source: Option<RefreshSource>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 enum RefreshSource {
     StsWebIdentity {
         role_arn: String,
         session_name: String,
         token_file: PathBuf,
     },
-    ContainerRelativeUri(String),
+    #[cfg(feature = "http-credentials")]
+    Container {
+        endpoint: ContainerEndpoint,
+        token: Option<ContainerTokenSource>,
+    },
     InstanceMetadata {
         v2: bool,
         not_ec2: bool,
     },
+}
+
+impl std::fmt::Debug for RefreshSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RefreshSource([REDACTED])")
+    }
+}
+
+#[cfg(feature = "http-credentials")]
+#[derive(Clone, Eq, PartialEq)]
+enum ContainerEndpoint {
+    Relative(Url),
+    Full(Url),
+}
+
+#[cfg(feature = "http-credentials")]
+#[derive(Clone, Eq, PartialEq)]
+enum ContainerTokenSource {
+    File(PathBuf),
+    Environment(String),
+}
+
+#[cfg(feature = "http-credentials")]
+impl std::fmt::Debug for ContainerTokenSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ContainerTokenSource([REDACTED])")
+    }
 }
 
 impl PartialEq for Credentials {
@@ -271,6 +304,167 @@ where
     exchange(role_arn, session_name, &token)
 }
 
+#[cfg(feature = "http-credentials")]
+const ECS_CREDENTIALS_HOST: &str = "169.254.170.2";
+#[cfg(feature = "http-credentials")]
+const ECS_CREDENTIALS_IPV4: [u8; 4] = [169, 254, 170, 2];
+#[cfg(feature = "http-credentials")]
+const EKS_POD_IDENTITY_AGENT_IPV4: [u8; 4] = [169, 254, 170, 23];
+#[cfg(feature = "http-credentials")]
+const EKS_POD_IDENTITY_AGENT_IPV6: [u16; 8] = [0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x23];
+
+#[cfg(feature = "http-credentials")]
+fn invalid_container_uri() -> CredentialsError {
+    CredentialsError::InvalidContainerCredentialsUri
+}
+
+#[cfg(feature = "http-credentials")]
+fn parse_container_endpoint(
+) -> Result<(ContainerEndpoint, Option<ContainerTokenSource>), CredentialsError> {
+    let endpoint = if let Some(relative_uri) = env::var_os("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
+    {
+        let relative_uri = relative_uri.to_str().ok_or_else(invalid_container_uri)?;
+        let base = Url::parse(&format!("http://{ECS_CREDENTIALS_HOST}"))
+            .map_err(|_| invalid_container_uri())?;
+        if !relative_uri.starts_with('/') || relative_uri.starts_with("//") {
+            return Err(invalid_container_uri());
+        }
+        let url = base
+            .join(relative_uri)
+            .map_err(|_| invalid_container_uri())?;
+        if url.scheme() != "http"
+            || url.host_str() != Some(ECS_CREDENTIALS_HOST)
+            || url.port().is_some()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.fragment().is_some()
+        {
+            return Err(invalid_container_uri());
+        }
+        ContainerEndpoint::Relative(url)
+    } else if let Some(full_uri) = env::var_os("AWS_CONTAINER_CREDENTIALS_FULL_URI") {
+        let full_uri = full_uri.to_str().ok_or_else(invalid_container_uri)?;
+        ContainerEndpoint::Full(validate_full_container_uri(full_uri)?)
+    } else {
+        return Err(CredentialsError::NotContainer);
+    };
+
+    let token = if matches!(endpoint, ContainerEndpoint::Relative(_)) {
+        None
+    } else if let Some(path) = env::var_os("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE") {
+        let path = path
+            .to_str()
+            .ok_or(CredentialsError::InvalidContainerAuthorization)?;
+        let path = absolute_lexical_path(Path::new(path))?;
+        Some(ContainerTokenSource::File(path))
+    } else if let Some(token) = env::var_os("AWS_CONTAINER_AUTHORIZATION_TOKEN") {
+        let token = token
+            .into_string()
+            .map_err(|_| CredentialsError::InvalidContainerAuthorization)?;
+        Some(ContainerTokenSource::Environment(token))
+    } else {
+        None
+    };
+    Ok((endpoint, token))
+}
+
+#[cfg(feature = "http-credentials")]
+fn validate_full_container_uri_host(url: &Url) -> Result<(), CredentialsError> {
+    if url.username() != "" || url.password().is_some() || url.fragment().is_some() {
+        return Err(invalid_container_uri());
+    }
+    match (url.scheme(), url.host()) {
+        ("https", Some(_)) => Ok(()),
+        ("http", Some(Host::Domain(host))) if host.eq_ignore_ascii_case("localhost") => Ok(()),
+        ("http", Some(Host::Ipv4(ip)))
+            if ip.is_loopback()
+                || ip.octets() == ECS_CREDENTIALS_IPV4
+                || ip.octets() == EKS_POD_IDENTITY_AGENT_IPV4 =>
+        {
+            Ok(())
+        }
+        ("http", Some(Host::Ipv6(ip)))
+            if ip.is_loopback() || ip.segments() == EKS_POD_IDENTITY_AGENT_IPV6 =>
+        {
+            Ok(())
+        }
+        _ => Err(invalid_container_uri()),
+    }
+}
+
+#[cfg(feature = "http-credentials")]
+fn validate_full_container_uri(uri: &str) -> Result<Url, CredentialsError> {
+    let mut url = Url::parse(uri).map_err(|_| invalid_container_uri())?;
+    let authority = uri
+        .split_once("://")
+        .map(|(_, rest)| rest.split(['/', '?', '#']).next().unwrap_or_default())
+        .ok_or_else(invalid_container_uri)?;
+    if authority.contains('@') {
+        return Err(invalid_container_uri());
+    }
+    validate_full_container_uri_host(&url)?;
+    if url.scheme() == "http" && url.host_str() == Some("localhost") {
+        url.set_host(Some("127.0.0.1"))
+            .map_err(|_| invalid_container_uri())?;
+    }
+    Ok(url)
+}
+
+#[cfg(feature = "http-credentials")]
+fn read_container_token(source: &ContainerTokenSource) -> Result<String, CredentialsError> {
+    let token = match source {
+        ContainerTokenSource::File(path) => std::fs::read_to_string(path)?,
+        ContainerTokenSource::Environment(token) => token.clone(),
+    };
+    let token = token.trim_end_matches(['\r', '\n']).to_owned();
+    if token.is_empty() || token.contains(['\r', '\n']) {
+        return Err(CredentialsError::InvalidContainerAuthorization);
+    }
+    Ok(token)
+}
+
+#[cfg(feature = "http-credentials")]
+fn fetch_container_credentials(
+    endpoint: &ContainerEndpoint,
+    token_source: Option<&ContainerTokenSource>,
+) -> Result<Credentials, CredentialsError> {
+    let url = match endpoint {
+        ContainerEndpoint::Relative(url) | ContainerEndpoint::Full(url) => url,
+    };
+    let mut request = apply_timeout(attohttpc::get(url.as_str())).follow_redirects(false);
+    if url.scheme() == "http" {
+        request = request.proxy_settings(attohttpc::ProxySettings::builder().build());
+    }
+    if let Some(token_source) = token_source {
+        let token = read_container_token(token_source)?;
+        let mut header = attohttpc::header::HeaderValue::try_from(token.as_str())
+            .map_err(|_| CredentialsError::InvalidContainerAuthorization)?;
+        header.set_sensitive(true);
+        request = request
+            .try_header("Authorization", header)
+            .map_err(|_| CredentialsError::InvalidContainerAuthorization)?;
+    }
+    let response = request
+        .send()
+        .map_err(|_| CredentialsError::ContainerCredentialsRequest)?;
+    if !response.is_success() {
+        return Err(CredentialsError::UnexpectedStatusCode(
+            response.status().as_u16(),
+        ));
+    }
+    let response: CredentialsFromInstanceMetadata = response
+        .json()
+        .map_err(|_| CredentialsError::ContainerCredentialsRequest)?;
+    Ok(Credentials {
+        access_key: Some(response.access_key_id),
+        secret_key: Some(response.secret_access_key),
+        security_token: Some(response.token),
+        expiration: Some(response.expiration),
+        session_token: None,
+        refresh_source: None,
+    })
+}
+
 impl Credentials {
     pub fn refresh(&mut self) -> Result<(), CredentialsError> {
         self.refresh_with(Self::refresh_from_source)
@@ -302,7 +496,10 @@ impl Credentials {
                 session_name,
                 token_file,
             } => refresh_sts_from_token_file(role_arn, session_name, token_file, Self::from_sts),
-            RefreshSource::ContainerRelativeUri(uri) => Self::fetch_container_credentials(uri),
+            #[cfg(feature = "http-credentials")]
+            RefreshSource::Container { endpoint, token } => {
+                fetch_container_credentials(endpoint, token.as_ref())
+            }
             RefreshSource::InstanceMetadata { v2, not_ec2 } => {
                 if *v2 {
                     Self::from_instance_metadata_v2(*not_ec2)
@@ -469,36 +666,33 @@ impl Credentials {
         Credentials::from_env_specific(None, None, None, None)
     }
 
+    /// Load credentials from ECS container or EKS Pod Identity metadata.
+    ///
+    /// `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` takes precedence over
+    /// `AWS_CONTAINER_CREDENTIALS_FULL_URI`. Full URIs may use HTTPS with a
+    /// normal host. HTTP is limited to literal loopback, `localhost`, and the
+    /// documented ECS/EKS link-local addresses. `localhost` is normalized to
+    /// `127.0.0.1`. This intentionally narrower HTTP-host policy avoids sending
+    /// authorization tokens to arbitrary hosts; redirects are not followed.
+    ///
+    /// Full URI authorization uses `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`
+    /// before `AWS_CONTAINER_AUTHORIZATION_TOKEN`; the selected source is
+    /// retained for refresh, and token files are reread on each refresh. When
+    /// the relative URI is set, full-URI token settings are ignored.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use awscreds::Credentials;
+    /// let credentials = Credentials::from_container_credentials_provider()?;
+    /// # Ok::<(), awscreds::error::CredentialsError>(())
+    /// ```
     #[cfg(feature = "http-credentials")]
     pub fn from_container_credentials_provider() -> Result<Credentials, CredentialsError> {
-        let Ok(credentials_path) = env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") else {
-            return Err(CredentialsError::NotContainer);
-        };
-
-        let mut credentials = Self::fetch_container_credentials(&credentials_path)?;
-        credentials.refresh_source = Some(RefreshSource::ContainerRelativeUri(credentials_path));
+        let (endpoint, token) = parse_container_endpoint()?;
+        let mut credentials = fetch_container_credentials(&endpoint, token.as_ref())?;
+        credentials.refresh_source = Some(RefreshSource::Container { endpoint, token });
         Ok(credentials)
-    }
-
-    #[cfg(feature = "http-credentials")]
-    fn fetch_container_credentials(
-        credentials_path: &str,
-    ) -> Result<Credentials, CredentialsError> {
-        let resp: CredentialsFromInstanceMetadata = apply_timeout(attohttpc::get(format!(
-            "http://169.254.170.2{}",
-            credentials_path
-        )))
-        .send()?
-        .json()?;
-
-        Ok(Credentials {
-            access_key: Some(resp.access_key_id),
-            secret_key: Some(resp.secret_access_key),
-            security_token: Some(resp.token),
-            expiration: Some(resp.expiration),
-            session_token: None,
-            refresh_source: None,
-        })
     }
 
     #[cfg(feature = "http-credentials")]
@@ -664,11 +858,444 @@ struct CredentialsFromInstanceMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::{Duration, Instant};
     use tempfile::NamedTempFile;
+
+    #[cfg(feature = "http-credentials")]
+    const CONTAINER_TEST_MARKER: &str = "AWS_CREDS_CONTAINER_TEST_CHILD";
+
+    #[cfg(feature = "http-credentials")]
+    fn enter_container_test_child(test_name: &str) -> bool {
+        if env::var_os(CONTAINER_TEST_MARKER).as_deref() == Some(std::ffi::OsStr::new(test_name)) {
+            set_request_timeout(Some(Duration::from_secs(2)));
+            return true;
+        }
+        let mut child = Command::new(env::current_exe().unwrap());
+        child
+            .args(["--exact", &format!("credentials::tests::{test_name}")])
+            .env(CONTAINER_TEST_MARKER, test_name)
+            .env_remove("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
+            .env_remove("AWS_CONTAINER_CREDENTIALS_FULL_URI")
+            .env_remove("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE")
+            .env_remove("AWS_CONTAINER_AUTHORIZATION_TOKEN")
+            .env_remove("HTTP_PROXY")
+            .env_remove("http_proxy")
+            .env_remove("HTTPS_PROXY")
+            .env_remove("https_proxy")
+            .env_remove("ALL_PROXY")
+            .env_remove("all_proxy")
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy")
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
+        let mut child = child
+            .spawn()
+            .expect("spawn isolated container credentials test");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("isolated container credentials test timed out");
+                }
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("could not wait for isolated container credentials test: {error}");
+                }
+            }
+        };
+        assert!(
+            status.success(),
+            "isolated container credentials test failed: {status}"
+        );
+        false
+    }
+
+    #[cfg(feature = "http-credentials")]
+    fn local_metadata_server(
+        responses: Vec<(u16, &'static str, Option<String>)>,
+    ) -> (String, thread::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let worker = thread::spawn(move || {
+            let mut requests = Vec::new();
+            for (status, body, location) in responses {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let (mut stream, _) = loop {
+                    match listener.accept() {
+                        Ok(connection) => break connection,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            if Instant::now() >= deadline {
+                                panic!("timed out waiting for local metadata request");
+                            }
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("local metadata accept failed: {error}"),
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut chunk = [0_u8; 512];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let count = stream.read(&mut chunk).unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&chunk[..count]);
+                }
+                requests.push(String::from_utf8_lossy(&request).into_owned());
+                let reason = match status {
+                    200 => "OK",
+                    302 => "Found",
+                    403 => "Forbidden",
+                    _ => "Response",
+                };
+                let location_header = location
+                    .map(|url| format!("Location: {url}\r\n"))
+                    .unwrap_or_default();
+                write!(
+                    stream,
+                    "HTTP/1.1 {status} {reason}\r\n{location_header}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+            requests
+        });
+        (format!("http://{address}/credentials"), worker)
+    }
+
+    #[cfg(feature = "http-credentials")]
+    const METADATA_JSON: &str = r#"{"AccessKeyId":"test-access","SecretAccessKey":"test-secret","Token":"test-session-token","Expiration":"2099-01-01T00:00:00Z"}"#;
+
+    #[cfg(feature = "http-credentials")]
+    fn assert_listener_idle(listener: &TcpListener) {
+        let deadline = Instant::now() + Duration::from_millis(100);
+        loop {
+            match listener.accept() {
+                Ok(_) => panic!("unexpected connection to isolated test listener"),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= deadline {
+                        return;
+                    }
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("isolated listener check failed: {error}"),
+            }
+        }
+    }
+
+    #[cfg(feature = "http-credentials")]
+    fn clear_container_env() {
+        for key in [
+            "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+            "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+            "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
+            "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+        ] {
+            env::remove_var(key);
+        }
+    }
+
+    #[cfg(feature = "http-credentials")]
+    #[test]
+    fn container_credentials_success_refresh_and_proxy_isolation() {
+        if !enter_container_test_child("container_credentials_success_refresh_and_proxy_isolation")
+        {
+            return;
+        }
+        clear_container_env();
+        let (uri, worker) = local_metadata_server(vec![
+            (200, METADATA_JSON, None),
+            (200, METADATA_JSON, None),
+            (200, METADATA_JSON, None),
+            (200, METADATA_JSON, None),
+        ]);
+        let proxy = TcpListener::bind("127.0.0.1:0").unwrap();
+        proxy.set_nonblocking(true).unwrap();
+        env::set_var(
+            "HTTP_PROXY",
+            format!("http://{}", proxy.local_addr().unwrap()),
+        );
+        env::set_var("AWS_CONTAINER_CREDENTIALS_FULL_URI", &uri);
+        let mut token_file = NamedTempFile::new().unwrap();
+        token_file.write_all(b"first-token\n").unwrap();
+        token_file.flush().unwrap();
+        let token_path = absolute_lexical_path(token_file.path()).unwrap();
+        env::set_var("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", token_file.path());
+        env::set_var("AWS_CONTAINER_AUTHORIZATION_TOKEN", "ignored-token");
+
+        let mut credentials = Credentials::from_container_credentials_provider().unwrap();
+        assert_eq!(credentials.access_key.as_deref(), Some("test-access"));
+        assert_eq!(credentials.secret_key.as_deref(), Some("test-secret"));
+        assert_eq!(
+            credentials.security_token.as_deref(),
+            Some("test-session-token")
+        );
+        assert_eq!(credentials.session_token, None);
+        assert_eq!(credentials.expiration.unwrap().year(), 2099);
+        assert!(matches!(
+            credentials.refresh_source,
+            Some(RefreshSource::Container {
+                endpoint: ContainerEndpoint::Full(_),
+                token: Some(ContainerTokenSource::File(_))
+            })
+        ));
+        let serialized = serde_json::to_string(&credentials).unwrap();
+        let debug = format!("{credentials:?}");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&serialized)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .len(),
+            5
+        );
+        assert!(!serialized.contains("first-token"));
+        assert!(!serialized.contains(&uri));
+        assert!(!debug.contains("first-token"));
+        assert!(!debug.contains(&uri));
+
+        std::fs::write(&token_path, "rotated-token").unwrap();
+        env::set_var(
+            "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+            "http://untrusted.invalid/changed",
+        );
+        env::set_var(
+            "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
+            "/missing/rotated/token",
+        );
+        env::set_var("AWS_CONTAINER_AUTHORIZATION_TOKEN", "changed-env-token");
+        credentials.expiration = Some(OffsetDateTime::from_unix_timestamp(0).unwrap().into());
+        credentials.refresh().unwrap();
+        assert_eq!(credentials.access_key.as_deref(), Some("test-access"));
+        assert_eq!(credentials.secret_key.as_deref(), Some("test-secret"));
+        assert_eq!(
+            credentials.security_token.as_deref(),
+            Some("test-session-token")
+        );
+        assert_eq!(credentials.expiration.unwrap().year(), 2099);
+
+        env::set_var("AWS_CONTAINER_CREDENTIALS_FULL_URI", &uri);
+        env::remove_var("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE");
+        env::set_var("AWS_CONTAINER_AUTHORIZATION_TOKEN", "captured-env-token");
+        let mut env_credentials = Credentials::from_container_credentials_provider().unwrap();
+        assert!(matches!(
+            env_credentials.refresh_source,
+            Some(RefreshSource::Container {
+                endpoint: ContainerEndpoint::Full(_),
+                token: Some(ContainerTokenSource::Environment(_))
+            })
+        ));
+        env::set_var(
+            "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+            "http://changed.invalid/endpoint",
+        );
+        env::set_var("AWS_CONTAINER_AUTHORIZATION_TOKEN", "changed-env-token");
+        env_credentials.expiration = Some(OffsetDateTime::from_unix_timestamp(0).unwrap().into());
+        env_credentials.refresh().unwrap();
+
+        let requests = worker.join().unwrap();
+        assert_eq!(requests.len(), 4);
+        assert!(requests[0].starts_with("GET /credentials HTTP/1.1"));
+        assert!(requests[1].starts_with("GET /credentials HTTP/1.1"));
+        assert!(requests[2].starts_with("GET /credentials HTTP/1.1"));
+        assert!(requests[3].starts_with("GET /credentials HTTP/1.1"));
+        assert!(requests[0]
+            .to_ascii_lowercase()
+            .contains("authorization: first-token"));
+        assert!(requests[1]
+            .to_ascii_lowercase()
+            .contains("authorization: rotated-token"));
+        assert!(requests[2]
+            .to_ascii_lowercase()
+            .contains("authorization: captured-env-token"));
+        assert!(requests[3]
+            .to_ascii_lowercase()
+            .contains("authorization: captured-env-token"));
+        assert!(!requests[0].contains("ignored-token"));
+        assert!(!requests[3].contains("changed-env-token"));
+        assert_listener_idle(&proxy);
+    }
+
+    #[cfg(feature = "http-credentials")]
+    #[test]
+    fn container_relative_uri_precedes_full_uri_and_ignores_full_token_sources() {
+        if !enter_container_test_child(
+            "container_relative_uri_precedes_full_uri_and_ignores_full_token_sources",
+        ) {
+            return;
+        }
+        clear_container_env();
+        env::set_var(
+            "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+            "/v2/credentials/task",
+        );
+        env::set_var(
+            "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+            "http://user@bad.invalid/path#fragment",
+        );
+        env::set_var(
+            "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
+            "/missing/token-file",
+        );
+        env::set_var("AWS_CONTAINER_AUTHORIZATION_TOKEN", "stale-token");
+
+        let (endpoint, token) = parse_container_endpoint().unwrap();
+        let ContainerEndpoint::Relative(uri) = endpoint else {
+            panic!("relative endpoint did not have precedence");
+        };
+        assert_eq!(uri.as_str(), "http://169.254.170.2/v2/credentials/task");
+        assert!(token.is_none());
+
+        env::set_var(
+            "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+            "//attacker.invalid/path",
+        );
+        assert!(matches!(
+            parse_container_endpoint(),
+            Err(CredentialsError::InvalidContainerCredentialsUri)
+        ));
+    }
+
+    #[cfg(feature = "http-credentials")]
+    #[test]
+    fn container_bad_token_file_does_not_fallback_to_environment() {
+        if !enter_container_test_child("container_bad_token_file_does_not_fallback_to_environment")
+        {
+            return;
+        }
+        clear_container_env();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        env::set_var(
+            "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+            format!("http://{}/credentials", listener.local_addr().unwrap()),
+        );
+        let mut token_file = NamedTempFile::new().unwrap();
+        env::set_var(
+            "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
+            "/missing/container-token",
+        );
+        env::set_var("AWS_CONTAINER_AUTHORIZATION_TOKEN", "valid-fallback-token");
+
+        let error = Credentials::from_container_credentials_provider().unwrap_err();
+        assert!(matches!(error, CredentialsError::Io(_)));
+        env::set_var("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", token_file.path());
+        token_file.write_all(b"\n").unwrap();
+        token_file.flush().unwrap();
+        let error = Credentials::from_container_credentials_provider().unwrap_err();
+        assert!(matches!(
+            error,
+            CredentialsError::InvalidContainerAuthorization
+        ));
+        token_file.as_file_mut().set_len(0).unwrap();
+        token_file.write_all(b"first\r\nsecond").unwrap();
+        token_file.flush().unwrap();
+        let error = Credentials::from_container_credentials_provider().unwrap_err();
+        assert!(matches!(
+            error,
+            CredentialsError::InvalidContainerAuthorization
+        ));
+        assert_listener_idle(&listener);
+    }
+
+    #[cfg(feature = "http-credentials")]
+    #[test]
+    fn container_status_redirect_and_invalid_header_are_checked() {
+        if !enter_container_test_child("container_status_redirect_and_invalid_header_are_checked") {
+            return;
+        }
+        clear_container_env();
+        let target = TcpListener::bind("127.0.0.1:0").unwrap();
+        target.set_nonblocking(true).unwrap();
+        let target_uri = format!("http://{}/redirect-target", target.local_addr().unwrap());
+        let (uri, worker) = local_metadata_server(vec![
+            (403, METADATA_JSON, None),
+            (302, METADATA_JSON, Some(target_uri)),
+            (200, r#"{"AccessKeyId":"response-secret-sentinel"}"#, None),
+        ]);
+        env::set_var("AWS_CONTAINER_CREDENTIALS_FULL_URI", &uri);
+        env::set_var("AWS_CONTAINER_AUTHORIZATION_TOKEN", "test-auth-token");
+        let error = Credentials::from_container_credentials_provider().unwrap_err();
+        assert!(matches!(error, CredentialsError::UnexpectedStatusCode(403)));
+
+        // The second response is a redirect status with valid credential JSON;
+        // it must not be followed or accepted as credentials.
+        let error = Credentials::from_container_credentials_provider().unwrap_err();
+        assert!(matches!(error, CredentialsError::UnexpectedStatusCode(302)));
+        env::set_var("AWS_CONTAINER_CREDENTIALS_FULL_URI", &uri);
+        let error = Credentials::from_container_credentials_provider().unwrap_err();
+        assert!(matches!(
+            error,
+            CredentialsError::ContainerCredentialsRequest
+        ));
+        assert!(!error.to_string().contains("response-secret-sentinel"));
+        let requests = worker.join().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert!(requests[0]
+            .to_ascii_lowercase()
+            .contains("authorization: test-auth-token"));
+        assert_listener_idle(&target);
+
+        env::set_var("AWS_CONTAINER_CREDENTIALS_FULL_URI", &uri);
+        env::set_var("AWS_CONTAINER_AUTHORIZATION_TOKEN", "bad\nheader-sentinel");
+        let error = Credentials::from_container_credentials_provider().unwrap_err();
+        assert!(matches!(
+            error,
+            CredentialsError::InvalidContainerAuthorization
+        ));
+        assert!(!error.to_string().contains("header-sentinel"));
+    }
+
+    #[cfg(feature = "http-credentials")]
+    #[test]
+    fn container_endpoint_validation_rejects_unsafe_uri_without_echoing_it() {
+        for uri in [
+            "http://example.com/path?query-secret",
+            "http://169.254.170.24/path",
+            "http://user@localhost/path",
+            "http://localhost@/path",
+            "http://localhost/path#fragment-secret",
+            "ftp://localhost/path",
+        ] {
+            let error = validate_full_container_uri(uri).unwrap_err();
+            assert!(matches!(
+                error,
+                CredentialsError::InvalidContainerCredentialsUri
+            ));
+            assert!(!error.to_string().contains("query-secret"));
+            assert!(!error.to_string().contains("fragment-secret"));
+        }
+        for uri in [
+            "https://example.com/credentials",
+            "http://localhost:1234/credentials",
+            "http://127.0.0.1/credentials",
+            "http://[::1]/credentials",
+            "http://169.254.170.2/v2/credentials/task",
+            "http://169.254.170.23/credentials",
+            "http://[fd00:ec2::23]/credentials",
+        ] {
+            assert!(validate_full_container_uri(uri).is_ok(), "{uri}");
+        }
+        let normalized = validate_full_container_uri("http://localhost:1234/credentials").unwrap();
+        assert_eq!(normalized.host_str(), Some("127.0.0.1"));
+        assert_eq!(normalized.port(), Some(1234));
+    }
 
     fn expired_credentials(refresh_source: Option<RefreshSource>) -> Credentials {
         Credentials {
@@ -744,7 +1371,7 @@ mod tests {
                     assert_eq!(role_arn, "arn:aws:iam::123456789012:role/test");
                     assert_eq!(session_name, "test-session");
                     assert_eq!(token, expected_token);
-                    Ok(Credentials::anonymous()?)
+                    Credentials::anonymous()
                 },
             )
             .unwrap();
@@ -767,9 +1394,11 @@ mod tests {
 
     #[test]
     fn serialized_credentials_keep_the_five_field_wire_shape() {
-        let credentials = expired_credentials(Some(RefreshSource::ContainerRelativeUri(
-            "/v2/credentials/example".into(),
-        )));
+        let credentials = expired_credentials(Some(RefreshSource::StsWebIdentity {
+            role_arn: "arn:aws:iam::123456789012:role/test".into(),
+            session_name: "test-session".into(),
+            token_file: PathBuf::from("/tmp/test-token"),
+        }));
         let value = serde_json::to_value(&credentials).unwrap();
         let fields = value.as_object().unwrap();
         assert_eq!(fields.len(), 5);
