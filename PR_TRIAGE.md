@@ -51,6 +51,65 @@ Before changing transport defaults, isolate concurrency, HTTP negotiation, or
 connection reuse with bounded diagnostic trials. #468 approval does not cover
 merging #452 or publishing the remaining local audit changes.
 
+## Post-audit queue assessment
+
+The audit was pushed at `949b8d1`. Refresh covered all 13 remaining open PRs;
+#468 is merged. Three heads changed since the original triage: #449 is now
+`d088ddee`, #447 `e5225f0b`, and #462 `0d2b4951`. Their current diffs, not the
+older heads, govern the dispositions here.
+
+The push CI passed support, Tokio, and sync jobs. Async-std/native failed
+`xml_response_embedded_error_is_checked_by_copy_and_multipart_operations` at
+its mock server's shared eight-second deadline after four of five requests.
+Luna repaired only that test server with a fixed deadline per request,
+retaining all XML assertions and existing client/socket timeouts. Parent review
+caught and corrected an interim deadline-reset mistake before integration.
+The matching suite passed 93 tests (26 ignored), examples passed, the four
+fail-on-err XML tests passed, and formatting/Clippy passed. Repair `2755a1a`
+is pushed; build run 37036784522 passed all four jobs (support, Tokio,
+async-std and sync). No provider rerun is claimed for this
+test-only change.
+
+Proposed order: **#474, #454, #477**. A separate local candidate combines their
+original histories atop pushed master and the CI harness repair. All three
+merge cleanly; no public PR action was taken. Targeted candidate checks passed:
+#477's 15 unit tests, one doctest and Clippy; #474's two Host helper tests;
+S3 Clippy with warnings denied using the #454 ring feature. Luna added a
+shared request regression proving endpoint path/port preservation, correct Host
+authority and canonical request, and signed-header/presigned-URL behavior; it
+passed on Tokio/rustls-ring, sync/no-TLS, and async-std/rustls. The isolated ring
+feature graph contains no aws-lc. Logs and pinned heads are retained under
+`/tmp/rust-s3-post-audit-triage/`. These are targeted results, not a full
+`make ci-all` or live-provider gate for the new candidate.
+
+| PR | Current disposition | Concrete next action / reason |
+|---|---|---|
+| #474 | Prepare merge first | Host must exclude endpoint paths while request URLs retain them. Helper tests and shared request/presign path+port checks pass across three runtimes. Finish the combined candidate full gate, then request merge approval. |
+| #454 | Prepare merge second | Earlier registry dependency blocker is resolved by the pushed workspace dependency. Two feature additions merge/build cleanly and the ring-only graph excludes aws-lc. Finish feature documentation/full gate before approval. |
+| #477 | Prepare merge third | Eleven mappings agree with the AWS endpoint table; tests pass. Plan the public-enum compatibility release and update S3's registry aws-region dependency when publishing; current S3 still uses 0.28.1. |
+| #452 | Credited reconciliation | Its behavior is already covered by the pushed signing repair. Local reconciliation adds the explicit body-header policy and tests, but GitHub has a header conflict. Preserve contributor history and recorded R2 TLS failures; no new merge approval yet. |
+| #459 | Close as covered after approval | Ranged-GET generated body headers were fixed publicly by 6c97cb9. Acknowledge the contribution and link that commit; do not merge another conflicting one-line repair. |
+| #465 | Close as covered after approval | DeleteObject generated body headers are fixed publicly by 6c97cb9. Preserve acknowledgement in the closure. |
+| #467 | Close as covered after approval | Broader bodyless DELETE behavior is fixed publicly by 6c97cb9, with request regressions/provider coverage. |
+| #471 | Reconcile scope before merge | Stream-header routing is already publicly repaired by 6a3a6b8; the PR also adds a low-level initiation API. Decide whether that API is wanted independently, retain contributor credit, and resolve bucket.rs conflict. |
+| #449 | Security-sensitive follow-up | Updated EKS implementation adds token-file precedence and an endpoint allowlist. Reconcile credential refresh changes and add local HTTP token/redirect/refresh tests; explicitly document the token-host scope, which excludes AWS-documented localhost examples. |
+| #464 | Follow-up | Useful explicit concurrency control, but conflicts with rewritten streaming code. Rebase around the shared uploader and add limit/error/abort regressions without losing the audit repairs. |
+| #447 | Follow-up | Updated Linux cgroup parsing is useful but conflicts with bucket.rs. Preserve master's restored 2..10 bound, test cgroup v1/v2 limits and mount/namespace behavior on Linux before approval. The old remote baseline already had a 100 limit; do not blame that on the author. |
+| #462 | Follow-up; separate dependency sweep | New head mixes policy operations with attohttpc/reqwest/XML/minidom upgrades and conflicts with manifests. Separate API work, add operation/signing/error-mode tests and disposable-bucket policy coverage. |
+| #460 | Retain draft | Broad crypto/TLS/dependency changes conflict with the audit; quick-xml 0.39 would regress the 0.41 security update. Narrow/rebase and validate the documented MSRV and feature matrix. |
+
+Sources checked for current endpoint/provider semantics:
+[AWS S3 endpoint table](https://docs.aws.amazon.com/general/latest/gr/s3.html)
+and [AWS container credentials](https://docs.aws.amazon.com/sdkref/latest/guide/feature-container-credentials.html).
+The latter shows localhost FULL_URI examples, including authorization tokens;
+#449's more restrictive scope needs a deliberate documented choice, not an
+assumption of universal container-provider compatibility.
+
+Approval is still per public action. This assessment proposes what to prepare
+and consolidate; it does not authorize merges, comments or closures. The
+original snapshot below is historical evidence, including superseded heads
+and registry dependency blockers.
+
 ## Grounding and recommendation
 
 Reviewed all 14 open PRs through the authenticated GitHub connector: pinned head
