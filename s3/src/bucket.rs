@@ -4585,7 +4585,7 @@ mod test {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
-        let (done_tx, done_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel::<String>();
         let server = thread::spawn(move || {
             let init_body = "<InitiateMultipartUploadResult><Bucket>test-bucket</Bucket><Key>multipart-test</Key><UploadId>upload-id</UploadId></InitiateMultipartUploadResult>";
             let part_failure = "part failure";
@@ -4643,17 +4643,35 @@ mod test {
             let deadline = Instant::now() + Duration::from_secs(10);
             let mut requests = Vec::new();
 
-            for (expected_method, expected_query, status, body, with_etag) in steps {
+            for (step_index, (expected_method, expected_query, status, body, with_etag)) in
+                steps.into_iter().enumerate()
+            {
                 let (mut stream, _) = loop {
-                    if Instant::now() >= deadline {
-                        return Err(format!("accept deadline after {} requests", requests.len()));
-                    }
                     match listener.accept() {
                         Ok(pair) => break pair,
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            if let Ok(client_result) = done_rx.try_recv() {
+                                return Err(format!(
+                                    "case {case:?}: client completed before request {} (expected {expected_method}...{expected_query}) after {} requests; client result: {client_result}",
+                                    step_index + 1,
+                                    requests.len(),
+                                ));
+                            }
+                            if Instant::now() >= deadline {
+                                return Err(format!(
+                                    "case {case:?}: accept deadline after {} requests; awaiting request {} expected {expected_method}...{expected_query}",
+                                    requests.len(),
+                                    step_index + 1,
+                                ));
+                            }
                             thread::sleep(Duration::from_millis(5));
                         }
-                        Err(error) => return Err(format!("accept failed: {error}")),
+                        Err(error) => {
+                            return Err(format!(
+                                "case {case:?}: accept failed before request {} expected {expected_method}...{expected_query}: {error}",
+                                step_index + 1,
+                            ));
+                        }
                     }
                 };
                 stream
@@ -4665,13 +4683,19 @@ mod test {
                 stream
                     .set_write_timeout(Some(Duration::from_secs(3)))
                     .map_err(|error| format!("set write timeout: {error}"))?;
-                let (request_line, _) = read_request(&mut stream, requests.len() + 1, deadline)?;
+                let (request_line, _) = read_request(&mut stream, requests.len() + 1, deadline)
+                    .map_err(|error| {
+                        format!(
+                            "case {case:?}: reading request {} expected {expected_method}...{expected_query}: {error}",
+                            step_index + 1,
+                        )
+                    })?;
                 if !request_line.starts_with(expected_method)
                     || !request_line.contains(expected_query)
                 {
                     return Err(format!(
-                        "unexpected request {}: method/query mismatch",
-                        requests.len() + 1
+                        "case {case:?}: unexpected request {} while expecting {expected_method}...{expected_query}: received {request_line:?}",
+                        step_index + 1,
                     ));
                 }
                 let reason = if (200..300).contains(&status) {
@@ -4689,7 +4713,10 @@ mod test {
                     body.len()
                 );
                 stream.write_all(response.as_bytes()).map_err(|error| {
-                    format!("write response at {}: {error}", requests.len() + 1)
+                    format!(
+                        "case {case:?}: writing response for request {} expected {expected_method}...{expected_query}: {error}",
+                        step_index + 1,
+                    )
                 })?;
                 requests.push(request_line);
             }
@@ -4697,15 +4724,6 @@ mod test {
             // Keep accepting until the client signals its call has returned;
             // this detects an unexpected duplicate abort without a fixed sleep.
             loop {
-                if done_rx.try_recv().is_ok() {
-                    return Ok(requests);
-                }
-                if Instant::now() >= deadline {
-                    return Err(format!(
-                        "post-request deadline after {} requests",
-                        requests.len()
-                    ));
-                }
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         stream
@@ -4717,17 +4735,40 @@ mod test {
                         stream
                             .set_write_timeout(Some(Duration::from_secs(3)))
                             .map_err(|error| format!("set extra write timeout: {error}"))?;
-                        let (request_line, _) =
-                            read_request(&mut stream, requests.len() + 1, deadline)?;
+                        let (request_line, _) = read_request(
+                            &mut stream,
+                            requests.len() + 1,
+                            deadline,
+                        )
+                        .map_err(|error| {
+                            format!(
+                                "case {case:?}: reading unexpected request after {} expected requests: {error}",
+                                requests.len(),
+                            )
+                        })?;
                         requests.push(format!("unexpected extra request: {request_line}"));
                         stream
                             .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
                             .map_err(|error| format!("write extra response: {error}"))?;
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if done_rx.try_recv().is_ok() {
+                            return Ok(requests);
+                        }
+                        if Instant::now() >= deadline {
+                            return Err(format!(
+                                "case {case:?}: post-request deadline after {} requests while awaiting client completion",
+                                requests.len()
+                            ));
+                        }
                         thread::sleep(Duration::from_millis(5));
                     }
-                    Err(error) => return Err(format!("accept extra request failed: {error}")),
+                    Err(error) => {
+                        return Err(format!(
+                            "case {case:?}: accept unexpected request after {} expected requests failed: {error}",
+                            requests.len(),
+                        ));
+                    }
                 }
             }
         });
@@ -4772,7 +4813,7 @@ mod test {
             .await;
         #[cfg(not(feature = "sync"))]
         let result = result.map(|response| response.status_code());
-        let _ = done_tx.send(());
+        let _ = done_tx.send(format!("{result:?}"));
         let server_result = server.join().expect("mock multipart server panicked");
         (result, server_result)
     }
@@ -4801,7 +4842,11 @@ mod test {
             MultipartFailureCase::SmallPut,
         ] {
             let (result, requests) = run_multipart_failure_case(case).await;
-            let requests = requests.expect("mock server request sequence failed");
+            let requests = requests.unwrap_or_else(|server_error| {
+                panic!(
+                    "{case:?}: mock server request sequence failed; client result: {result:?}; {server_error}"
+                )
+            });
             let expected_requests = match case {
                 MultipartFailureCase::Reader => 2 + usize::from(cfg!(feature = "sync")),
                 MultipartFailureCase::Part => 2 + failure_attempts,
