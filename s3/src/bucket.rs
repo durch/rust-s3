@@ -1793,6 +1793,7 @@ impl Bucket {
     ///     .with_content_type("application/zip")
     ///     .with_cache_control("public, max-age=3600")?
     ///     .with_metadata("uploaded-by", "stream-builder")?
+    ///     .with_max_concurrent_chunks(2)
     ///     .execute_stream(&mut file)
     ///     .await?;
     /// #
@@ -1947,8 +1948,14 @@ impl Bucket {
         s3_path: &str,
         content_type: &str,
     ) -> Result<PutStreamResponse, S3Error> {
-        self._put_object_stream_with_content_type_and_headers(reader, s3_path, content_type, None)
-            .await
+        self._put_object_stream_with_content_type_and_headers(
+            reader,
+            s3_path,
+            content_type,
+            None,
+            None,
+        )
+        .await
     }
 
     /// Calculate the maximum number of concurrent chunks based on available memory.
@@ -1988,6 +1995,7 @@ impl Bucket {
         s3_path: &str,
         content_type: &str,
         custom_headers: Option<http::HeaderMap>,
+        max_concurrent_chunks: Option<std::num::NonZeroUsize>,
     ) -> Result<PutStreamResponse, S3Error> {
         // If the file is smaller CHUNK_SIZE, just do a regular upload.
         // Otherwise perform a multi-part upload.
@@ -2024,7 +2032,10 @@ impl Bucket {
         let upload_id = &msg.upload_id;
 
         // Determine max concurrent chunks based on available memory
-        let max_concurrent_chunks = Self::calculate_max_concurrent_chunks();
+        let max_concurrent_chunks = max_concurrent_chunks.map_or_else(
+            Self::calculate_max_concurrent_chunks,
+            std::num::NonZeroUsize::get,
+        );
 
         // Use FuturesUnordered for bounded parallelism
         use futures_util::FutureExt;
@@ -4451,6 +4462,319 @@ mod test {
         }
     }
 
+    #[cfg(all(
+        not(feature = "sync"),
+        any(feature = "with-tokio", feature = "with-async-std")
+    ))]
+    struct MultipartTrackedReader {
+        remaining: usize,
+        bytes_read: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
+    impl tokio::io::AsyncRead for MultipartTrackedReader {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _context: &mut std::task::Context<'_>,
+            buffer: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            use std::sync::atomic::Ordering;
+            let this = self.get_mut();
+            let count = this.remaining.min(buffer.remaining());
+            let offset = this.bytes_read.fetch_add(count, Ordering::SeqCst);
+            for (index, byte) in buffer.initialize_unfilled()[..count].iter_mut().enumerate() {
+                *byte = ((offset + index) % 251) as u8;
+            }
+            buffer.advance(count);
+            this.remaining -= count;
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    #[cfg(all(not(feature = "sync"), feature = "with-async-std"))]
+    impl async_std::io::Read for MultipartTrackedReader {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _context: &mut std::task::Context<'_>,
+            buffer: &mut [u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            use std::sync::atomic::Ordering;
+            let this = self.get_mut();
+            let count = this.remaining.min(buffer.len());
+            let offset = this.bytes_read.fetch_add(count, Ordering::SeqCst);
+            for (index, byte) in buffer[..count].iter_mut().enumerate() {
+                *byte = ((offset + index) % 251) as u8;
+            }
+            this.remaining -= count;
+            std::task::Poll::Ready(Ok(count))
+        }
+    }
+
+    #[cfg(all(
+        not(feature = "sync"),
+        any(feature = "with-tokio", feature = "with-async-std")
+    ))]
+    #[maybe_async::maybe_async]
+    async fn run_multipart_builder_success_case(
+        max_concurrent_chunks: usize,
+    ) -> Result<(), String> {
+        use std::io::{Read, Write};
+        use std::net::{TcpListener, TcpStream};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, mpsc};
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        const TAIL: usize = 17;
+        let total = 3 * super::CHUNK_SIZE + TAIL;
+        let bytes_read = Arc::new(AtomicUsize::new(0));
+        let server_bytes_read = Arc::clone(&bytes_read);
+        let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
+        listener
+            .set_nonblocking(true)
+            .map_err(|error| error.to_string())?;
+        let endpoint = format!(
+            "http://{}",
+            listener.local_addr().map_err(|error| error.to_string())?
+        );
+        let (done_tx, done_rx) = mpsc::channel::<String>();
+        let server = thread::spawn(move || -> Result<(), String> {
+            fn accept_until(
+                listener: &TcpListener,
+                done_rx: &mpsc::Receiver<String>,
+                deadline: Instant,
+            ) -> Result<TcpStream, String> {
+                loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => {
+                            stream.set_nonblocking(false).map_err(|e| e.to_string())?;
+                            stream
+                                .set_read_timeout(Some(Duration::from_secs(3)))
+                                .map_err(|e| e.to_string())?;
+                            stream
+                                .set_write_timeout(Some(Duration::from_secs(3)))
+                                .map_err(|e| e.to_string())?;
+                            return Ok(stream);
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            if let Ok(result) = done_rx.try_recv() {
+                                return Err(format!(
+                                    "client finished before expected request: {result}"
+                                ));
+                            }
+                            if Instant::now() >= deadline {
+                                return Err("multipart server accept deadline".to_owned());
+                            }
+                            thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(error) => return Err(error.to_string()),
+                    }
+                }
+            }
+            fn read_request(
+                stream: &mut TcpStream,
+                deadline: Instant,
+            ) -> Result<(String, Vec<u8>), String> {
+                let mut headers = Vec::new();
+                let mut byte = [0];
+                while !headers.ends_with(b"\r\n\r\n") {
+                    if headers.len() > 16 * 1024 || Instant::now() >= deadline {
+                        return Err("request header bound or deadline exceeded".to_owned());
+                    }
+                    stream.read_exact(&mut byte).map_err(|e| e.to_string())?;
+                    headers.push(byte[0]);
+                }
+                let text = String::from_utf8_lossy(&headers);
+                let line = text.lines().next().unwrap_or_default().to_owned();
+                let len = text
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(str::to_owned)
+                    })
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if len > super::CHUNK_SIZE + 64 * 1024 {
+                    return Err("request body exceeded bound".to_owned());
+                }
+                let mut body = vec![0; len];
+                stream.read_exact(&mut body).map_err(|e| e.to_string())?;
+                Ok((line, body))
+            }
+            fn respond(
+                stream: &mut TcpStream,
+                status: u16,
+                body: &str,
+                etag: Option<&str>,
+            ) -> Result<(), String> {
+                let tag = etag
+                    .map(|value| format!("ETag: \"{value}\"\r\n"))
+                    .unwrap_or_default();
+                write!(stream, "HTTP/1.1 {status} OK\r\nContent-Length: {}\r\n{tag}Connection: close\r\n\r\n{body}", body.len()).map_err(|e| e.to_string())
+            }
+
+            let deadline = Instant::now() + Duration::from_secs(20);
+            let mut init = accept_until(&listener, &done_rx, deadline)?;
+            let (line, _) = read_request(&mut init, deadline)?;
+            if !line.starts_with("POST ") || !line.contains("uploads") {
+                return Err(format!("unexpected init: {line}"));
+            }
+            respond(
+                &mut init,
+                200,
+                "<InitiateMultipartUploadResult><Bucket>test-bucket</Bucket><Key>multipart-test</Key><UploadId>upload-id</UploadId></InitiateMultipartUploadResult>",
+                None,
+            )?;
+
+            fn number(line: &str) -> Result<usize, String> {
+                line.split("partNumber=")
+                    .nth(1)
+                    .and_then(|value| value.split('&').next())
+                    .and_then(|value| value.parse().ok())
+                    .ok_or_else(|| format!("missing part number in {line}"))
+            }
+            fn verify_part(number: usize, body: &[u8]) -> Result<(), String> {
+                let expected_len = if number == 4 { TAIL } else { super::CHUNK_SIZE };
+                if body.len() != expected_len {
+                    return Err(format!(
+                        "part {number} length {} != {expected_len}",
+                        body.len()
+                    ));
+                }
+                let offset = (number - 1) * super::CHUNK_SIZE;
+                if body
+                    .iter()
+                    .enumerate()
+                    .any(|(index, byte)| *byte != ((offset + index) % 251) as u8)
+                {
+                    return Err(format!("part {number} bytes did not match source offsets"));
+                }
+                Ok(())
+            }
+            let mut parts = Vec::new();
+            for _ in 0..max_concurrent_chunks {
+                let mut stream = accept_until(&listener, &done_rx, deadline)?;
+                let (line, body) = read_request(&mut stream, deadline)?;
+                let part_number = number(&line)?;
+                if part_number > max_concurrent_chunks {
+                    return Err(format!(
+                        "part {part_number} arrived beyond cap {max_concurrent_chunks}"
+                    ));
+                }
+                verify_part(part_number, &body)?;
+                let observed = server_bytes_read.load(Ordering::SeqCst);
+                if observed > max_concurrent_chunks * super::CHUNK_SIZE {
+                    return Err(format!(
+                        "reader exceeded cap before response: {observed} bytes"
+                    ));
+                }
+                parts.push((part_number, stream));
+            }
+
+            if max_concurrent_chunks == 2 {
+                let index = parts
+                    .iter()
+                    .position(|(part, _)| *part == 2)
+                    .ok_or_else(|| "part 2 not received".to_owned())?;
+                respond(&mut parts[index].1, 200, "", Some("etag-2"))?;
+            } else {
+                respond(&mut parts[0].1, 200, "", Some("etag-1"))?;
+                parts.clear();
+            }
+
+            let start = if max_concurrent_chunks == 2 { 3 } else { 2 };
+            let mut acknowledged_bytes = super::CHUNK_SIZE;
+            for part_number in start..=4 {
+                let mut stream = accept_until(&listener, &done_rx, deadline)?;
+                let (line, body) = read_request(&mut stream, deadline)?;
+                let received_number = number(&line)?;
+                if received_number != part_number {
+                    return Err(format!("expected part {part_number}, got {line}"));
+                }
+                verify_part(part_number, &body)?;
+                let allowed = acknowledged_bytes + max_concurrent_chunks * super::CHUNK_SIZE;
+                let observed = server_bytes_read.load(Ordering::SeqCst);
+                if observed > allowed.min(total) {
+                    return Err(format!(
+                        "reader exceeded concurrency cap at part {part_number}: read {observed}, allowed {allowed}"
+                    ));
+                }
+                respond(&mut stream, 200, "", Some(&format!("etag-{part_number}")))?;
+                acknowledged_bytes += body.len();
+            }
+            if max_concurrent_chunks == 2 {
+                // Release part 1 last to force out-of-order completion.
+                let index = parts
+                    .iter()
+                    .position(|(part, _)| *part == 1)
+                    .ok_or_else(|| "part 1 not received".to_owned())?;
+                respond(&mut parts[index].1, 200, "", Some("etag-1"))?;
+            }
+
+            let mut completion = accept_until(&listener, &done_rx, deadline)?;
+            let (line, body) = read_request(&mut completion, deadline)?;
+            if !line.contains("uploadId=upload-id") {
+                return Err(format!("unexpected completion: {line}"));
+            }
+            let xml = String::from_utf8(body).map_err(|e| e.to_string())?;
+            let expected_blocks = (1..=4)
+                .map(|part| {
+                    format!(
+                        "<Part><PartNumber>{part}</PartNumber><ETag>\"etag-{part}\"</ETag></Part>"
+                    )
+                })
+                .collect::<String>();
+            if !xml.contains(&expected_blocks) {
+                return Err(format!("completion parts were not ordered: {xml}"));
+            }
+            respond(
+                &mut completion,
+                200,
+                "<CompleteMultipartUploadResult/>",
+                None,
+            )?;
+            Ok(())
+        });
+
+        let credentials = Credentials::new(Some("access"), Some("secret"), None, None, None)
+            .map_err(|e| e.to_string())?;
+        let bucket = Bucket::new(
+            "test-bucket",
+            Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint,
+            },
+            credentials,
+        )
+        .map_err(|e| e.to_string())?
+        .with_path_style()
+        .with_request_timeout(Duration::from_secs(5))
+        .map_err(|e| e.to_string())?;
+        let mut reader = MultipartTrackedReader {
+            remaining: total,
+            bytes_read,
+        };
+        let result = bucket
+            .put_object_stream_builder("/multipart-test")
+            .with_max_concurrent_chunks(max_concurrent_chunks)
+            .execute_stream(&mut reader)
+            .await;
+        let _ = done_tx.send(format!("{result:?}"));
+        let server_result = server
+            .join()
+            .map_err(|_| "multipart server panicked".to_owned())?;
+        server_result?;
+        let response = result.map_err(|error| format!("upload failed: {error:?}"))?;
+        if response.uploaded_bytes() != total {
+            return Err(format!(
+                "uploaded byte count {} != {total}",
+                response.uploaded_bytes()
+            ));
+        }
+        Ok(())
+    }
+
     #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
     #[tokio::test]
     async fn multipart_stream_builder_routes_headers_by_operation() {
@@ -4537,6 +4861,7 @@ mod test {
     #[maybe_async::maybe_async]
     async fn run_multipart_failure_case(
         case: MultipartFailureCase,
+        max_concurrent_chunks: Option<usize>,
     ) -> (Result<u16, S3Error>, Result<Vec<String>, String>) {
         use super::CHUNK_SIZE;
         use std::io::{Read, Write};
@@ -4602,7 +4927,7 @@ mod test {
             let mut steps = vec![("POST ", "uploads", 200, init_body, false)];
             match case {
                 MultipartFailureCase::Reader | MultipartFailureCase::Abort => {
-                    if cfg!(feature = "sync") {
+                    if cfg!(feature = "sync") || max_concurrent_chunks == Some(1) {
                         steps.push(("PUT ", "partNumber=1", 200, "", true));
                     }
                     let (status, body) = if matches!(case, MultipartFailureCase::Abort) {
@@ -4804,6 +5129,9 @@ mod test {
                 MultipartFailureCase::Reader | MultipartFailureCase::Abort
             ),
         };
+        #[cfg(feature = "sync")]
+        let _ = max_concurrent_chunks;
+        #[cfg(feature = "sync")]
         let result = bucket
             .put_object_stream_with_content_type(
                 &mut reader,
@@ -4811,6 +5139,23 @@ mod test {
                 "application/octet-stream",
             )
             .await;
+        #[cfg(not(feature = "sync"))]
+        let result = if let Some(limit) = max_concurrent_chunks {
+            bucket
+                .put_object_stream_builder("/multipart-test")
+                .with_content_type("application/octet-stream")
+                .with_max_concurrent_chunks(limit)
+                .execute_stream(&mut reader)
+                .await
+        } else {
+            bucket
+                .put_object_stream_with_content_type(
+                    &mut reader,
+                    "/multipart-test",
+                    "application/octet-stream",
+                )
+                .await
+        };
         #[cfg(not(feature = "sync"))]
         let result = result.map(|response| response.status_code());
         let _ = done_tx.send(format!("{result:?}"));
@@ -4841,7 +5186,7 @@ mod test {
             #[cfg(feature = "sync")]
             MultipartFailureCase::SmallPut,
         ] {
-            let (result, requests) = run_multipart_failure_case(case).await;
+            let (result, requests) = run_multipart_failure_case(case, None).await;
             let requests = requests.unwrap_or_else(|server_error| {
                 panic!(
                     "{case:?}: mock server request sequence failed; client result: {result:?}; {server_error}"
@@ -4897,6 +5242,85 @@ mod test {
                     }
                 }
             }
+        }
+    }
+
+    #[cfg(all(
+        not(feature = "sync"),
+        any(feature = "with-tokio", feature = "with-async-std")
+    ))]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn multipart_stream_builder_limits_preserve_abort_errors() {
+        let failure_attempts = if cfg!(feature = "fail-on-err") {
+            crate::get_retries() as usize + 1
+        } else {
+            1
+        };
+        for (limit, case, expected_requests) in [
+            (1, MultipartFailureCase::Reader, 3),
+            (1, MultipartFailureCase::Abort, 3),
+            (1, MultipartFailureCase::Part, 2 + failure_attempts),
+            (1, MultipartFailureCase::Completion, 4),
+            (1, MultipartFailureCase::CompletionEmbeddedError, 4),
+            (2, MultipartFailureCase::Reader, 2),
+            (2, MultipartFailureCase::Abort, 2),
+            (2, MultipartFailureCase::Part, 2 + failure_attempts),
+            (2, MultipartFailureCase::Completion, 4),
+            (2, MultipartFailureCase::CompletionEmbeddedError, 4),
+        ] {
+            let (result, requests) = run_multipart_failure_case(case, Some(limit)).await;
+            let requests = requests.unwrap_or_else(|server_error| {
+                panic!("limit {limit} {case:?}: client result {result:?}; {server_error}")
+            });
+            assert_eq!(requests.len(), expected_requests, "limit {limit} {case:?}");
+            assert!(result.is_err(), "limit {limit} {case:?} should fail");
+            match case {
+                MultipartFailureCase::Reader | MultipartFailureCase::Abort => assert!(
+                    matches!(result, Err(S3Error::Io(error)) if error.to_string() == "injected reader failure")
+                ),
+                MultipartFailureCase::Part => assert!(matches!(
+                    result,
+                    Err(S3Error::HttpFail | S3Error::HttpFailWithBody(500, _))
+                )),
+                MultipartFailureCase::Completion => match result {
+                    Err(S3Error::HttpFailWithBody(500, body)) => {
+                        assert_eq!(body, "completion failure")
+                    }
+                    Err(S3Error::HttpFail) if cfg!(feature = "fail-on-err") => {}
+                    other => panic!("limit {limit}: completion error was not preserved: {other:?}"),
+                },
+                MultipartFailureCase::CompletionEmbeddedError => assert!(
+                    matches!(result, Err(S3Error::HttpFailWithBody(200, body)) if body.contains("completion-req"))
+                ),
+                MultipartFailureCase::SmallPut => unreachable!(),
+            }
+        }
+    }
+
+    #[cfg(all(
+        not(feature = "sync"),
+        any(feature = "with-tokio", feature = "with-async-std")
+    ))]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn multipart_stream_builder_limits_bound_and_order_parts() {
+        for limit in [1, 2] {
+            run_multipart_builder_success_case(limit)
+                .await
+                .unwrap_or_else(|error| panic!("limit {limit}: {error}"));
         }
     }
 
@@ -6114,6 +6538,66 @@ mod test {
     )]
     async fn streaming_minio_put_head_get_delete_object() {
         streaming_test_put_get_delete_small_object(test_minio_bucket()).await;
+    }
+
+    #[ignore]
+    #[cfg(not(feature = "sync"))]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn streaming_aws_explicit_multipart_limits_roundtrip() {
+        streaming_test_explicit_multipart_limits(test_aws_bucket()).await;
+    }
+
+    #[ignore]
+    #[cfg(not(feature = "sync"))]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn streaming_minio_explicit_multipart_limits_roundtrip() {
+        streaming_test_explicit_multipart_limits(test_minio_bucket()).await;
+    }
+
+    #[cfg(not(feature = "sync"))]
+    #[maybe_async::maybe_async]
+    async fn streaming_test_explicit_multipart_limits(bucket: Box<Bucket>) {
+        init();
+        let content = object((2 * super::CHUNK_SIZE + 23) as u32);
+        for limit in [1, 2] {
+            let key = test_object_key(&format!("+stream_concurrency_{limit}"));
+            #[cfg(feature = "with-tokio")]
+            let mut reader = std::io::Cursor::new(content.clone());
+            #[cfg(feature = "with-async-std")]
+            let mut reader = async_std::io::Cursor::new(content.clone());
+            let response = bucket
+                .put_object_stream_builder(&key)
+                .with_max_concurrent_chunks(limit)
+                .execute_stream(&mut reader)
+                .await
+                .unwrap();
+            assert_eq!(response.status_code(), 200);
+            assert_eq!(response.uploaded_bytes(), content.len());
+            let mut downloaded = Vec::new();
+            assert_eq!(
+                bucket
+                    .get_object_to_writer(&key, &mut downloaded)
+                    .await
+                    .unwrap(),
+                200
+            );
+            assert_eq!(downloaded, content);
+            assert_eq!(bucket.delete_object(&key).await.unwrap().status_code(), 204);
+        }
     }
 
     #[maybe_async::maybe_async]

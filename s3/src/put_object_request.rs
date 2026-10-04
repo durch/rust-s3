@@ -231,6 +231,7 @@ pub struct PutObjectStreamRequest<'a> {
     path: String,
     content_type: String,
     custom_headers: HeaderMap,
+    max_concurrent_chunks: Option<std::num::NonZeroUsize>,
 }
 
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
@@ -242,6 +243,7 @@ impl<'a> PutObjectStreamRequest<'a> {
             path: path.as_ref().to_string(),
             content_type: "application/octet-stream".to_string(),
             custom_headers: HeaderMap::new(),
+            max_concurrent_chunks: None,
         }
     }
 
@@ -309,6 +311,20 @@ impl<'a> PutObjectStreamRequest<'a> {
         Ok(self)
     }
 
+    /// Set the maximum number of multipart parts this upload may have in flight.
+    ///
+    /// A value of `1` uploads parts sequentially through the same streaming
+    /// path. Values greater than `1` set the exact per-upload concurrency cap,
+    /// including values above the automatic default's maximum of 10. A value
+    /// of `0` restores the automatic setting, currently 2–10 parts based on
+    /// available memory, or 3 if memory detection fails. This is a per-upload
+    /// concurrency limit, not a process-wide memory or RSS limit. It applies
+    /// only to multipart uploads; smaller objects use a regular PUT.
+    pub fn with_max_concurrent_chunks(mut self, max: usize) -> Self {
+        self.max_concurrent_chunks = std::num::NonZeroUsize::new(max);
+        self
+    }
+
     /// Execute the streaming PUT request
     #[cfg(feature = "with-tokio")]
     pub async fn execute_stream<R: AsyncRead + Unpin + ?Sized>(
@@ -327,6 +343,7 @@ impl<'a> PutObjectStreamRequest<'a> {
                 } else {
                     Some(self.custom_headers)
                 },
+                self.max_concurrent_chunks,
             )
             .await
     }
@@ -346,6 +363,7 @@ impl<'a> PutObjectStreamRequest<'a> {
                 } else {
                     Some(self.custom_headers)
                 },
+                self.max_concurrent_chunks,
             )
             .await
     }
@@ -390,6 +408,55 @@ mod tests {
         assert!(request.custom_headers.contains_key("x-amz-meta-author"));
         assert!(request.custom_headers.contains_key("x-custom"));
         assert!(request.custom_headers.contains_key("x-amz-storage-class"));
+    }
+
+    #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
+    #[test]
+    fn stream_builder_max_concurrency_defaults_and_resets_to_automatic() {
+        let bucket =
+            Bucket::new("test", Region::UsEast1, Credentials::anonymous().unwrap()).unwrap();
+
+        assert_eq!(
+            bucket
+                .put_object_stream_builder("/stream")
+                .max_concurrent_chunks,
+            None
+        );
+        assert_eq!(
+            bucket
+                .put_object_stream_builder("/stream")
+                .with_max_concurrent_chunks(1)
+                .max_concurrent_chunks
+                .unwrap()
+                .get(),
+            1
+        );
+        assert_eq!(
+            bucket
+                .put_object_stream_builder("/stream")
+                .with_max_concurrent_chunks(2)
+                .max_concurrent_chunks
+                .unwrap()
+                .get(),
+            2
+        );
+        assert_eq!(
+            bucket
+                .put_object_stream_builder("/stream")
+                .with_max_concurrent_chunks(32)
+                .max_concurrent_chunks
+                .unwrap()
+                .get(),
+            32
+        );
+        assert_eq!(
+            bucket
+                .put_object_stream_builder("/stream")
+                .with_max_concurrent_chunks(32)
+                .with_max_concurrent_chunks(0)
+                .max_concurrent_chunks,
+            None
+        );
     }
 
     #[test]
