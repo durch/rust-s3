@@ -5223,6 +5223,173 @@ mod test {
         assert!(matches!(malformed_copy, Err(S3Error::SerdeXml(_))));
     }
 
+    #[cfg(all(
+        not(feature = "sync"),
+        not(feature = "with-tokio"),
+        feature = "with-async-std"
+    ))]
+    #[async_std::test]
+    async fn copy_object_opens_new_connection_after_server_close() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        fn read_request(
+            stream: &mut std::net::TcpStream,
+            deadline: Instant,
+        ) -> Result<String, String> {
+            let mut request = Vec::new();
+            let mut byte = [0u8; 1];
+            while !request.ends_with(b"\r\n\r\n") {
+                let now = Instant::now();
+                if now >= deadline {
+                    return Err("deadline reading request headers".to_owned());
+                }
+                stream
+                    .set_read_timeout(Some((deadline - now).min(Duration::from_millis(100))))
+                    .map_err(|error| format!("set request read timeout: {error}"))?;
+                if request.len() >= 16 * 1024 {
+                    return Err("request headers exceeded test limit".to_owned());
+                }
+                match stream.read_exact(&mut byte) {
+                    Ok(()) => {}
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) && Instant::now() < deadline =>
+                    {
+                        continue;
+                    }
+                    Err(error) => return Err(format!("read request headers: {error}")),
+                }
+                request.push(byte[0]);
+            }
+            Ok(String::from_utf8_lossy(&request).into_owned())
+        }
+
+        fn write_response(stream: &mut std::net::TcpStream) -> Result<(), String> {
+            let body = "<CopyObjectResult><ETag>\"copy-etag\"</ETag></CopyObjectResult>";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .map_err(|error| format!("write close response: {error}"))
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || -> Result<String, String> {
+            let deadline = Instant::now() + Duration::from_secs(6);
+            let (mut first, _) = loop {
+                match listener.accept() {
+                    Ok(pair) => break pair,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if Instant::now() >= deadline {
+                            return Err("deadline waiting for first copy request".to_owned());
+                        }
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(error) => return Err(format!("accept first request: {error}")),
+                }
+            };
+            first
+                .set_write_timeout(Some(Duration::from_secs(1)))
+                .map_err(|error| format!("set first connection write timeout: {error}"))?;
+            first
+                .set_nonblocking(false)
+                .map_err(|error| format!("set first connection blocking: {error}"))?;
+            let first_line = read_request(&mut first, deadline)?;
+            if !first_line.starts_with("PUT ") {
+                return Err(format!("first request was not a copy PUT: {first_line:?}"));
+            }
+            write_response(&mut first)?;
+            first
+                .set_nonblocking(true)
+                .map_err(|error| format!("set first connection nonblocking: {error}"))?;
+
+            // Watch the just-used socket and the listener together. Reuse is a
+            // failure; a fresh accept is the expected connection-close path.
+            loop {
+                let mut byte = [0u8; 1];
+                match first.read(&mut byte) {
+                    Ok(0) => {}
+                    Ok(_) => return Ok(format!("reused closed connection: {first_line:?}")),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(error) => {
+                        return Err(format!("read old connection during reuse check: {error}"));
+                    }
+                }
+
+                match listener.accept() {
+                    Ok((mut second, _)) => {
+                        second
+                            .set_write_timeout(Some(Duration::from_secs(1)))
+                            .map_err(|error| {
+                                format!("set second connection write timeout: {error}")
+                            })?;
+                        second
+                            .set_nonblocking(false)
+                            .map_err(|error| format!("set second connection blocking: {error}"))?;
+                        let second_line = read_request(&mut second, deadline)?;
+                        if !second_line.starts_with("PUT ") {
+                            return Err(format!(
+                                "second request was not a copy PUT: {second_line:?}"
+                            ));
+                        }
+                        write_response(&mut second)?;
+                        return Ok(format!(
+                            "fresh connection; first={first_line:?}; second={second_line:?}"
+                        ));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(error) => return Err(format!("accept second request: {error}")),
+                }
+
+                if Instant::now() >= deadline {
+                    return Err("deadline waiting for a fresh second connection".to_owned());
+                }
+                thread::sleep(Duration::from_millis(1));
+            }
+        });
+
+        let credentials = Credentials::new(
+            Some("test_access_key"),
+            Some("test_secret_key"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let bucket = Bucket::new(
+            "test-bucket",
+            Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint,
+            },
+            credentials,
+        )
+        .unwrap()
+        .with_path_style()
+        .with_request_timeout(Duration::from_secs(4))
+        .unwrap();
+
+        let first_result = bucket.copy_object_internal("/source", "/destination").await;
+        let second_result = bucket.copy_object_internal("/source", "/destination").await;
+        let server_result = server.join().unwrap();
+
+        assert!(
+            matches!(&server_result, Ok(result) if result.starts_with("fresh connection;")),
+            "server={server_result:?}; first copy={first_result:?}; second copy={second_result:?}"
+        );
+        assert_eq!(first_result.unwrap(), 200);
+        assert_eq!(second_result.unwrap(), 200);
+    }
+
     #[cfg(all(not(feature = "sync"), feature = "with-tokio"))]
     #[tokio::test]
     async fn test_object_exists_404_does_not_retry() {

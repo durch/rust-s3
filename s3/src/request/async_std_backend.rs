@@ -37,7 +37,14 @@ static SURF_CLIENT: OnceLock<Result<surf::Client, String>> = OnceLock::new();
 fn surf_client() -> Result<&'static surf::Client, S3Error> {
     SURF_CLIENT
         .get_or_init(|| {
-            let client: Result<surf::Client, _> = surf::Config::new().set_timeout(None).try_into();
+            let config = surf::Config::new().set_timeout(None);
+            // Surf's H1 client does not honor response Connection: close when
+            // recycling a fully-read connection. The next request can then
+            // fail on a connection the server told us to close. Hyper handles
+            // Connection: close correctly and keeps its pool enabled.
+            #[cfg(any(feature = "async-std-native-tls", feature = "async-std-rustls-tls"))]
+            let config = config.set_http_keep_alive(false);
+            let client: Result<surf::Client, _> = config.try_into();
             client.map_err(|error| error.to_string())
         })
         .as_ref()
@@ -555,6 +562,10 @@ mod tests {
         bucket
     }
 
+    #[cfg(all(
+        feature = "with-async-std-hyper",
+        not(any(feature = "async-std-native-tls", feature = "async-std-rustls-tls"))
+    ))]
     async fn start_persistent_server() -> (
         String,
         async_std::task::JoinHandle<Result<Vec<String>, String>>,
@@ -789,7 +800,7 @@ mod tests {
     }
 
     #[async_std::test]
-    async fn request_timeout_none_removes_deadline_and_private_client_reuses_connections() {
+    async fn request_timeout_none_removes_deadline() {
         use futures_util::future::{Either, select};
 
         let server = start_paused_server(200, b"ok".to_vec(), PauseAt::BeforeHeaders).await;
@@ -826,7 +837,14 @@ mod tests {
                 .unwrap();
         assert_eq!(response.body_bytes().await.unwrap(), b"ok");
         server.finish().await.unwrap();
+    }
 
+    #[cfg(all(
+        feature = "with-async-std-hyper",
+        not(any(feature = "async-std-native-tls", feature = "async-std-rustls-tls"))
+    ))]
+    #[async_std::test]
+    async fn private_hyper_client_reuses_connections() {
         let (endpoint, server) = start_persistent_server().await;
         let bucket = timeout_bucket(endpoint, Some(std::time::Duration::from_secs(3)));
         for _ in 0..2 {
