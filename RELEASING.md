@@ -1,5 +1,8 @@
 # Release order and dependency compatibility
 
+Carry the changes and contributor acknowledgements in [RELEASE_NOTES.md](RELEASE_NOTES.md)
+into the next published release notes.
+
 The `aws-region`, `aws-creds`, and `rust-s3` crates are published separately.
 Release `aws-region` 0.29.0 and `aws-creds` 0.40.0 first, and verify both
 versions are available from crates.io before releasing `rust-s3` 0.38.0. The
