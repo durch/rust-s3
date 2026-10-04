@@ -27,3 +27,11 @@ Thanks to the contributors who investigated this issue and proposed fixes:
 
 Their contributions are acknowledged here because the fixes were consolidated
 in the audit work rather than merging these PRs separately.
+
+### Streamed multipart upload headers
+
+Preserved per-call headers across streamed multipart uploads, routing them to
+the requests where S3-compatible services expect them. This behavior is already
+integrated on `master`. Thanks to [@mfroembgen](https://github.com/mfroembgen)
+for PR [#471](https://github.com/durch/rust-s3/pull/471) and its focused
+regression coverage.
