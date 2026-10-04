@@ -132,3 +132,20 @@ unsupported checksum/framing headers fail before initiation. All values are
 synthetic; this does not establish real-provider SSE-C or conditional-write
 support. Those header paths have local wire coverage, while provider runs verify
 metadata, cache control, content type, and object bytes.
+
+## Isolated AWS bucket-management tests
+
+The ignored bucket create/delete tests create their own buckets in `us-east-1`
+or `eu-central-1`. CORS and lifecycle each use a fresh private `eu-central-1`
+bucket. By default each test uses a fresh
+`rust-s3-test-<uuid>` name. For a single `--exact` test, set
+`RUST_S3_TEST_BUCKET` to the exact disposable bucket name the test may create
+and delete; leave it unset for normal ignored-suite runs. The name must not
+already exist or contain data. The CORS test also requires
+`RUST_S3_TEST_EXPECTED_BUCKET_OWNER` set to the account ID that owns the test
+bucket; it fails before bucket creation when the value is missing. These tests
+do not skip based on configuration. The `public`-named create case preserves
+the existing `BucketConfiguration::public()` semantics, which do not set an ACL
+and therefore do not test anonymous public access. On assertion or operation
+failure, tests attempt to remove bucket configuration and the bucket, and report
+cleanup errors alongside the original failure.
