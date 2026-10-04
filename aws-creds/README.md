@@ -33,3 +33,16 @@ env::set_var("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
 env::set_var("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
 let credentials = Credentials::new(None, None, None, None);
 ```
+
+## Container credentials
+
+With the `http-credentials` feature enabled, `Credentials::from_container_credentials_provider`
+uses `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` before
+`AWS_CONTAINER_CREDENTIALS_FULL_URI`. For full URIs, token files take precedence
+over `AWS_CONTAINER_AUTHORIZATION_TOKEN`, and token files are reread during
+refresh. HTTPS accepts normal hosts. HTTP is intentionally narrower than the
+AWS SDK policy: only literal loopback, `localhost`, and the documented ECS/EKS
+link-local addresses are accepted. HTTP metadata requests bypass environment
+proxies; HTTPS may use the configured proxy. `localhost` is normalized to
+`127.0.0.1`, and redirects are not followed. The HTTP hostname restriction is
+narrower than AWS SDK behavior by design.
