@@ -62,6 +62,7 @@ There are a lot of various features that enable a wide variety of use cases, ref
 ##### With `default-features = false`
 
 + `with-async-std` - `async-std` runtime, `surf` client used
++ `async-std-native-tls` and `async-std-rustls-tls` open a fresh HTTP/1 connection for each request to honor server `Connection: close` responses. This adds TCP/TLS setup overhead and disables Surf's HTTP/1 pool, so its implicit per-host connection cap no longer applies.
 + `sync` - no async runtime, `attohttpc` is used for HTTP requests
 + `tags` - required for `Bucket::get_object_tagging`
 
