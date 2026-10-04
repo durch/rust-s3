@@ -28,13 +28,14 @@
 	sync-nossl-clippy sync-nossl-test sync-nossl-test-not-ignored \
 	sync-fail-on-err-test sync-test-docs fmt fmt-check \
 	tokio-nativetls-clippy tokio-nossl-clippy tokio-rustlstls-clippy \
+	tokio-rustls-ring-clippy tokio-rustls-ring-test-not-ignored \
 	async-std-clippy-base async-std-clippy-native-tls async-std-clippy-rustls-tls
 
-# Full S3 CI: formatting, all nine library configurations, representative docs,
+# Full S3 CI: formatting, all ten library configurations, representative docs,
 # and clippy. Provider integration tests remain opt-in through test-ignored.
 ci: fmt-check clippy-all test-not-ignored
 
-# Runtime jobs used by CI. Each retains all three TLS modes for its runtime.
+# Runtime jobs used by CI. Each covers its configured TLS modes.
 ci-tokio:
 	$(MAKE) tokio-clippy
 	$(MAKE) tokio-test-not-ignored
@@ -73,12 +74,12 @@ sync-test-docs:
 # Clippy for every runtime/TLS combination.
 clippy: clippy-all
 clippy-all: tokio-clippy async-std-clippy sync-clippy
-tokio-clippy: tokio-nativetls-clippy tokio-nossl-clippy tokio-rustlstls-clippy
+tokio-clippy: tokio-nativetls-clippy tokio-nossl-clippy tokio-rustlstls-clippy tokio-rustls-ring-clippy
 async-std-clippy: async-std-clippy-base async-std-clippy-native-tls async-std-clippy-rustls-tls
 sync-clippy: sync-nativetls-clippy sync-nossl-clippy sync-rustlstls-clippy
 
-# Tokio library tests: native TLS (default features), no TLS, and rustls.
-tokio-test-not-ignored: tokio-nativetls-test-not-ignored tokio-nossl-test-not-ignored tokio-rustlstls-test-not-ignored
+# Tokio library tests: native TLS, no TLS, and rustls with both crypto providers.
+tokio-test-not-ignored: tokio-nativetls-test-not-ignored tokio-nossl-test-not-ignored tokio-rustlstls-test-not-ignored tokio-rustls-ring-test-not-ignored
 tokio: tokio-test-not-ignored
 tokio-nativetls-test: tokio-nativetls-test-not-ignored
 tokio-nativetls-clippy:
@@ -104,6 +105,11 @@ tokio-rustlstls-test-not-ignored:
 	cargo test --tests --examples --no-default-features --features with-tokio --features tokio-rustls-tls --features aws-creds/http-credentials
 tokio-rustlstls-test-ignored:
 	cargo test --no-default-features --features with-tokio --features tokio-rustls-tls --features aws-creds/http-credentials -- --ignored
+
+tokio-rustls-ring-clippy:
+	cargo clippy --no-default-features --features tokio-rustls-tls-ring --features aws-creds/http-credentials -- -D warnings
+tokio-rustls-ring-test-not-ignored:
+	cargo test --tests --examples --no-default-features --features tokio-rustls-tls-ring --features aws-creds/http-credentials
 
 # async-std library tests: base/no TLS, native TLS, and rustls.
 async-std-test-not-ignored: async-std-test-not-ignored-base async-std-test-not-ignored-native-tls async-std-test-not-ignored-rustls-tls async-std-fail-on-err-test

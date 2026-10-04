@@ -67,6 +67,14 @@ There are a lot of various features that enable a wide variety of use cases, ref
 
 All runtimes support either `native-tls` or `rustls-tls`, there are features for all combinations, refer to `s3/Cargo.toml` for a complete list.
 
+To build with Tokio and rustls backed by ring, disable the default native-TLS feature:
+
+```bash
+cargo build -p rust-s3 --no-default-features --features tokio-rustls-tls-ring
+```
+
+The default feature set remains Tokio with native TLS.
+
 #### Path or subdomain style URLs and headers
 
 `Bucket` struct provides constructors for `path-style` paths, `subdomain` style is the default. `Bucket` exposes methods for configuring and accessing `path-style` configuration. `blocking` feature will generate a `*_blocking` variant of all the methods listed below.

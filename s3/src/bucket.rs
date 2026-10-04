@@ -1094,7 +1094,7 @@ impl Bucket {
 
     /// Configures a bucket to accept invalid SSL certificates and hostnames.
     ///
-    /// This method is available only when either the `tokio-native-tls` or `tokio-rustls-tls` feature is enabled.
+    /// This method is available only when one of the `tokio-native-tls`, `tokio-rustls-tls`, or `tokio-rustls-tls-ring` features is enabled.
     ///
     /// # Parameters
     ///
@@ -1124,7 +1124,11 @@ impl Bucket {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    #[cfg(any(
+        feature = "tokio-native-tls",
+        feature = "tokio-rustls-tls",
+        feature = "tokio-rustls-tls-ring"
+    ))]
     pub fn set_dangerous_config(
         &self,
         accept_invalid_certs: bool,
@@ -1155,7 +1159,11 @@ impl Bucket {
         since = "0.37.3",
         note = "use `set_dangerous_config`; this misspelled method remains for compatibility"
     )]
-    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    #[cfg(any(
+        feature = "tokio-native-tls",
+        feature = "tokio-rustls-tls",
+        feature = "tokio-rustls-tls-ring"
+    ))]
     pub fn set_dangereous_config(
         &self,
         accept_invalid_certs: bool,
@@ -5271,7 +5279,11 @@ mod test {
     }
 
     #[test]
-    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    #[cfg(any(
+        feature = "tokio-native-tls",
+        feature = "tokio-rustls-tls",
+        feature = "tokio-rustls-tls-ring"
+    ))]
     #[allow(deprecated)]
     fn dangerous_config_correct_spelling_and_compat_alias_set_same_options() {
         let bucket = Bucket::new(
@@ -5371,6 +5383,30 @@ mod test {
             test_aws_credentials(),
         )
         .unwrap()
+    }
+
+    fn isolated_test_bucket_name() -> String {
+        std::env::var("RUST_S3_TEST_BUCKET")
+            .unwrap_or_else(|_| format!("rust-s3-test-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[maybe_async::maybe_async]
+    async fn report_bucket_cleanup(bucket: &Bucket, context: &str) {
+        match bucket.delete().await {
+            Ok(status) if status < 300 => {}
+            Ok(status) => eprintln!("{context}: bucket cleanup returned HTTP {status}"),
+            Err(error) => eprintln!("{context}: bucket cleanup failed: {error}"),
+        }
+    }
+
+    fn check_status(status: u16, expected: u16, operation: &str) -> Result<(), String> {
+        if status == expected {
+            Ok(())
+        } else {
+            Err(format!(
+                "{operation} returned HTTP {status}, expected {expected}"
+            ))
+        }
     }
 
     fn test_wasabi_bucket() -> Box<Bucket> {
@@ -6547,7 +6583,7 @@ mod test {
     async fn test_bucket_create_delete_default_region() {
         let config = BucketConfiguration::default();
         let response = Bucket::create(
-            &uuid::Uuid::new_v4().to_string(),
+            &isolated_test_bucket_name(),
             "us-east-1".parse().unwrap(),
             test_aws_credentials(),
             config,
@@ -6555,11 +6591,22 @@ mod test {
         .await
         .unwrap();
 
-        assert_eq!(&response.response_text, "");
-
-        assert_eq!(response.response_code, 200);
-
-        let response_code = response.bucket.delete().await.unwrap();
+        let bucket = response.bucket;
+        let result = check_status(response.response_code, 200, "create bucket").and_then(|()| {
+            if response.response_text.is_empty() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "create bucket response body was {:?}",
+                    response.response_text
+                ))
+            }
+        });
+        if let Err(error) = result {
+            report_bucket_cleanup(&bucket, "test_bucket_create_delete_default_region").await;
+            panic!("{error}");
+        }
+        let response_code = bucket.delete().await.unwrap();
         assert!(response_code < 300);
     }
 
@@ -6575,7 +6622,7 @@ mod test {
     async fn test_bucket_create_delete_non_default_region() {
         let config = BucketConfiguration::default();
         let response = Bucket::create(
-            &uuid::Uuid::new_v4().to_string(),
+            &isolated_test_bucket_name(),
             "eu-central-1".parse().unwrap(),
             test_aws_credentials(),
             config,
@@ -6583,11 +6630,22 @@ mod test {
         .await
         .unwrap();
 
-        assert_eq!(&response.response_text, "");
-
-        assert_eq!(response.response_code, 200);
-
-        let response_code = response.bucket.delete().await.unwrap();
+        let bucket = response.bucket;
+        let result = check_status(response.response_code, 200, "create bucket").and_then(|()| {
+            if response.response_text.is_empty() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "create bucket response body was {:?}",
+                    response.response_text
+                ))
+            }
+        });
+        if let Err(error) = result {
+            report_bucket_cleanup(&bucket, "test_bucket_create_delete_non_default_region").await;
+            panic!("{error}");
+        }
+        let response_code = bucket.delete().await.unwrap();
         assert!(response_code < 300);
     }
 
@@ -6603,7 +6661,7 @@ mod test {
     async fn test_bucket_create_delete_non_default_region_public() {
         let config = BucketConfiguration::public();
         let response = Bucket::create(
-            &uuid::Uuid::new_v4().to_string(),
+            &isolated_test_bucket_name(),
             "eu-central-1".parse().unwrap(),
             test_aws_credentials(),
             config,
@@ -6611,11 +6669,26 @@ mod test {
         .await
         .unwrap();
 
-        assert_eq!(&response.response_text, "");
-
-        assert_eq!(response.response_code, 200);
-
-        let response_code = response.bucket.delete().await.unwrap();
+        let bucket = response.bucket;
+        let result = check_status(response.response_code, 200, "create bucket").and_then(|()| {
+            if response.response_text.is_empty() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "create bucket response body was {:?}",
+                    response.response_text
+                ))
+            }
+        });
+        if let Err(error) = result {
+            report_bucket_cleanup(
+                &bucket,
+                "test_bucket_create_delete_non_default_region_public",
+            )
+            .await;
+            panic!("{error}");
+        }
+        let response_code = bucket.delete().await.unwrap();
         assert!(response_code < 300);
     }
 
@@ -6647,7 +6720,11 @@ mod test {
 
     #[cfg(all(
         feature = "with-tokio",
-        any(feature = "tokio-native-tls", feature = "tokio-rustls-tls")
+        any(
+            feature = "tokio-native-tls",
+            feature = "tokio-rustls-tls",
+            feature = "tokio-rustls-tls-ring"
+        )
     ))]
     #[test]
     fn with_request_timeout_preserves_tokio_client_options() {
@@ -6682,7 +6759,17 @@ mod test {
     )]
     #[ignore]
     async fn test_bucket_cors() {
-        let bucket = test_aws_bucket();
+        let expected_bucket_owner = std::env::var("RUST_S3_TEST_EXPECTED_BUCKET_OWNER")
+            .expect("set RUST_S3_TEST_EXPECTED_BUCKET_OWNER to the account owning the test bucket");
+        let created = Bucket::create(
+            &isolated_test_bucket_name(),
+            "eu-central-1".parse().unwrap(),
+            test_aws_credentials(),
+            BucketConfiguration::default(),
+        )
+        .await
+        .unwrap();
+        let bucket = created.bucket;
         let rule = CorsRule::new(
             None,
             vec!["GET".to_string()],
@@ -6691,22 +6778,53 @@ mod test {
             None,
             None,
         );
-        let expected_bucket_owner = "904662384344";
         let cors_config = CorsConfiguration::new(vec![rule]);
-        let response = bucket
-            .put_bucket_cors(expected_bucket_owner, &cors_config)
-            .await
-            .unwrap();
-        assert_eq!(response.status_code(), 200);
+        let result: Result<(), String> = 'test: {
+            if let Err(error) = check_status(created.response_code, 200, "create CORS test bucket")
+            {
+                break 'test Err(error);
+            }
+            let response = match bucket
+                .put_bucket_cors(&expected_bucket_owner, &cors_config)
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => break 'test Err(format!("put bucket CORS failed: {error}")),
+            };
+            if let Err(error) = check_status(response.status_code(), 200, "put bucket CORS") {
+                break 'test Err(error);
+            }
 
-        let cors_response = bucket.get_bucket_cors(expected_bucket_owner).await.unwrap();
-        assert_eq!(cors_response, cors_config);
+            let cors_response = match bucket.get_bucket_cors(&expected_bucket_owner).await {
+                Ok(response) => response,
+                Err(error) => break 'test Err(format!("get bucket CORS failed: {error}")),
+            };
+            if cors_response != cors_config {
+                break 'test Err("get bucket CORS returned a different configuration".to_owned());
+            }
 
-        let response = bucket
-            .delete_bucket_cors(expected_bucket_owner)
-            .await
-            .unwrap();
-        assert_eq!(response.status_code(), 204);
+            let response = match bucket.delete_bucket_cors(&expected_bucket_owner).await {
+                Ok(response) => response,
+                Err(error) => break 'test Err(format!("delete bucket CORS failed: {error}")),
+            };
+            check_status(response.status_code(), 204, "delete bucket CORS")
+        };
+        if let Err(error) = result {
+            match bucket.delete_bucket_cors(&expected_bucket_owner).await {
+                Ok(response) if response.status_code() == 204 => {}
+                Ok(response) => eprintln!(
+                    "test_bucket_cors: CORS cleanup returned HTTP {}",
+                    response.status_code()
+                ),
+                Err(cleanup_error) => {
+                    eprintln!("test_bucket_cors: CORS cleanup failed: {cleanup_error}")
+                }
+            }
+            report_bucket_cleanup(&bucket, "test_bucket_cors").await;
+            panic!("{error}");
+        }
+        let response_code = bucket.delete().await.unwrap();
+        assert!(response_code < 300);
     }
 
     #[maybe_async::test(
@@ -6719,7 +6837,15 @@ mod test {
     )]
     #[ignore]
     async fn test_bucket_lifecycle() {
-        let bucket = test_aws_bucket();
+        let created = Bucket::create(
+            &isolated_test_bucket_name(),
+            "eu-central-1".parse().unwrap(),
+            test_aws_credentials(),
+            BucketConfiguration::default(),
+        )
+        .await
+        .unwrap();
+        let bucket = created.bucket;
 
         // Create a simple lifecycle rule that expires objects with prefix "test/" after 1 day
         let rule = LifecycleRule::builder("Enabled")
@@ -6736,26 +6862,63 @@ mod test {
 
         let lifecycle_config = BucketLifecycleConfiguration::new(vec![rule]);
 
-        // Test put_bucket_lifecycle
-        let response = bucket
-            .put_bucket_lifecycle(lifecycle_config.clone())
-            .await
-            .unwrap();
-        assert_eq!(response.status_code(), 200);
+        let result: Result<(), String> = 'test: {
+            if let Err(error) =
+                check_status(created.response_code, 200, "create lifecycle test bucket")
+            {
+                break 'test Err(error);
+            }
+            let response = match bucket.put_bucket_lifecycle(lifecycle_config.clone()).await {
+                Ok(response) => response,
+                Err(error) => break 'test Err(format!("put bucket lifecycle failed: {error}")),
+            };
+            if let Err(error) = check_status(response.status_code(), 200, "put bucket lifecycle") {
+                break 'test Err(error);
+            }
 
-        // Test get_bucket_lifecycle
-        let retrieved_config = bucket.get_bucket_lifecycle().await.unwrap();
-        assert_eq!(retrieved_config.rules.len(), 1);
-        assert_eq!(retrieved_config.rules[0].id, Some("test-rule".to_string()));
-        assert_eq!(retrieved_config.rules[0].status, "Enabled");
+            let retrieved_config = match bucket.get_bucket_lifecycle().await {
+                Ok(config) => config,
+                Err(error) => break 'test Err(format!("get bucket lifecycle failed: {error}")),
+            };
+            if retrieved_config.rules.len() != 1
+                || retrieved_config.rules[0].id != Some("test-rule".to_string())
+                || retrieved_config.rules[0].status != "Enabled"
+            {
+                break 'test Err(format!(
+                    "get bucket lifecycle returned unexpected rules: {retrieved_config:?}"
+                ));
+            }
 
-        // Test delete_bucket_lifecycle
-        let response = bucket.delete_bucket_lifecycle().await.unwrap();
-        assert_eq!(response.status_code(), 204);
+            let response = match bucket.delete_bucket_lifecycle().await {
+                Ok(response) => response,
+                Err(error) => break 'test Err(format!("delete bucket lifecycle failed: {error}")),
+            };
+            check_status(response.status_code(), 204, "delete bucket lifecycle")
+        };
+        if let Err(error) = result {
+            match bucket.delete_bucket_lifecycle().await {
+                Ok(response) if response.status_code() == 204 => {}
+                Ok(response) => eprintln!(
+                    "test_bucket_lifecycle: lifecycle cleanup returned HTTP {}",
+                    response.status_code()
+                ),
+                Err(cleanup_error) => {
+                    eprintln!("test_bucket_lifecycle: lifecycle cleanup failed: {cleanup_error}")
+                }
+            }
+            report_bucket_cleanup(&bucket, "test_bucket_lifecycle").await;
+            panic!("{error}");
+        }
+        let response_code = bucket.delete().await.unwrap();
+        assert!(response_code < 300);
     }
 
     #[ignore]
-    #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+    #[cfg(any(
+        feature = "tokio-native-tls",
+        feature = "tokio-rustls-tls",
+        feature = "tokio-rustls-tls-ring"
+    ))]
     #[maybe_async::test(
         feature = "sync",
         async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
