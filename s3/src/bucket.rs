@@ -51,6 +51,7 @@ use crate::request::tokio_backend::ClientOptions;
 #[cfg(feature = "with-tokio")]
 use crate::request::tokio_backend::client;
 use crate::request::{Request as _, ResponseData};
+use crate::signing::uri_encode;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -1235,6 +1236,22 @@ impl Bucket {
             format!("{bucket}/{path}", bucket = self.name(), path = from)
         };
         self.copy_object(fq_from, to).await
+    }
+
+    /// Copy an object from another bucket into selected bucket.
+    ///
+    ///
+    /// Returns an error if S3 returns an XML error document with HTTP status 200.
+    #[maybe_async::maybe_async]
+    pub async fn copy_object_from(
+        &self,
+        source_bucket: &str,
+        source_key: &str,
+        destination_key: &str,
+    ) -> Result<u16, S3Error> {
+        let source_key = source_key.trim_start_matches('/');
+        let source = format!("{source_bucket}/{}", uri_encode(source_key, false));
+        self.copy_object(source, destination_key).await
     }
 
     #[maybe_async::maybe_async]
@@ -5770,6 +5787,89 @@ mod test {
             matches!(multipart_error, Err(S3Error::HttpFailWithBody(200, body)) if body.contains("InternalError") && body.contains("multipart-req"))
         );
         assert!(matches!(malformed_copy, Err(S3Error::SerdeXml(_))));
+    }
+
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn copy_object_from_uses_encoded_cross_bucket_source() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+        use std::time::Duration;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+
+            let request = String::from_utf8(request).unwrap();
+            let mut lines = request.lines();
+            assert_eq!(
+                lines.next(),
+                Some("PUT /destination-bucket/folder/destination.txt HTTP/1.1")
+            );
+            assert!(lines.any(|line| {
+                line.eq_ignore_ascii_case(
+                    "x-amz-copy-source: source-bucket/folder/source%20file.txt",
+                )
+            }));
+
+            let body = "<CopyObjectResult><ETag>\"copy-etag\"</ETag></CopyObjectResult>";
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        });
+
+        let credentials = Credentials::new(
+            Some("test_access_key"),
+            Some("test_secret_key"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let bucket = Bucket::new(
+            "destination-bucket",
+            Region::Custom {
+                region: "us-east-1".to_owned(),
+                endpoint,
+            },
+            credentials,
+        )
+        .unwrap()
+        .with_path_style();
+
+        assert_eq!(
+            bucket
+                .copy_object_from(
+                    "source-bucket",
+                    "folder/source file.txt",
+                    "folder/destination.txt",
+                )
+                .await
+                .unwrap(),
+            200
+        );
+        server.join().unwrap();
     }
 
     #[cfg(all(
