@@ -1238,10 +1238,44 @@ impl Bucket {
         self.copy_object(fq_from, to).await
     }
 
-    /// Copy an object from another bucket into selected bucket.
+    /// Copy an object from another bucket into this bucket.
     ///
+    /// `source_key` is the raw object key and is URI-encoded once for the
+    /// `x-amz-copy-source` header. A single leading `/` is treated as the
+    /// conventional key separator and removed; any further leading slash is
+    /// part of the key. `destination_key` follows the same raw-key convention
+    /// as other bucket operations.
     ///
     /// Returns an error if S3 returns an XML error document with HTTP status 200.
+    /// With the `fail-on-err` feature, non-success HTTP statuses are also errors;
+    /// without it, the HTTP status is returned.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use s3::bucket::Bucket;
+    /// use s3::creds::Credentials;
+    /// use anyhow::Result;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let destination = Bucket::new(
+    ///     "destination-bucket",
+    ///     "us-east-1".parse()?,
+    ///     Credentials::default()?,
+    /// )?;
+    /// #[cfg(not(feature = "sync"))]
+    /// let code = destination
+    ///     .copy_object_from("source-bucket", "folder/source file.txt", "folder/copy.txt")
+    ///     .await?;
+    /// #[cfg(feature = "sync")]
+    /// let code = destination.copy_object_from(
+    ///     "source-bucket", "folder/source file.txt", "folder/copy.txt",
+    /// )?;
+    /// # let _ = code;
+    /// # Ok(())
+    /// # }
+    /// ```
     #[maybe_async::maybe_async]
     pub async fn copy_object_from(
         &self,
@@ -1249,7 +1283,7 @@ impl Bucket {
         source_key: &str,
         destination_key: &str,
     ) -> Result<u16, S3Error> {
-        let source_key = source_key.trim_start_matches('/');
+        let source_key = source_key.strip_prefix('/').unwrap_or(source_key);
         let source = format!("{source_bucket}/{}", uri_encode(source_key, false));
         self.copy_object(source, destination_key).await
     }
@@ -5804,39 +5838,62 @@ mod test {
         use std::time::Duration;
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
+            let responses = [
+                (
+                    "200 OK",
+                    "<CopyObjectResult><ETag>\"copy-etag\"</ETag></CopyObjectResult>",
+                ),
+                ("200 OK", "<Error><Code>AccessDenied</Code></Error>"),
+                ("403 Forbidden", "<Error><Code>AccessDenied</Code></Error>"),
+            ];
+            for (status, body) in responses {
+                let deadline = std::time::Instant::now() + Duration::from_secs(8);
+                let (mut stream, _) = loop {
+                    match listener.accept() {
+                        Ok(connection) => break connection,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(
+                                std::time::Instant::now() < deadline,
+                                "mock accept timed out"
+                            );
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("mock accept failed: {error}"),
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    assert!(request.len() < 16 * 1024, "request headers exceeded bound");
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
 
-            let mut request = Vec::new();
-            let mut byte = [0];
-            while !request.ends_with(b"\r\n\r\n") {
-                stream.read_exact(&mut byte).unwrap();
-                request.push(byte[0]);
-            }
+                let request = String::from_utf8(request).unwrap();
+                let mut lines = request.lines();
+                assert_eq!(
+                    lines.next(),
+                    Some("PUT /destination-bucket/folder/destination.txt HTTP/1.1")
+                );
+                assert!(lines.any(|line| {
+                    line.eq_ignore_ascii_case(
+                        "x-amz-copy-source: source-bucket//folder/a%25%3F%23%20caf%C3%A9",
+                    )
+                }));
 
-            let request = String::from_utf8(request).unwrap();
-            let mut lines = request.lines();
-            assert_eq!(
-                lines.next(),
-                Some("PUT /destination-bucket/folder/destination.txt HTTP/1.1")
-            );
-            assert!(lines.any(|line| {
-                line.eq_ignore_ascii_case(
-                    "x-amz-copy-source: source-bucket/folder/source%20file.txt",
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
                 )
-            }));
-
-            let body = "<CopyObjectResult><ETag>\"copy-etag\"</ETag></CopyObjectResult>";
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            )
-            .unwrap();
+                .unwrap();
+            }
         });
 
         let credentials = Credentials::new(
@@ -5858,18 +5915,206 @@ mod test {
         .unwrap()
         .with_path_style();
 
-        assert_eq!(
-            bucket
-                .copy_object_from(
-                    "source-bucket",
-                    "folder/source file.txt",
-                    "folder/destination.txt",
-                )
-                .await
-                .unwrap(),
-            200
+        let copy_status = bucket
+            .copy_object_from(
+                "source-bucket",
+                "//folder/a%?# café",
+                "folder/destination.txt",
+            )
+            .await
+            .unwrap();
+        assert_eq!(copy_status, 200);
+        let embedded_error = bucket
+            .copy_object_from(
+                "source-bucket",
+                "//folder/a%?# café",
+                "folder/destination.txt",
+            )
+            .await;
+        assert!(
+            matches!(embedded_error, Err(S3Error::HttpFailWithBody(200, body)) if body.contains("AccessDenied"))
         );
+        let http_error = bucket
+            .copy_object_from(
+                "source-bucket",
+                "//folder/a%?# café",
+                "folder/destination.txt",
+            )
+            .await;
+        if cfg!(feature = "fail-on-err") {
+            assert!(
+                matches!(http_error, Err(S3Error::HttpFailWithBody(403, body)) if body.contains("AccessDenied"))
+            );
+        } else {
+            assert!(matches!(http_error, Ok(403)));
+        }
         server.join().unwrap();
+    }
+
+    /// Uses a disposable endpoint and two uniquely named buckets beneath the
+    /// explicitly reserved `RUST_S3_COPY_TEST_BUCKET_PREFIX` namespace.
+    #[ignore = "requires a disposable S3-compatible endpoint and dedicated credentials"]
+    #[maybe_async::test(
+        feature = "sync",
+        async(all(not(feature = "sync"), feature = "with-tokio"), tokio::test),
+        async(
+            all(not(feature = "sync"), feature = "with-async-std"),
+            async_std::test
+        )
+    )]
+    async fn copy_object_from_cross_bucket_provider_roundtrip() {
+        let endpoint = env::var("RUST_S3_COPY_TEST_ENDPOINT")
+            .expect("set RUST_S3_COPY_TEST_ENDPOINT to a disposable S3-compatible endpoint");
+        let region_name =
+            env::var("RUST_S3_COPY_TEST_REGION").expect("set RUST_S3_COPY_TEST_REGION");
+        let prefix = env::var("RUST_S3_COPY_TEST_BUCKET_PREFIX")
+            .expect("set RUST_S3_COPY_TEST_BUCKET_PREFIX to an owned bucket-name prefix");
+        assert!(
+            !prefix.is_empty()
+                && prefix.len() <= 14
+                && prefix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+                && !prefix.starts_with('-')
+                && !prefix.ends_with('-'),
+            "RUST_S3_COPY_TEST_BUCKET_PREFIX must be 1-14 lowercase letters, digits, or interior hyphens"
+        );
+        let access_key =
+            env::var("RUST_S3_COPY_TEST_ACCESS_KEY").expect("set RUST_S3_COPY_TEST_ACCESS_KEY");
+        let secret_key =
+            env::var("RUST_S3_COPY_TEST_SECRET_KEY").expect("set RUST_S3_COPY_TEST_SECRET_KEY");
+        let region = Region::Custom {
+            region: region_name,
+            endpoint,
+        };
+        let credentials =
+            Credentials::new(Some(&access_key), Some(&secret_key), None, None, None).unwrap();
+        let run_id = uuid::Uuid::new_v4();
+        let source_name = format!("{prefix}-{run_id}-source");
+        let destination_name = format!("{prefix}-{run_id}-destination");
+        let source_created = Bucket::create_with_path_style(
+            &source_name,
+            region.clone(),
+            credentials.clone(),
+            BucketConfiguration::default(),
+        )
+        .await
+        .expect("create uniquely named source bucket");
+        assert_eq!(
+            source_created.response_code, 200,
+            "source bucket creation did not return HTTP 200; no cleanup is attempted because ownership is unclear"
+        );
+        let source = source_created.bucket;
+        eprintln!("cross-bucket copy fixture created source bucket {source_name}");
+        let destination_created = match Bucket::create_with_path_style(
+            &destination_name,
+            region,
+            credentials,
+            BucketConfiguration::default(),
+        )
+        .await
+        {
+            Ok(created) if created.response_code == 200 => created,
+            Ok(created) => {
+                let cleanup = source.delete().await;
+                assert!(
+                    matches!(cleanup, Ok(204)),
+                    "owned source bucket cleanup failed: {cleanup:?}"
+                );
+                panic!(
+                    "destination bucket creation returned HTTP {}; source bucket {source_name} was cleaned up; destination ownership is unclear",
+                    created.response_code
+                );
+            }
+            Err(error) => {
+                let cleanup = source.delete().await;
+                assert!(
+                    matches!(cleanup, Ok(204)),
+                    "owned source bucket cleanup failed: {cleanup:?}"
+                );
+                panic!("create uniquely named destination bucket failed: {error}");
+            }
+        };
+        let destination = destination_created.bucket;
+        eprintln!("cross-bucket copy fixture created destination bucket {destination_name}");
+
+        let source_key = format!("/roundtrip/{run_id}/reserved %?# café.txt");
+        let destination_key = format!("roundtrip/{run_id}/copied %?# café.txt");
+        let source_path = format!("/{source_key}");
+        let content = b"cross-bucket copy verification";
+        let operation = run_cross_bucket_copy_roundtrip(
+            &source,
+            &destination,
+            &source_name,
+            &source_key,
+            &destination_key,
+            content,
+        )
+        .await;
+
+        let source_delete = source.delete_object(&source_path).await;
+        let destination_delete = destination.delete_object(&destination_key).await;
+        let source_absent = source.object_exists(&source_path).await;
+        let destination_absent = destination.object_exists(&destination_key).await;
+        let source_bucket_delete = source.delete().await;
+        let destination_bucket_delete = destination.delete().await;
+        let source_bucket_absent = source.exists().await;
+        let destination_bucket_absent = destination.exists().await;
+        assert!(
+            matches!(source_delete, Ok(ref response) if response.status_code() == 204),
+            "source object cleanup failed: {source_delete:?}"
+        );
+        assert!(
+            matches!(destination_delete, Ok(ref response) if response.status_code() == 204),
+            "destination object cleanup failed: {destination_delete:?}"
+        );
+        assert!(
+            matches!(source_absent, Ok(false)),
+            "source object still exists or absence check failed: {source_absent:?}"
+        );
+        assert!(
+            matches!(destination_absent, Ok(false)),
+            "destination object still exists or absence check failed: {destination_absent:?}"
+        );
+        assert!(
+            matches!(source_bucket_delete, Ok(204)),
+            "source bucket cleanup failed: {source_bucket_delete:?}"
+        );
+        assert!(
+            matches!(destination_bucket_delete, Ok(204)),
+            "destination bucket cleanup failed: {destination_bucket_delete:?}"
+        );
+        assert!(
+            matches!(source_bucket_absent, Ok(false)),
+            "source bucket still exists or absence check failed: {source_bucket_absent:?}"
+        );
+        assert!(
+            matches!(destination_bucket_absent, Ok(false)),
+            "destination bucket still exists or absence check failed: {destination_bucket_absent:?}"
+        );
+
+        let (copy_status, copied) = operation.expect("provider cross-bucket copy operation failed");
+        assert_eq!(copy_status, 200);
+        assert_eq!(copied.as_slice(), content);
+    }
+
+    #[maybe_async::maybe_async]
+    async fn run_cross_bucket_copy_roundtrip(
+        source: &Bucket,
+        destination: &Bucket,
+        source_name: &str,
+        source_key: &str,
+        destination_key: &str,
+        content: &[u8],
+    ) -> Result<(u16, ResponseData), S3Error> {
+        source
+            .put_object(&format!("/{source_key}"), content)
+            .await?;
+        let copy_status = destination
+            .copy_object_from(source_name, &format!("/{source_key}"), destination_key)
+            .await?;
+        let copied = destination.get_object(destination_key).await?;
+        Ok((copy_status, copied))
     }
 
     #[cfg(all(
