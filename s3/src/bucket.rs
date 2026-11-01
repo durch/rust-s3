@@ -4730,10 +4730,10 @@ mod test {
                         Ok((stream, _)) => {
                             stream.set_nonblocking(false).map_err(|e| e.to_string())?;
                             stream
-                                .set_read_timeout(Some(Duration::from_secs(3)))
+                                .set_read_timeout(Some(Duration::from_secs(8)))
                                 .map_err(|e| e.to_string())?;
                             stream
-                                .set_write_timeout(Some(Duration::from_secs(3)))
+                                .set_write_timeout(Some(Duration::from_secs(8)))
                                 .map_err(|e| e.to_string())?;
                             return Ok(stream);
                         }
@@ -4762,7 +4762,9 @@ mod test {
                     if headers.len() > 16 * 1024 || Instant::now() >= deadline {
                         return Err("request header bound or deadline exceeded".to_owned());
                     }
-                    stream.read_exact(&mut byte).map_err(|e| e.to_string())?;
+                    stream
+                        .read_exact(&mut byte)
+                        .map_err(|e| format!("request header read failed: {e}"))?;
                     headers.push(byte[0]);
                 }
                 let text = String::from_utf8_lossy(&headers);
@@ -4780,7 +4782,9 @@ mod test {
                     return Err("request body exceeded bound".to_owned());
                 }
                 let mut body = vec![0; len];
-                stream.read_exact(&mut body).map_err(|e| e.to_string())?;
+                stream
+                    .read_exact(&mut body)
+                    .map_err(|e| format!("request body read failed ({len} bytes): {e}"))?;
                 Ok((line, body))
             }
             fn respond(
@@ -4895,7 +4899,7 @@ mod test {
 
             let mut completion = accept_until(&listener, &done_rx, deadline)?;
             let (line, body) = read_request(&mut completion, deadline)?;
-            if !line.contains("uploadId=upload-id") {
+            if !line.starts_with("POST ") || !line.contains("uploadId=upload-id") {
                 return Err(format!("unexpected completion: {line}"));
             }
             let xml = String::from_utf8(body).map_err(|e| e.to_string())?;
@@ -4930,7 +4934,11 @@ mod test {
         )
         .map_err(|e| e.to_string())?
         .with_path_style()
-        .with_request_timeout(Duration::from_secs(5))
+        // The mock deliberately withholds part 1 until later parts arrive.
+        // Its 20-second server deadline must expire before the client's
+        // per-request timeout, otherwise a retry can be mistaken for the
+        // scripted completion request under parallel test load.
+        .with_request_timeout(Duration::from_secs(30))
         .map_err(|e| e.to_string())?;
         let mut reader = MultipartTrackedReader {
             remaining: total,
@@ -5869,6 +5877,9 @@ mod test {
                         Err(error) => panic!("mock accept failed: {error}"),
                     }
                 };
+                // Some BSD systems inherit O_NONBLOCK from the listener on
+                // accepted sockets; this fixture uses blocking read_exact.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(2)))
                     .unwrap();
