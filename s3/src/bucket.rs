@@ -1246,6 +1246,11 @@ impl Bucket {
     /// part of the key. `destination_key` follows the same raw-key convention
     /// as other bucket operations.
     ///
+    /// This is a server-side copy performed by the destination bucket's
+    /// service. Its configured credentials need permission to read the source
+    /// object and write the destination object; this does not transfer objects
+    /// between different provider services.
+    ///
     /// Returns an error if S3 returns an XML error document with HTTP status 200.
     /// With the `fail-on-err` feature, non-success HTTP statuses are also errors;
     /// without it, the HTTP status is returned.
