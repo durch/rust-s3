@@ -1,5 +1,12 @@
 # Release notes
 
+## Unreleased (0.38.1)
+
+- Added `Bucket::copy_object_from` for server-side cross-bucket copies, with
+  source-key URI encoding and focused synchronous and wire-level coverage.
+  Thanks to [Jamin Martin (@JaminMartin)](https://github.com/JaminMartin) for
+  [PR #482](https://github.com/durch/rust-s3/pull/482).
+
 ## rust-s3 0.38.0
 
 This release updates the companion crates to `aws-creds` 0.40.0 and
